@@ -1,10 +1,11 @@
-Package: de.finngaida.daynightswitch
-Name: DayNightSwitch
-Depends: mobilesubstrate
-Version: 1.0.2
+Package: com.hang.kaiguan
+Name: 动态开关
+Depends: firmware (>= 14.0), mobilesubstrate
+Version: 1.2.1
 Architecture: iphoneos-arm
-Description: Add some style to your switches
-Depiction: https://finngaida.de/repo/depictions/de.finngaida.daynightswitch
-Maintainer: Finn Gaida
-Author: Finn Gaida
+Description: 简单的开关
+Depiction: https://pic1.imgdb.cn/item/69d21338441d1611010f7e81.jpg
+Icon: https://pic1.imgdb.cn/item/69d21338441d1611010f7e81.jpg
+Maintainer: 航
+Author: 航
 Section: Tweaks

@@ -2,342 +2,183 @@
 //  DayNightSwitch.m
 //  DayNightSwitch
 //
-//  Created by Finn Gaida on 03.09.16.
-//  Copyright © 2016 Finn Gaida. All rights reserved.
+//  (Liquid Glass + Rich Sun/Moon Visuals Edition)
 //
 
 #import "DayNightSwitch.h"
 
-/// some color constants
-#define onKnobColor [UIColor colorWithRed: 0.882 green: 0.765 blue: 0.325 alpha: 1];
-#define onSubviewColor [UIColor colorWithRed: 0.992 green: 0.875 blue: 0.459 alpha: 1];
-#define offKnobColor [UIColor colorWithRed: 0.894 green: 0.902 blue: 0.788 alpha: 1];
-#define offSubviewColor [UIColor colorWithRed: 1 green: 1 blue: 1 alpha: 1];
-#define offColor [UIColor colorWithRed: 0.235 green: 0.255 blue: 0.271 alpha: 1];
-#define offBorderColor [UIColor colorWithRed: 0.11 green: 0.11 blue: 0.11 alpha: 1];
-#define onColor [UIColor colorWithRed: 0.627 green: 0.894 blue: 0.98 alpha: 1];
-#define onBorderColor [UIColor colorWithRed: 0.533 green: 0.769 blue: 0.843 alpha: 1];
 
-
+// ================= 【精致日月滑块 (Knob)】 =================
 @interface Knob : UIView
-
-/// Visual state of the knob, animates changes
-@property (nonatomic) BOOL on;
-
-/// Horizontally expanded state of the knob, animates changes
-@property (nonatomic) BOOL expanded;
-
-/// Round subview of the knob
-@property (nonatomic, retain) UIView *subview;
-
-/// Circular subviews on the off state `subview`
-@property (nonatomic, retain) NSArray<UIView *> *craters;
-
+@property(nonatomic, strong) UIView *sunView;
+@property(nonatomic, strong) UIView *moonView;
+@property(nonatomic, assign, getter=isOn) BOOL on;
 @end
 
 @implementation Knob
 
-/// Distance from knob to subview circle
-- (CGFloat)subviewMargin {
-    return self.frame.size.height / 12;
-}
-
-/**
- Sets up the `subview` with the craters as well
- 
- - returns: the view
- */
-- (UIView *)setupSubview {
-    
-    UIView *v = [[UIView alloc] initWithFrame: CGRectMake([self subviewMargin], [self subviewMargin], self.frame.size.width - [self subviewMargin] * 2, self.frame.size.height - [self subviewMargin] * 2)];
-    v.layer.masksToBounds = true;
-    v.layer.cornerRadius = v.frame.size.height / 2;
-    v.backgroundColor = offSubviewColor;
-    
-    for (UIView *c in [self setupCraters]) {
-        [v addSubview:c];
-    }
-    
-    self.subview = v;
-    return v;
-}
-
-/**
- Sets up three craters
- 
- - returns: array of set up views
- */
-- (NSArray *)setupCraters {
-    
-    // shortcuts
-    CGFloat w = self.frame.size.width;
-    CGFloat h = self.frame.size.height;
-    
-    UIView *topLeft = [[UIView alloc] initWithFrame: CGRectMake(0, h * 0.1, w * 0.2, w * 0.2)];
-    UIView *topRight = [[UIView alloc] initWithFrame: CGRectMake(w * 0.5, 0, w * 0.3, w * 0.3)];
-    UIView *bottom = [[UIView alloc] initWithFrame: CGRectMake(w * 0.4, h * 0.5, w * 0.25, w * 0.25)];
-    
-    NSArray<UIView *> *all = @[topLeft, topRight, bottom];
-    
-    for (UIView *v in all) {
-        v.backgroundColor = offSubviewColor;
-        v.layer.masksToBounds = YES;
-        v.layer.cornerRadius = v.frame.size.height / 2;
-        
-        UIColor *offC = offKnobColor;
-        v.layer.borderColor = offC.CGColor;
-        v.layer.borderWidth = [self subviewMargin];
-    }
-    
-    self.craters = all;
-    return all;
-}
-
 - (instancetype)initWithFrame:(CGRect)frame {
-    self.on = NO;
-    self.expanded = NO;
     self = [super initWithFrame:frame];
-    
+    self.backgroundColor = [UIColor whiteColor]; // 基础底色
     self.layer.masksToBounds = YES;
-    self.layer.cornerRadius = self.frame.size.height / 2;
-    self.backgroundColor = offKnobColor;
-    
-    [self addSubview:[self setupSubview]];
-    
-    [self addObserver:self forKeyPath:@"on" options:0 context:nil];
-    [self addObserver:self forKeyPath:@"expanded" options:0 context:nil];
-    
+
+    // 物理悬浮阴影 (加在外部，这里用 border 模拟一点玻璃质感)
+    self.layer.borderWidth = 0.5;
+    self.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.9].CGColor;
+
+    CGFloat size = frame.size.width;
+
+    // --- 1. 绘制太阳 (白天显示) ---
+    self.sunView = [[UIView alloc] initWithFrame:self.bounds];
+    self.sunView.backgroundColor = [UIColor colorWithRed:1.0 green:0.8 blue:0.1 alpha:1.0]; // 金黄色
+    // 太阳内阴影/渐变感
+    UIView *sunHighlight = [[UIView alloc] initWithFrame:CGRectMake(size*0.15, size*0.15, size*0.7, size*0.7)];
+    sunHighlight.backgroundColor = [UIColor colorWithRed:1.0 green:0.9 blue:0.4 alpha:1.0];
+    sunHighlight.layer.cornerRadius = size*0.35;
+    [self.sunView addSubview:sunHighlight];
+    [self addSubview:self.sunView];
+
+    // --- 2. 绘制月亮 (夜间显示) ---
+    self.moonView = [[UIView alloc] initWithFrame:self.bounds];
+    self.moonView.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0]; // 银灰色
+
+    // 陨石坑
+    NSArray *craters = @[
+        [NSValue valueWithCGRect:CGRectMake(size * 0.2, size * 0.2, size * 0.25, size * 0.25)],
+        [NSValue valueWithCGRect:CGRectMake(size * 0.55, size * 0.45, size * 0.3, size * 0.3)],
+        [NSValue valueWithCGRect:CGRectMake(size * 0.3, size * 0.65, size * 0.2, size * 0.2)]
+    ];
+    for (NSValue *rectVal in craters) {
+        UIView *crater = [[UIView alloc] initWithFrame:rectVal.CGRectValue];
+        crater.backgroundColor = [UIColor colorWithWhite:0.8 alpha:1.0];
+        crater.layer.cornerRadius = crater.frame.size.width / 2.0;
+        // 陨石坑内阴影模拟
+        crater.layer.borderWidth = 0.5;
+        crater.layer.borderColor = [UIColor colorWithWhite:0.7 alpha:1.0].CGColor;
+        [self.moonView addSubview:crater];
+    }
+    [self addSubview:self.moonView];
+
     return self;
 }
 
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSString *,id> *)change context:(void *)context {
-    if ([keyPath isEqualToString:@"on"]) {
-        [UIView animateWithDuration:0.8 delay:0 usingSpringWithDamping:1 initialSpringVelocity:0 options:UIViewAnimationOptionAllowUserInteraction animations:^{
-            
-            if (self.on) {
-                self.backgroundColor = onKnobColor;
-                self.subview.backgroundColor = onSubviewColor;
-            } else {
-                self.backgroundColor = offKnobColor;
-                self.subview.backgroundColor = offSubviewColor;
-            }
-            
-            BOOL cache = self.expanded;
-            self.expanded = cache;
-            
-        } completion:nil];
-        
-        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:1 initialSpringVelocity:0 options:UIViewAnimationOptionAllowUserInteraction animations:^{
-            
-            self.subview.transform = CGAffineTransformMakeRotation(M_PI * ((self.on) ? 0.2 : -0.2));
-            
-        } completion: nil];
-    } else if ([keyPath isEqualToString:@"expanded"]) {
-        CGFloat newWidth = self.frame.size.height * (self.expanded ? 1.25 : 1);
-        CGFloat x = (self.on) ? self.superview.frame.size.width - newWidth - [(DayNightSwitch *)self.superview knobMargin] : self.frame.origin.x;
-        
-        [UIView animateWithDuration:0.8 delay:0 usingSpringWithDamping:1 initialSpringVelocity:0 options:UIViewAnimationOptionAllowUserInteraction animations:^{
-            self.frame = CGRectMake(x, self.frame.origin.y, newWidth, self.frame.size.height);
-            self.subview.center = CGPointMake((self.on) ? self.frame.size.width - self.frame.size.height / 2 : self.frame.size.height / 2, self.subview.center.y);
-            
-            for (UIView *v in self.craters) {
-                v.alpha = (self.on) ? 0 : 1;
-            }
-            
-        } completion: nil];
-    }
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.layer.cornerRadius = self.bounds.size.height / 2.0;
+    self.sunView.frame = self.bounds;
+    self.sunView.layer.cornerRadius = self.bounds.size.height / 2.0;
+    self.moonView.frame = self.bounds;
+    self.moonView.layer.cornerRadius = self.bounds.size.height / 2.0;
+}
+
+- (void)setOn:(BOOL)on {
+    _on = on;
 }
 
 @end
 
+
+// ================= 【主开关控件】 =================
 @interface DayNightSwitch ()
+@property(nonatomic, strong) Knob *knob;
+@property(nonatomic, strong) UIVisualEffectView *blurBackground;
+@property(nonatomic, strong) UIView *colorTintView;
 
-/// Round white knob
-@property (nonatomic, retain) Knob *knob;
+// 视觉元素图层
+@property(nonatomic, strong) UIView *starsContainer;
+@property(nonatomic, strong) UIView *cloudsContainer;
 
-@property (nonatomic) BOOL moved;
-
-/// This prevents the tap gesture recognizer from interfering the drag movement
-@property (nonatomic) BOOL dragging;
-
+@property(nonatomic, assign, getter=isMoved) BOOL moved;
+@property(nonatomic, assign, getter=isDragging) BOOL dragging;
+@property(nonatomic, assign, getter=isOnBeforeDrag) BOOL onBeforeDrag;
 @end
 
-/// A switch inspired by [Dribbble](https://dribbble.com/shots/1909289-Day-Night-Toggle-Button-GIF)a
-@implementation DayNightSwitch
-
-/// Width of the darker border of the background
-- (CGFloat)borderWidth {
-    return self.frame.size.height / 7;
+@implementation DayNightSwitch {
+    BOOL _shouldSkipChangeAction;
+    BOOL _shouldAnimateImportant;
 }
 
-/// Distance between border and knob
 - (CGFloat)knobMargin {
-    return self.frame.size.height / 10;
+    return 3.0;
 }
 
-/**
- Sets up the `knob`
- 
- - returns: the knob view
- */
 - (Knob *)setupKnob {
-    
-    CGFloat w = self.frame.size.height - [self knobMargin] * 2;
-    Knob *v = [[Knob alloc] initWithFrame: CGRectMake([self knobMargin], [self knobMargin], w, w)];
-    
+    CGFloat margin = [self knobMargin];
+    CGFloat w = self.frame.size.height - margin * 2;
+    Knob *v = [[Knob alloc] initWithFrame:CGRectMake(margin, margin, w, w)];
+
+    // 给滑块本体加一个外阴影，立体感更强
+    v.layer.shadowColor = [UIColor blackColor].CGColor;
+    v.layer.shadowOffset = CGSizeMake(0, 2);
+    v.layer.shadowOpacity = 0.2;
+    v.layer.shadowRadius = 3.0;
+    v.layer.masksToBounds = NO;
+
     self.knob = v;
     return v;
 }
 
-
-/**
- Sets up the border layers
- 
- - returns: array containing both layers
- */
-- (NSArray *)setupBorders {
-    
-    CAShapeLayer *b1 = [CAShapeLayer layer];
-    CAShapeLayer *b2 = [CAShapeLayer layer];
-    UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect: CGRectMake(0, 0, self.frame.size.width, self.frame.size.height) cornerRadius: self.frame.size.height / 2];
-    
-    b1.path = path.CGPath;
-    b1.fillColor = [UIColor clearColor].CGColor;
-    
-    UIColor *onC = onBorderColor;
-    b1.strokeColor = onC.CGColor;
-    b1.lineWidth = [self borderWidth];
-    self.onBorder = b1;
-    
-    b2.path = path.CGPath;
-    b2.fillColor = [UIColor clearColor].CGColor;
-    
-    UIColor *offC = offBorderColor;
-    b2.strokeColor = offC.CGColor;
-    b2.lineWidth = [self borderWidth];
-    self.offBorder = b2;
-    
-    return @[b1, b2];
-}
-
-
-/**
- Creates 7 stars with different location and size
- 
- - returns: an array of set up views
- */
-- (NSArray *)setupStars {
-    
-    // shortcuts
-    CGFloat w = self.frame.size.width;
+// 绘制星星
+- (UIView *)setupStars {
+    UIView *container = [[UIView alloc] initWithFrame:self.bounds];
+    container.userInteractionEnabled = NO;
     CGFloat h = self.frame.size.height;
-    
-    CGFloat x = h * 0.05;
-    UIView *s1 = [[UIView alloc] initWithFrame: CGRectMake(w * 0.5, h * 0.16, x, x)];
-    UIView *s2 = [[UIView alloc] initWithFrame: CGRectMake(w * 0.62, h * 0.33, x * 0.6, x * 0.6)];
-    UIView *s3 = [[UIView alloc] initWithFrame: CGRectMake(w * 0.7, h * 0.15, x, x)];
-    UIView *s4 = [[UIView alloc] initWithFrame: CGRectMake(w * 0.83, h * 0.39, x * 1.4, x * 1.4)];
-    UIView *s5 = [[UIView alloc] initWithFrame: CGRectMake(w * 0.7, h * 0.54, x * 0.8, x * 0.8)];
-    UIView *s6 = [[UIView alloc] initWithFrame: CGRectMake(w * 0.52, h * 0.73, x * 1.3, x * 1.3)];
-    UIView *s7 = [[UIView alloc] initWithFrame: CGRectMake(w * 0.82, h * 0.66, x * 1.1, x * 1.1)];
-    
-    NSArray *all = @[s1, s2, s3, s4, s5, s6, s7];
-    
-    for (UIView *s in all) {
-        s.layer.masksToBounds = YES;
-        s.layer.cornerRadius = s.frame.size.height / 2;
-        s.backgroundColor = [UIColor whiteColor];
+    CGFloat w = self.frame.size.width;
+    CGFloat x = h * 0.08;
+
+    NSArray *starRects = @[
+        [NSValue valueWithCGRect:CGRectMake(w * 0.55, h * 0.20, x * 1.2, x * 1.2)],
+        [NSValue valueWithCGRect:CGRectMake(w * 0.65, h * 0.40, x * 0.8, x * 0.8)],
+        [NSValue valueWithCGRect:CGRectMake(w * 0.52, h * 0.65, x * 1.0, x * 1.0)],
+        [NSValue valueWithCGRect:CGRectMake(w * 0.78, h * 0.25, x * 0.9, x * 0.9)],
+        [NSValue valueWithCGRect:CGRectMake(w * 0.75, h * 0.65, x * 0.7, x * 0.7)],
+        [NSValue valueWithCGRect:CGRectMake(w * 0.88, h * 0.45, x * 1.1, x * 1.1)],
+        [NSValue valueWithCGRect:CGRectMake(w * 0.68, h * 0.75, x * 0.6, x * 0.6)]
+    ];
+    for (NSValue *rect in starRects) {
+        UIView *star = [[UIView alloc] initWithFrame:rect.CGRectValue];
+        star.backgroundColor = [UIColor whiteColor];
+        star.layer.cornerRadius = star.frame.size.width / 2.0;
+        star.layer.shadowColor = [UIColor whiteColor].CGColor;
+        star.layer.shadowOpacity = 0.8;
+        star.layer.shadowRadius = 2.0;
+        star.layer.shadowOffset = CGSizeZero;
+
+        // 【新增修复】：指定星光阴影路径，彻底根除渲染星星时的卡顿
+        star.layer.shadowPath = [UIBezierPath bezierPathWithOvalInRect:star.bounds].CGPath;
+
+        [container addSubview:star];
     }
-    
-    self.stars = all;
-    return all;
+    return container;
 }
 
+// 绘制云朵
+- (UIView *)setupClouds {
+    UIView *container = [[UIView alloc] initWithFrame:self.bounds];
+    container.userInteractionEnabled = NO;
+    CGFloat h = self.frame.size.height;
+    CGFloat w = self.frame.size.width;
 
-/**
- Sets up the `cloud`
- 
- - returns: the image view
- */
-- (UIImageView *)setupCloud {
-    
-    UIImageView *v = [[UIImageView alloc] initWithFrame: CGRectMake(self.frame.size.width / 3, self.frame.size.height * 0.4, self.frame.size.width / 3, self.frame.size.width * 0.23)];
-    v.image = [UIImage imageWithContentsOfFile:@"/Application Support/DayNightSwitch/cloud@2x.png"];
-    v.transform = CGAffineTransformMakeScale(0, 0);
-    
-    // this should be done with UIBezierPaths...
-    
-    self.cloud = v;
-    return v;
+    // 用几个圆角矩形拼接成云朵的形状
+    UIView *cloud1 = [[UIView alloc] initWithFrame:CGRectMake(w * 0.15, h * 0.4, w * 0.3, h * 0.35)];
+    cloud1.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.8];
+    cloud1.layer.cornerRadius = cloud1.frame.size.height / 2.0;
+    [container addSubview:cloud1];
+
+    UIView *cloud2 = [[UIView alloc] initWithFrame:CGRectMake(w * 0.25, h * 0.25, w * 0.25, h * 0.35)];
+    cloud2.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.8];
+    cloud2.layer.cornerRadius = cloud2.frame.size.height / 2.0;
+    [container addSubview:cloud2];
+
+    return container;
 }
 
-// MARK: handling touch events
-- (void)proccessTouches:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    if (!self.moved) { self.on = !self.on; return; }
-    CGFloat x = [(UITouch *)touches.allObjects.lastObject locationInView:self].x;
-    
-    if (x > self.frame.size.width / 2 && !self.on) {
-        self.on = YES;
-    } else if (x < self.frame.size.width / 2 && self.on) {
-        self.on = NO;
-    }
-}
-
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    self.dragging = YES;
-    self.knob.expanded = YES;
-}
-
-- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    self.moved = YES;
-    [self proccessTouches:touches withEvent:event];
-}
-
-- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    [self proccessTouches:touches withEvent:event];
-    self.knob.expanded = NO;
-    self.dragging = NO;
-    self.moved = NO;
-}
-
-- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    [self touchesEnded:touches withEvent:event];
-}
-
-
-// MARK: Initializers
 - (instancetype)initWithCenter:(CGPoint)center {
     CGFloat height = 30;
     CGFloat width = height * 1.75;
-    
-    self = [super initWithFrame: CGRectMake(center.x - width / 2, center.y - height / 2, width, height)];
+    self = [super initWithFrame:CGRectMake(center.x - width / 2, center.y - height / 2, width, height)];
     [self commonInit];
-    
     return self;
-}
-
-/**
- Init method called by all initializers. The switch is initialized off by default
- */
-- (void)commonInit {
-    self.moved = NO;
-    self.dragging = NO;
-    self.layer.masksToBounds = YES;
-    self.layer.cornerRadius = self.frame.size.height / 2;
-    self.backgroundColor = [UIColor colorWithRed: 0.235 green: 0.255 blue: 0.271 alpha: 1];
-    
-    NSArray *borders = [self setupBorders];
-    [self.layer addSublayer:borders[0]];
-    [self.layer addSublayer:borders[1]];
-    
-    for (UIView *v in [self setupStars]) {
-        [self addSubview:v];
-    }
-    
-    [self addSubview:[self setupKnob]];
-    [self addSubview:[self setupCloud]];
-    
-    [self addObserver:self forKeyPath:@"on" options:0 context:nil];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)aDecoder {
@@ -352,57 +193,217 @@
     return self;
 }
 
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSString *,id> *)change context:(void *)context {
-    if ([keyPath isEqualToString:@"on"]) {
-        // call the action closure
-        if (self.changeAction) { self.changeAction(self.on); }
-        
-        self.knob.on = self.on;
-        
-        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:1 initialSpringVelocity:0 options:UIViewAnimationOptionAllowUserInteraction animations:^{
-            
-            CGFloat knobRadius = self.knob.frame.size.width / 2;
-            
-            if (self.on) {
-                self.knob.center = CGPointMake(self.frame.size.width - knobRadius - [self knobMargin], self.knob.center.y);
-                
-                self.backgroundColor = onColor;
-                self.offBorder.strokeStart = 1.0;
-                self.cloud.transform = CGAffineTransformIdentity;
-            } else {
-                self.knob.center = CGPointMake(knobRadius + [self knobMargin], self.knob.center.y);
-                
-                self.backgroundColor = offColor;
-                self.offBorder.strokeEnd = 1.0;
-                self.cloud.transform = CGAffineTransformMakeScale(0, 0);
-            }
-            
-            for (int i = 0; i < self.stars.count; i++) {
-                UIView *star = self.stars[i];
-                star.alpha = (self.on) ? 0 : 1;
-                
-                
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * i * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                    star.transform = CGAffineTransformMakeScale(1.5, 1.5);
-                    
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.05 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                        star.transform = CGAffineTransformIdentity;
-                    });
-                });
-            }
-            
-        } completion:^(BOOL finished) {
-            
-            // reset the values
-            if (self.on) {
-                self.offBorder.strokeStart = 0.0;
-                self.offBorder.strokeEnd = 0.0;
-            } else {
-                self.offBorder.strokeStart = 0.0;
-                self.offBorder.strokeEnd = 1.0;
-            }
-        }];
+- (void)commonInit {
+    _shouldAnimateImportant = YES;
+    self.moved = NO;
+    self.dragging = NO;
+    self.backgroundColor = [UIColor clearColor];
+
+    // --- 1. 毛玻璃底座层 ---
+    UIBlurEffect *blurEffect;
+    if (@available(iOS 13.0, *)) {
+        blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialLight];
+    } else {
+        blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
     }
+    self.blurBackground = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+    self.blurBackground.userInteractionEnabled = NO;
+    self.blurBackground.layer.masksToBounds = YES;
+    self.blurBackground.layer.borderWidth = 1.0;
+    self.blurBackground.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.3].CGColor;
+    [self addSubview:self.blurBackground];
+
+    // --- 2. 颜色浸染层 ---
+    self.colorTintView = [[UIView alloc] init];
+    self.colorTintView.userInteractionEnabled = NO;
+    self.colorTintView.layer.masksToBounds = YES;  // 这个层会严格裁剪多余内容
+    [self addSubview:self.colorTintView];
+
+    // --- 3. 视觉元素层 (星星和云朵) ---
+    // 修改点 1：将元素添加到 colorTintView 内部，这样升降时绝不会越界跑到隔壁开关
+    self.starsContainer = [self setupStars];
+    [self.colorTintView addSubview:self.starsContainer];
+
+    self.cloudsContainer = [self setupClouds];
+    [self.colorTintView addSubview:self.cloudsContainer];
+
+    // --- 4. 注入滑块 ---
+    [self addSubview:[self setupKnob]];
+
+    // --- 5. 绑定手势 ---
+    UITapGestureRecognizer *tapGesture = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapGestureOccurred:)];
+    tapGesture.cancelsTouchesInView = NO;
+    [self addGestureRecognizer:tapGesture];
+
+    UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panGestureOccurred:)];
+    panGesture.cancelsTouchesInView = NO;
+    [self addGestureRecognizer:panGesture];
+
+    [self _setOn:NO animated:NO];
+}
+
+// 绝对布局，防止错位
+- (void)layoutSubviews {
+    [super layoutSubviews];
+
+    CGFloat radius = self.bounds.size.height / 2.0;
+    self.blurBackground.frame = self.bounds;
+    self.blurBackground.layer.cornerRadius = radius;
+    self.colorTintView.frame = self.bounds;
+    self.colorTintView.layer.cornerRadius = radius;
+
+    if (@available(iOS 13.0, *)) {
+        self.blurBackground.layer.cornerCurve = kCACornerCurveContinuous;
+        self.colorTintView.layer.cornerCurve = kCACornerCurveContinuous;
+    }
+
+    if (!self.isDragging) {
+        CGFloat margin = [self knobMargin];
+        CGFloat knobH = self.bounds.size.height - margin * 2;
+        CGFloat targetX = self.isOn ? (self.bounds.size.width - margin - knobH/2.0) : (margin + knobH/2.0);
+        self.knob.bounds = CGRectMake(0, 0, knobH, knobH);
+        self.knob.center = CGPointMake(targetX, self.bounds.size.height / 2.0);
+    }
+
+    // 【新增修复】：为主滑块(Knob)加上阴影路径，消除开关位移时的极大性能消耗
+    self.knob.layer.shadowPath = [UIBezierPath bezierPathWithOvalInRect:self.knob.bounds].CGPath;
+}
+
+// ================= 【交互与动画】 =================
+
+- (void)panGestureOccurred:(UIPanGestureRecognizer *)sender {
+    CGPoint touchLocation = [sender locationInView:self];
+
+    if (sender.state == UIGestureRecognizerStateBegan) {
+        self.onBeforeDrag = self.isOn;
+        self.dragging = YES;
+        // 按下瞬间：滑块液态收缩
+        [UIView animateWithDuration:0.2 animations:^{
+            self.knob.transform = CGAffineTransformMakeScale(0.8, 0.8);
+        }];
+    } else if (sender.state == UIGestureRecognizerStateChanged) {
+        self.moved = YES;
+        if (touchLocation.x > self.bounds.size.width / 2 && !self.isOn) {
+            self.on = YES;
+        } else if (touchLocation.x < self.bounds.size.width / 2 && self.isOn) {
+            self.on = NO;
+        }
+    } else if (sender.state == UIGestureRecognizerStateEnded || sender.state == UIGestureRecognizerStateCancelled ||
+               sender.state == UIGestureRecognizerStateFailed) {
+        self.dragging = NO;
+        self.moved = NO;
+
+        // 松手瞬间：弹性恢复
+        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:0.8 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            self.knob.transform = CGAffineTransformIdentity;
+        } completion:nil];
+
+        if (self.isOn != self.isOnBeforeDrag && self.changeAction) {
+            self.changeAction(self.isOn, YES);
+        }
+    }
+}
+
+- (void)tapGestureOccurred:(UITapGestureRecognizer *)sender {
+    if (self.isDragging) return;
+    self.dragging = YES;
+    self.on = !self.isOn;
+    self.dragging = NO;
+}
+
+- (void)setOn:(BOOL)on {
+    if (_on == on) return;
+    _on = on;
+
+    // 【新增修复】：当 self.window 为 nil（比如刚初始化或在列表复用刚创建时），直接取消动画，防止刚打开页面时瞎弹
+    BOOL shouldAnimate = (self.window != nil);
+    [self _setOn:on animated:shouldAnimate];
+}
+
+// 核心状态切换动画
+- (void)_setOn:(BOOL)on animated:(BOOL)animated {
+    if (self.changeAction && !_shouldSkipChangeAction && animated) {
+        self.changeAction(on, !self.isMoved);
+    }
+
+    self.knob.on = on;
+
+    CGFloat margin = [self knobMargin];
+    CGFloat knobRadius = self.knob.bounds.size.width / 2.0;
+    CGFloat centerY = self.bounds.size.height / 2.0;
+    CGFloat targetX = on ? (self.bounds.size.width - margin - knobRadius) : (margin + knobRadius);
+
+    BOOL doAnimate = animated && _shouldAnimateImportant;
+    CGFloat duration = doAnimate ? 0.45 : 0.0;
+
+    if (doAnimate) {
+        if (!self.isDragging) {
+            // 点击时的初始挤压形变
+            self.knob.transform = CGAffineTransformMakeScale(0.75, 0.75);
+        }
+
+        [UIView animateWithDuration:duration
+                              delay:0
+             usingSpringWithDamping:0.65
+              initialSpringVelocity:0.8
+                            options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionAllowUserInteraction
+                         animations:^{
+
+            self.knob.center = CGPointMake(targetX, centerY);
+            self.knob.transform = CGAffineTransformIdentity;
+
+            if (on) {
+                // 打开：白天模式
+                self.colorTintView.backgroundColor = [UIColor colorWithRed:0.3 green:0.7 blue:1.0 alpha:0.7]; // 晴空蓝
+                // 内部滑块变为太阳
+                self.knob.sunView.alpha = 1.0;
+                self.knob.moonView.alpha = 0.0;
+                // 显示云朵，隐藏星星
+                self.cloudsContainer.alpha = 1.0;
+                self.cloudsContainer.transform = CGAffineTransformIdentity;
+                self.starsContainer.alpha = 0.0;
+                self.starsContainer.transform = CGAffineTransformMakeTranslation(10, 20); // 星星坠落消失
+            } else {
+                // 关闭：夜间模式
+                self.colorTintView.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.25 alpha:0.8]; // 深夜蓝
+                // 内部滑块变为月亮
+                self.knob.sunView.alpha = 0.0;
+                self.knob.moonView.alpha = 1.0;
+                // 显示星星，隐藏云朵
+                self.starsContainer.alpha = 1.0;
+                self.starsContainer.transform = CGAffineTransformIdentity;
+                self.cloudsContainer.alpha = 0.0;
+                self.cloudsContainer.transform = CGAffineTransformMakeTranslation(-10, 20); // 云朵飘走消失
+            }
+
+        } completion:nil];
+
+    } else {
+        self.knob.center = CGPointMake(targetX, centerY);
+        self.knob.transform = CGAffineTransformIdentity;
+
+        self.colorTintView.backgroundColor = on ? [UIColor colorWithRed:0.3 green:0.7 blue:1.0 alpha:0.7] : [UIColor colorWithRed:0.1 green:0.1 blue:0.25 alpha:0.8];
+        self.knob.sunView.alpha = on ? 1.0 : 0.0;
+        self.knob.moonView.alpha = on ? 0.0 : 1.0;
+        self.cloudsContainer.alpha = on ? 1.0 : 0.0;
+        self.starsContainer.alpha = on ? 0.0 : 1.0;
+
+        // 修改点 2：修复列表上下滑动复用时的状态错乱问题，强制复位
+        self.cloudsContainer.transform = on ? CGAffineTransformIdentity : CGAffineTransformMakeTranslation(-10, 20);
+        self.starsContainer.transform = on ? CGAffineTransformMakeTranslation(10, 20) : CGAffineTransformIdentity;
+    }
+}
+
+- (void)blockChangeActionAnimated:(BOOL)animated {
+    _shouldSkipChangeAction = YES;
+}
+
+- (void)unblockChangeAction {
+    _shouldSkipChangeAction = NO;
+}
+
+- (void)dns_disableAnimations {
+    _shouldAnimateImportant = NO;
 }
 
 @end
