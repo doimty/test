@@ -13,7 +13,9 @@ on:
       - '**/*.xm'
       - '**/*.plist'
       - '**/*.strings'
-      - 'Tweak/**'
+      - 'Makefile'
+      - 'control'
+      - 'daynightswitch/**'
 
 jobs:
   package:
@@ -57,7 +59,6 @@ jobs:
       - name: Build package
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
-          cd Tweak
           make clean SDKVERSION=16.5
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME}" SDKVERSION=16.5
 
@@ -65,5 +66,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: daynightswitch-${{ matrix.scheme }}-packages
-          path: Tweak/packages/*
+          path: packages/*
           if-no-files-found: error
