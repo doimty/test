@@ -21,6 +21,8 @@
 
 static char DNSDayNightSwitchKey;
 static char DNSBypassKey;
+static char DNSCurrentStyleKey;
+static NSString *const DNSPrefsChangedNotification = @"DNSPrefsChangedNotification";
 
 // ================= 【核心：通用开关协议，保证系统不崩溃】 =================
 @protocol FGASwitchProtocol <NSObject>
@@ -48,7 +50,7 @@ static NSString *DNSPrefsPath(void) {
     return @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
 }
 
-static void loadPrefs(void) {
+static void DNSReadPrefs(void) {
     NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
     enabled = [settings objectForKey:@"enabled"] ? [[settings objectForKey:@"enabled"] boolValue] : YES;
     global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
@@ -57,17 +59,27 @@ static void loadPrefs(void) {
     switchStyle = [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0;
 }
 
+static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    DNSReadPrefs();
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[NSNotificationCenter defaultCenter] postNotificationName:DNSPrefsChangedNotification object:nil];
+    });
+}
+
 %ctor {
-    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)loadPrefs, CFSTR("de.finngaida.daynightswitch/settingschanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-    loadPrefs();
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, DNSPrefsChanged, CFSTR("de.finngaida.daynightswitch/settingschanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+    DNSReadPrefs();
 }
 
 @interface UISwitch (DayNightSwitch)
 // 【修复编译报错】：去掉 <>，使用 UIView 绕过 Theos 解析器 Bug
 @property (nonatomic, retain) UIView *dns_dayNightSwitch;
 @property (nonatomic, retain) NSNumber *dns_bypass;
+@property (nonatomic, retain) NSNumber *dns_currentStyle;
 - (void)dns_setup;
 - (void)dns_addSwitch;
+- (void)dns_removeSwitch;
+- (void)dns_preferencesChanged;
 - (void)dns_syncCustomSwitchWithOn:(BOOL)on animated:(BOOL)animated;
 - (void)dns_sendImpactFeedback;
 @end
@@ -95,6 +107,16 @@ static void loadPrefs(void) {
     objc_setAssociatedObject(self, &DNSBypassKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+%new
+- (NSNumber *)dns_currentStyle {
+    return objc_getAssociatedObject(self, &DNSCurrentStyleKey);
+}
+
+%new
+- (void)setDns_currentStyle:(NSNumber *)value {
+    objc_setAssociatedObject(self, &DNSCurrentStyleKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 - (void)didMoveToSuperview {
     %orig;
     [self dns_setup];
@@ -102,7 +124,14 @@ static void loadPrefs(void) {
 
 %new
 - (void)dns_setup {
-    if (enabled && !self.dns_dayNightSwitch) {
+    if (self.dns_dayNightSwitch) {
+        // UITableView/UICollectionView 复用 cell 时，同一个 UISwitch 会被重新绑定到别的数据行。
+        // 这里每次回到视图层级都强制按系统 UISwitch 的真实状态刷新自定义视图，避免闹钟列表这种场景串状态。
+        [self dns_syncCustomSwitchWithOn:self.on animated:NO];
+        return;
+    }
+
+    if (enabled) {
         NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
         if (global) {
             [self dns_addSwitch];
@@ -118,6 +147,38 @@ static void loadPrefs(void) {
                 }
             }
         }
+    }
+}
+
+%new
+- (void)dns_removeSwitch {
+    UIView *customSwitch = self.dns_dayNightSwitch;
+    if (customSwitch) {
+        [customSwitch removeFromSuperview];
+    }
+    self.dns_dayNightSwitch = nil;
+    self.dns_currentStyle = nil;
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
+}
+
+%new
+- (void)dns_preferencesChanged {
+    NSInteger oldStyle = [self.dns_currentStyle integerValue];
+    BOOL hadCustomSwitch = (self.dns_dayNightSwitch != nil);
+
+    if (!enabled) {
+        [self dns_removeSwitch];
+        return;
+    }
+
+    if (!hadCustomSwitch) {
+        [self dns_setup];
+        return;
+    }
+
+    if (oldStyle != switchStyle) {
+        [self dns_removeSwitch];
+        [self dns_setup];
     }
 }
 
@@ -187,9 +248,17 @@ static void loadPrefs(void) {
     };
 
     self.dns_dayNightSwitch = sub;
+    self.dns_currentStyle = @(switchStyle);
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
 
     self.layer.shadowOpacity = 0;
     [self addSubview:sub];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
+    %orig;
 }
 
 - (void)layoutSubviews {
@@ -197,6 +266,7 @@ static void loadPrefs(void) {
     UIView *customSwitch = self.dns_dayNightSwitch;
     if (customSwitch) {
         customSwitch.frame = self.bounds;
+        [self dns_syncCustomSwitchWithOn:self.on animated:NO];
         [self bringSubviewToFront:customSwitch];
     }
 }
@@ -226,6 +296,11 @@ static void loadPrefs(void) {
     [typedSwitch blockChangeActionAnimated:animated];
     [typedSwitch setOn:on];
     [typedSwitch unblockChangeAction];
+}
+
+- (void)setOn:(BOOL)arg1 {
+    %orig;
+    [self dns_syncCustomSwitchWithOn:arg1 animated:NO];
 }
 
 - (void)setOn:(BOOL)arg1 animated:(BOOL)arg2 {
