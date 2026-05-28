@@ -15,7 +15,7 @@
 		<key>isController</key>
 		<true/>
 		<key>label</key>
-		<string>动态开关</string>
+		<string>DayNightSwitch</string>
 	</dict>
 </dict>
 </plist>

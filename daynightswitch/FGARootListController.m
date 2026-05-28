@@ -25,18 +25,29 @@ static NSString *const DNSPrefsChangedDarwinNotification = @"de.finngaida.daynig
 
 - (void)respring {
     pid_t pid;
-    const char *args[] = {"killall", "-9", "SpringBoard", NULL};
-    NSArray<NSString *> *candidates = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall", @"/bin/killall"];
-    NSString *killallPath = nil;
+    NSArray<NSString *> *candidates = @[@"/var/jb/usr/bin/sbreload", @"/usr/bin/sbreload", @"/var/jb/usr/bin/killall", @"/usr/bin/killall", @"/bin/killall"];
+    NSString *toolPath = nil;
     for (NSString *path in candidates) {
         if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
-            killallPath = path;
+            toolPath = path;
             break;
         }
     }
-    if (killallPath) {
-        posix_spawn(&pid, [killallPath fileSystemRepresentation], NULL, NULL, (char *const *)args, NULL);
+    if (!toolPath) {
+        return;
     }
+
+    const char *args[4];
+    if ([[toolPath lastPathComponent] isEqualToString:@"sbreload"]) {
+        args[0] = "sbreload";
+        args[1] = NULL;
+    } else {
+        args[0] = "killall";
+        args[1] = "-9";
+        args[2] = "SpringBoard";
+        args[3] = NULL;
+    }
+    posix_spawn(&pid, [toolPath fileSystemRepresentation], NULL, NULL, (char *const *)args, NULL);
 }
 
 - (void)twitter {

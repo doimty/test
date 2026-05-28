@@ -20,7 +20,6 @@
 @end
 
 static char DNSDayNightSwitchKey;
-static char DNSBypassKey;
 static char DNSCurrentStyleKey;
 static NSString *const DNSPrefsChangedNotification = @"DNSPrefsChangedNotification";
 
@@ -74,14 +73,14 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 @interface UISwitch (DayNightSwitch)
 // 【修复编译报错】：去掉 <>，使用 UIView 绕过 Theos 解析器 Bug
 @property (nonatomic, retain) UIView *dns_dayNightSwitch;
-@property (nonatomic, retain) NSNumber *dns_bypass;
 @property (nonatomic, retain) NSNumber *dns_currentStyle;
+- (BOOL)dns_shouldApply;
 - (void)dns_setup;
 - (void)dns_addSwitch;
 - (void)dns_removeSwitch;
 - (void)dns_preferencesChanged;
+- (void)dns_restoreNativeAppearance;
 - (void)dns_syncCustomSwitchWithOn:(BOOL)on animated:(BOOL)animated;
-- (void)dns_sendImpactFeedback;
 @end
 
 %hook UISwitch
@@ -95,16 +94,6 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 %new
 - (void)setDns_dayNightSwitch:(UIView *)view {
     objc_setAssociatedObject(self, &DNSDayNightSwitchKey, view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-%new
-- (NSNumber *)dns_bypass {
-    return objc_getAssociatedObject(self, &DNSBypassKey);
-}
-
-%new
-- (void)setDns_bypass:(NSNumber *)value {
-    objc_setAssociatedObject(self, &DNSBypassKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 %new
@@ -123,7 +112,43 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 }
 
 %new
+- (BOOL)dns_shouldApply {
+    if (!enabled) {
+        return NO;
+    }
+
+    if (global) {
+        return YES;
+    }
+
+    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
+    if (![bundleId isEqual:@"com.apple.Preferences"]) {
+        return NO;
+    }
+
+    PSSwitchTableCell *cell = (PSSwitchTableCell *)self.superview;
+    if (![cell respondsToSelector:@selector(specifier)] || ![cell respondsToSelector:@selector(control)]) {
+        return NO;
+    }
+
+    id spec = [cell performSelector:@selector(specifier)];
+    if (![spec respondsToSelector:@selector(identifier)]) {
+        return NO;
+    }
+
+    NSString *identifier = [spec performSelector:@selector(identifier)];
+    return [identifier isEqual:@"DND_TOP_LEVEL"] && [cell performSelector:@selector(control)] == self;
+}
+
+%new
 - (void)dns_setup {
+    if (![self dns_shouldApply]) {
+        if (self.dns_dayNightSwitch) {
+            [self dns_removeSwitch];
+        }
+        return;
+    }
+
     if (self.dns_dayNightSwitch) {
         // UITableView/UICollectionView 复用 cell 时，同一个 UISwitch 会被重新绑定到别的数据行。
         // 这里每次回到视图层级都强制按系统 UISwitch 的真实状态刷新自定义视图，避免闹钟列表这种场景串状态。
@@ -131,23 +156,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         return;
     }
 
-    if (enabled) {
-        NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
-        if (global) {
-            [self dns_addSwitch];
-        } else if ([bundleId isEqual: @"com.apple.Preferences"]) {
-            PSSwitchTableCell *cell = (PSSwitchTableCell *)self.superview;
-            if ([cell respondsToSelector:@selector(specifier)] && [cell respondsToSelector:@selector(control)]) {
-                id spec = [cell performSelector:@selector(specifier)];
-                if ([spec respondsToSelector:@selector(identifier)]) {
-                    NSString *identifier = [spec performSelector:@selector(identifier)];
-                    if ([identifier isEqual:@"DND_TOP_LEVEL"] && [cell performSelector:@selector(control)] == self) {
-                        [self dns_addSwitch];
-                    }
-                }
-            }
-        }
-    }
+    [self dns_addSwitch];
 }
 
 %new
@@ -158,6 +167,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     }
     self.dns_dayNightSwitch = nil;
     self.dns_currentStyle = nil;
+    [self dns_restoreNativeAppearance];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
 }
 
@@ -166,7 +176,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     NSInteger oldStyle = [self.dns_currentStyle integerValue];
     BOOL hadCustomSwitch = (self.dns_dayNightSwitch != nil);
 
-    if (!enabled) {
+    if (![self dns_shouldApply]) {
         [self dns_removeSwitch];
         return;
     }
@@ -221,31 +231,14 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         // 默认对应 0 (以及 9~10 的敬请期待): 日夜交替 (静态)
         sub = (UIView<FGASwitchProtocol> *)[[DayNightSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     }
-    self.dns_bypass = @YES;
     sub.on = self.on;
-    self.dns_bypass = nil;
 
-    __weak __typeof(self) weakSelf = self;
-    sub.changeAction = ^(BOOL on, BOOL shouldNotifyChanged) {
-        __strong __typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) {
-            return;
-        }
-
-        strongSelf.dns_bypass = @YES;
-        BOOL isOn = strongSelf.on;
-        strongSelf.on = on;
-        strongSelf.dns_bypass = nil;
-
-        // iOS 15 兼容：不要直接调用 UISwitch 私有 _impactFeedbackGenerator。
-        if (isOn != on) {
-            [strongSelf dns_sendImpactFeedback];
-        }
-
-        if (shouldNotifyChanged) {
-            [strongSelf sendActionsForControlEvents:UIControlEventValueChanged];
-        }
-    };
+    // 关键修复：自定义 switch 只做视觉皮肤，不直接接管业务开关事件。
+    // 闹钟、蜂窝、通知等列表里的 UISwitch 往往由系统 cell 绑定数据源；
+    // 如果皮肤层自己改 self.on / sendActions，容易绕过系统原本的 tracking 流程，造成列表复用时串行关掉其它开关。
+    // 因此点击仍交给原生 UISwitch 处理，我们只在 setOn/layout 里同步视觉状态。
+    sub.userInteractionEnabled = NO;
+    sub.changeAction = nil;
 
     self.dns_dayNightSwitch = sub;
     self.dns_currentStyle = @(switchStyle);
@@ -253,6 +246,9 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
 
     self.layer.shadowOpacity = 0;
+    self.tintColor = [UIColor clearColor];
+    self.onTintColor = [UIColor clearColor];
+    self.thumbTintColor = [UIColor clearColor];
     [self addSubview:sub];
 }
 
@@ -272,18 +268,14 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 }
 
 %new
-- (void)dns_sendImpactFeedback {
-    UIImpactFeedbackGenerator *generator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-    [generator prepare];
-    [generator impactOccurred];
+- (void)dns_restoreNativeAppearance {
+    self.tintColor = nil;
+    self.onTintColor = nil;
+    self.thumbTintColor = nil;
 }
 
 %new
 - (void)dns_syncCustomSwitchWithOn:(BOOL)on animated:(BOOL)animated {
-    if ([self.dns_bypass boolValue]) {
-        return;
-    }
-
     id customSwitch = self.dns_dayNightSwitch;
     if (!customSwitch ||
         ![customSwitch respondsToSelector:@selector(blockChangeActionAnimated:)] ||
@@ -308,6 +300,35 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     [self dns_syncCustomSwitchWithOn:arg1 animated:arg2];
 }
 
+
+%end
+
+static UIView *DNSFindViewConformingToSwitchProtocol(UIView *view) {
+    if ([view conformsToProtocol:@protocol(FGASwitchProtocol)]) {
+        return view;
+    }
+    for (UIView *subview in view.subviews) {
+        UIView *foundView = DNSFindViewConformingToSwitchProtocol(subview);
+        if (foundView) {
+            return foundView;
+        }
+    }
+    return nil;
+}
+
+@interface MTAAlarmTableViewCell : UITableViewCell
+@end
+
+%hook MTAAlarmTableViewCell
+
+- (void)layoutSubviews {
+    %orig;
+
+    UIView *customSwitch = DNSFindViewConformingToSwitchProtocol(self.contentView);
+    if ([customSwitch respondsToSelector:@selector(dns_disableAnimations)]) {
+        [(id<FGASwitchProtocol>)customSwitch dns_disableAnimations];
+    }
+}
 
 %end
 

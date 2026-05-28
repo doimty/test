@@ -1,9 +1,9 @@
 Package: com.hang.kaiguan
-Name: 动态开关
+Name: DayNightSwitch
 Depends: firmware (>= 14.0), mobilesubstrate
 Version: 1.2.1
 Architecture: iphoneos-arm
-Description: 简单的开关
+Description: Dynamic switch skins for iOS
 Depiction: https://pic1.imgdb.cn/item/69d21338441d1611010f7e81.jpg
 Icon: https://pic1.imgdb.cn/item/69d21338441d1611010f7e81.jpg
 Maintainer: 航

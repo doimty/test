@@ -84,7 +84,7 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Respring to Apply Changes</string>
+			<string>Respring</string>
 			<key>isDestructive</key>
 			<true/>
 		</dict>
@@ -99,6 +99,6 @@
 		</dict>
 	</array>
 	<key>title</key>
-	<string>动态开关</string>
+	<string>DayNightSwitch</string>
 </dict>
 </plist>
