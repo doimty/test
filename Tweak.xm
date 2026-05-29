@@ -51,13 +51,10 @@ static NSString *DNSPrefsPath(void) {
 
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
-    Boolean keyExists = false;
-    Boolean val = CFPreferencesGetAppBooleanValue(CFSTR("enabled"), CFSTR("de.finngaida.daynightswitch"), &keyExists);
-    enabled = keyExists ? (BOOL)val : YES;
-    val = CFPreferencesGetAppBooleanValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"), &keyExists);
-    global = keyExists ? (BOOL)val : NO;
-    CFIndex styleVal = CFPreferencesGetAppIntegerValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"), &keyExists);
-    switchStyle = keyExists ? (NSInteger)styleVal : 0;
+    NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
+    enabled = [settings objectForKey:@"enabled"] ? [[settings objectForKey:@"enabled"] boolValue] : YES;
+    global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
+    switchStyle = [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0;
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
