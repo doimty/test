@@ -14,6 +14,18 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>de.finngaida.daynightswitch</string>
+			<key>key</key>
+			<string>enabled</string>
+			<key>label</key>
+			<string>启用 DayNightSwitch</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
 			<false/>
 			<key>defaults</key>
 			<string>de.finngaida.daynightswitch</string>

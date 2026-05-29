@@ -9,9 +9,12 @@
 
 @interface PSSwitchTableCell : UITableViewCell
 - (SEL)cellAction;
+- (id)specifier;
+- (id)control;
 @end
 
 @interface PSSpecifier : NSObject
+- (NSString *)identifier;
 @end
 
 static char DNSDayNightSwitchKey;
@@ -32,12 +35,39 @@ static NSString *const DNSPrefsChangedNotification = @"DNSPrefsChangedNotificati
 static BOOL enabled = NO;
 static BOOL global = NO;
 static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
+static NSString *const DNSPrefsMobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
+static NSString *const DNSPrefsRootlessPath = @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
 
 // 恢复 DNSPrefsPath：使用 plist 文件直接读取配置
 // 注意：fdf730f 版本工作正常，改用 CFPreferencesCopyAppValue 后部分进程读不到 global=YES
 
 static NSString *DNSPrefsPath(void) {
-    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences/de.finngaida.daynightswitch.plist"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:DNSPrefsMobilePath]) {
+        return DNSPrefsMobilePath;
+    }
+    if ([fm fileExistsAtPath:DNSPrefsRootlessPath]) {
+        return DNSPrefsRootlessPath;
+    }
+    return DNSPrefsMobilePath;
+}
+
+static BOOL DNSBoolPref(id value, BOOL fallback) {
+    if ([value respondsToSelector:@selector(boolValue)]) {
+        return [value boolValue];
+    }
+    return fallback;
+}
+
+static NSInteger DNSIntegerPref(id value, NSInteger fallback) {
+    if ([value respondsToSelector:@selector(integerValue)]) {
+        return [value integerValue];
+    }
+    return fallback;
+}
+
+static BOOL DNSIsValidSwitchStyle(NSInteger style) {
+    return style == 0 || style == 1 || style == 2 || style == 3 || style == 8;
 }
 
 // 当 cfprefs 返回 nil 时，回退到真正的越狱前缀文件读取
@@ -66,29 +96,15 @@ static void DNSReadPrefs(void) {
     NSMutableDictionary *settings = DNSPrefsReadFromFile();
 
     // 3) 优先用 cfprefs（实时），没有则 fallback 到文件（兼容）
-    if (enabledCF) {
-        enabled = [enabledCF boolValue];
-    } else if (settings) {
-        enabled = [settings objectForKey:@"enabled"] ? [[settings objectForKey:@"enabled"] boolValue] : YES;
-    } else {
-        enabled = YES;
-    }
+    BOOL fileEnabled = DNSBoolPref([settings objectForKey:@"enabled"], YES);
+    BOOL fileGlobal = DNSBoolPref([settings objectForKey:@"global"], NO);
+    NSInteger fileStyle = DNSIntegerPref([settings objectForKey:@"switchStyle"], 0);
 
-    if (globalCF) {
-        global = [globalCF boolValue];
-    } else if (settings) {
-        global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
-    } else {
-        global = NO;
-    }
+    enabled = DNSBoolPref(enabledCF, fileEnabled);
+    global = DNSBoolPref(globalCF, fileGlobal);
 
-    if (styleCF) {
-        switchStyle = [styleCF integerValue];
-    } else if (settings) {
-        switchStyle = [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0;
-    } else {
-        switchStyle = 0;
-    }
+    NSInteger savedStyle = DNSIntegerPref(styleCF, fileStyle);
+    switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -167,17 +183,25 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         return NO;
     }
 
-    id spec = [cell performSelector:@selector(specifier)];
+    PSSpecifier *spec = [cell specifier];
     if (![spec respondsToSelector:@selector(identifier)]) {
         return NO;
     }
 
-    NSString *identifier = [spec performSelector:@selector(identifier)];
-    return [identifier isEqual:@"DND_TOP_LEVEL"] && [cell performSelector:@selector(control)] == self;
+    NSString *identifier = [spec identifier];
+    if (![identifier isKindOfClass:[NSString class]]) {
+        return NO;
+    }
+
+    id control = [cell control];
+    return [identifier isEqual:@"DND_TOP_LEVEL"] && control == self;
 }
 
 %new
 - (void)dns_setup {
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
+
     if (![self dns_shouldApply]) {
         if (self.dns_dayNightSwitch) {
             [self dns_removeSwitch];
@@ -204,7 +228,6 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     self.dns_dayNightSwitch = nil;
     self.dns_currentStyle = nil;
     [self dns_restoreNativeAppearance];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
 }
 
 %new
@@ -270,8 +293,6 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
     self.dns_dayNightSwitch = sub;
     self.dns_currentStyle = @(switchStyle);
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
 
     self.layer.shadowOpacity = 0;
     self.tintColor = [UIColor clearColor];
@@ -309,6 +330,12 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 - (void)dns_syncCustomSwitchWithOn:(BOOL)on animated:(BOOL)animated {
     id customSwitch = self.dns_dayNightSwitch;
     if (!customSwitch) return;
+
+    if (![customSwitch respondsToSelector:@selector(blockChangeActionAnimated:)] ||
+        ![customSwitch respondsToSelector:@selector(unblockChangeAction)] ||
+        ![customSwitch respondsToSelector:@selector(setOn:)]) {
+        return;
+    }
 
     [((id)customSwitch) blockChangeActionAnimated:animated];
     if ([((id)customSwitch) respondsToSelector:@selector(setOn:animated:)]) {
