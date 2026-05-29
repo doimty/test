@@ -81,6 +81,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 - (void)dns_preferencesChanged;
 - (void)dns_restoreNativeAppearance;
 - (void)dns_syncCustomSwitchWithOn:(BOOL)on animated:(BOOL)animated;
+- (void)dns_disableCustomSwitchAnimationsForAlarmCell;
 @end
 
 %hook UISwitch
@@ -296,8 +297,21 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
     id<FGASwitchProtocol> typedSwitch = (id<FGASwitchProtocol>)customSwitch;
     [typedSwitch blockChangeActionAnimated:animated];
-    [typedSwitch setOn:on];
+    if ([typedSwitch respondsToSelector:@selector(setOn:animated:)]) {
+        [(id)typedSwitch setOn:on animated:animated];
+    } else {
+        [typedSwitch setOn:on];
+    }
     [typedSwitch unblockChangeAction];
+}
+
+%new
+- (void)dns_disableCustomSwitchAnimationsForAlarmCell {
+    id customSwitch = self.dns_dayNightSwitch;
+    if ([customSwitch respondsToSelector:@selector(dns_disableAnimations)]) {
+        [(id)customSwitch dns_disableAnimations];
+        [self dns_syncCustomSwitchWithOn:self.on animated:NO];
+    }
 }
 
 - (void)setOn:(BOOL)arg1 {
@@ -313,14 +327,17 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
 %end
 
-static UIView *DNSFindSwitchViewThatCanDisableAnimations(UIView *view) {
-    if ([view respondsToSelector:@selector(dns_disableAnimations)]) {
-        return view;
+static UISwitch *DNSFindSwitchWithCustomDayNightSkin(UIView *view) {
+    if ([view isKindOfClass:[UISwitch class]] && [view respondsToSelector:@selector(dns_disableCustomSwitchAnimationsForAlarmCell)]) {
+        UISwitch *switchView = (UISwitch *)view;
+        if ([switchView respondsToSelector:@selector(dns_dayNightSwitch)] && [(id)switchView dns_dayNightSwitch]) {
+            return switchView;
+        }
     }
     for (UIView *subview in view.subviews) {
-        UIView *foundView = DNSFindSwitchViewThatCanDisableAnimations(subview);
-        if (foundView) {
-            return foundView;
+        UISwitch *foundSwitch = DNSFindSwitchWithCustomDayNightSkin(subview);
+        if (foundSwitch) {
+            return foundSwitch;
         }
     }
     return nil;
@@ -334,9 +351,9 @@ static UIView *DNSFindSwitchViewThatCanDisableAnimations(UIView *view) {
 - (void)layoutSubviews {
     %orig;
 
-    UIView *customSwitch = DNSFindSwitchViewThatCanDisableAnimations(self.contentView);
-    if (customSwitch) {
-        [(id)customSwitch dns_disableAnimations];
+    UISwitch *switchView = DNSFindSwitchWithCustomDayNightSkin(self.contentView);
+    if (switchView) {
+        [(id)switchView dns_disableCustomSwitchAnimationsForAlarmCell];
     }
 }
 
