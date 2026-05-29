@@ -1,7 +1,6 @@
 #import <objc/runtime.h>
 #import <spawn.h>
-
-extern char **environ;
+#import <stdlib.h>
 #import "DayNightSwitch.h" // 原版自带效果
 #import "StripedSwitch.h"  // 新版条纹效果
 #import "DongRiYueSwitch.h"
@@ -97,7 +96,7 @@ static void DNSRunRespringCommand(void) {
         args[count] = NULL;
 
         pid_t pid = 0;
-        int status = posix_spawn(&pid, [path fileSystemRepresentation], NULL, NULL, args, environ);
+        int status = posix_spawn(&pid, [path fileSystemRepresentation], NULL, NULL, args, NULL);
         free(args);
         if (status == 0) {
             return;
