@@ -408,8 +408,4 @@
     _shouldSkipChangeAction = NO;
 }
 
-- (void)dns_disableAnimations {
-    _shouldAnimateImportant = NO;
-}
-
 @end

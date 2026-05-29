@@ -22,7 +22,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (CGFloat)knobMargin;
 - (void)blockChangeActionAnimated:(BOOL)animated;
 - (void)unblockChangeAction;
-- (void)dns_disableAnimations;
 
 @end
 

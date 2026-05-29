@@ -384,6 +384,5 @@
 - (CGFloat)knobMargin { return 10.0 * _scale; }
 - (void)blockChangeActionAnimated:(BOOL)animated { _shouldSkipChangeAction = YES; }
 - (void)unblockChangeAction { _shouldSkipChangeAction = NO; }
-- (void)dns_disableAnimations { _shouldAnimateImportant = NO; }
 
 @end

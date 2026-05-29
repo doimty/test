@@ -34,8 +34,6 @@
 - (void)blockChangeActionAnimated:(BOOL)animated;
 - (void)unblockChangeAction;
 
-- (void)dns_disableAnimations;
-
 - (void)setOn:(BOOL)on animated:(BOOL)animated;
 
 @end

@@ -1,4 +1,5 @@
 #import <objc/runtime.h>
+#import <CoreFoundation/CFPreferences.h>
 #import "DayNightSwitch.h" // 原版自带效果
 #import "StripedSwitch.h"  // 新版条纹效果
 #import "DongRiYueSwitch.h"
@@ -30,8 +31,6 @@ static NSString *const DNSPrefsChangedNotification = @"DNSPrefsChangedNotificati
 - (void)blockChangeActionAnimated:(BOOL)animated;
 - (void)unblockChangeAction;
 - (void)setOn:(BOOL)on;
-@optional
-- (void)dns_disableAnimations;
 @end
 // =======================================================================
 
@@ -51,10 +50,15 @@ static NSString *DNSPrefsPath(void) {
 
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
-    NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
-    enabled = [settings objectForKey:@"enabled"] ? [[settings objectForKey:@"enabled"] boolValue] : YES;
-    global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
-    switchStyle = [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0;
+
+    id enabledVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("enabled"), CFSTR("de.finngaida.daynightswitch"));
+    enabled = enabledVal ? [enabledVal boolValue] : YES;
+
+    id globalVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
+    global = globalVal ? [globalVal boolValue] : NO;
+
+    id styleVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
+    switchStyle = styleVal ? [styleVal integerValue] : 0;
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -224,7 +228,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         // 对应 9: 嘻嘻
         sub = (UIView<FGASwitchProtocol> *)[[XiXiSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else if (switchStyle == 10) {
-        // 对应 9: 狗狗翻滚
+        // 对应 10: 狗狗翻滚
         sub = (UIView<FGASwitchProtocol> *)[[DoggoSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else {
         // 默认对应 0 (以及 9~10 的敬请期待): 日夜交替 (静态)
@@ -318,10 +322,15 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 %hook MTAAlarmTableViewCell
 
 - (void)layoutSubviews {
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
     %orig;
-    [CATransaction commit];
+    // 在 cell 布局完成后，强制同步所有可见 UISwitch 的自定义外观
+    // 解决闹钟列表 cell 复用 + 拖拽导致状态串位
+    [self.subviews enumerateObjectsUsingBlock:^(__kindof UIView * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        if ([obj isKindOfClass:[UISwitch class]]) {
+            UISwitch *sw = (UISwitch *)obj;
+            [sw dns_syncCustomSwitchWithOn:sw.on animated:NO];
+        }
+    }];
 }
 
 %end

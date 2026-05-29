@@ -52,20 +52,4 @@ static NSString *const DNSPrefsChangedDarwinNotification = @"de.finngaida.daynig
     [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
 }
 
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) {
-        PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
-        NSString *key = [specifier propertyForKey:@"cell"];
-        if ([key isEqualToString:@"PSButtonCell"]) {
-            UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
-            NSNumber *isDestructiveValue = [specifier propertyForKey:@"isDestructive"];
-            BOOL isDestructive = [isDestructiveValue boolValue];
-            cell.textLabel.textColor = isDestructive ? [UIColor systemRedColor] : [UIColor systemBlueColor];
-            cell.textLabel.highlightedTextColor = isDestructive ? [UIColor systemRedColor] : [UIColor systemBlueColor];
-            return cell;
-        }
-    }
-    return [super tableView:tableView cellForRowAtIndexPath:indexPath];
-}
-
 @end
