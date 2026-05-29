@@ -38,10 +38,17 @@ static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
 
 static NSString *DNSPrefsPath(void) {
     NSFileManager *fm = [NSFileManager defaultManager];
+    // roothide：Library/ 直接前缀（无 /var/mobile）
+    NSString *roothidePath = @"/Library/Preferences/de.finngaida.daynightswitch.plist";
+    if ([fm fileExistsAtPath:roothidePath]) {
+        return roothidePath;
+    }
+    // 全越狱：/var/mobile/Library/...
     NSString *mobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
     if ([fm fileExistsAtPath:mobilePath]) {
         return mobilePath;
     }
+    // rootless（Dopamine）：/var/jb/var/mobile/Library/...
     return @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
 }
 
