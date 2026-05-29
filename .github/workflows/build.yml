@@ -16,6 +16,8 @@ on:
       - 'Makefile'
       - 'control'
       - 'daynightswitch/**'
+      - 'layout/**'
+      - 'tests/**'
 
 jobs:
   package:
@@ -36,6 +38,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Run regression tests
+        run: python3 -m unittest -q tests.test_daynightswitch_regressions
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer

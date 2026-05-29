@@ -110,6 +110,11 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertNotIn('actions/checkout@v4', WORKFLOW)
         self.assertNotIn('actions/upload-artifact@v4', WORKFLOW)
 
+    def test_workflow_runs_regression_tests_and_watches_package_resources(self):
+        self.assertIn("python3 -m unittest -q tests.test_daynightswitch_regressions", WORKFLOW)
+        self.assertIn("'layout/**'", WORKFLOW)
+        self.assertIn("'tests/**'", WORKFLOW)
+
     def test_control_uses_repo_urls_not_third_party_image_bed(self):
         self.assertNotIn('imgdb.cn', CONTROL)
         self.assertIn('github.com/doimty/DayNightSwitch', CONTROL)
