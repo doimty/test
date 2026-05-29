@@ -1,4 +1,5 @@
 #import <objc/runtime.h>
+#import <CoreFoundation/CoreFoundation.h>
 #import "DayNightSwitch.h"
 #import "StripedSwitch.h"
 #import "DongRiYueSwitch.h"
@@ -38,21 +39,20 @@ static BOOL enabled = NO;
 static BOOL global = NO;
 static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
 
-static NSString *DNSPrefsPath(void) {
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *mobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
-    if ([fm fileExistsAtPath:mobilePath]) {
-        return mobilePath;
-    }
-    return @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
-}
+// 删掉了 DNSPrefsPath — 改用 CFPreferencesCopyAppValue 直接从缓存读
+// 不再需要 plist 文件路径，不需要检查 /var/mobile 还是 /var/jb
 
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
-    NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
-    enabled = [settings objectForKey:@"enabled"] ? [[settings objectForKey:@"enabled"] boolValue] : YES;
-    global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
-    switchStyle = [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0;
+
+    id enabledVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("enabled"), CFSTR("de.finngaida.daynightswitch"));
+    enabled = enabledVal ? [enabledVal boolValue] : YES;
+
+    id globalVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
+    global = globalVal ? [globalVal boolValue] : NO;
+
+    id styleVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
+    switchStyle = styleVal ? [styleVal integerValue] : 0;
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -272,7 +272,6 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         self.onTintColor = [UIColor clearColor];
         self.thumbTintColor = [UIColor clearColor];
         customSwitch.frame = self.bounds;
-        [self dns_syncCustomSwitchWithOn:self.on animated:NO];
         [self bringSubviewToFront:customSwitch];
     }
     %orig;
@@ -310,23 +309,4 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 }
 %end
 
-@interface MTAAlarmTableViewCell : UITableViewCell
-@end
-
-%hook MTAAlarmTableViewCell
-
-- (void)layoutSubviews {
-    %orig;
-    // 布局完成后更新子视图里的自定义开关外观，防止 cell 复用导致的显示错乱
-    [self.contentView.subviews enumerateObjectsUsingBlock:^(__kindof UIView * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-        if ([obj isKindOfClass:[UISwitch class]]) {
-            UISwitch *sw = (UISwitch *)obj;
-            id custom = [sw dns_dayNightSwitch];
-            if (custom) {
-                [sw dns_syncCustomSwitchWithOn:sw.on animated:NO];
-            }
-        }
-    }];
-}
-
-%end
+// MTAAlarmTableViewCell hook 已移除：同步走 UISwitch setOn: / setOn:animated: 钩子即可
