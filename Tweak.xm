@@ -321,9 +321,10 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 %hook MTAAlarmTableViewCell
 
 - (void)layoutSubviews {
-    [UIView performWithoutAnimation:^{
-        %orig;
-    }];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    %orig;
+    [CATransaction commit];
 }
 
 %end
