@@ -48,6 +48,16 @@ static NSString *DNSPrefsPath(void) {
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
     NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
+    if (!settings) {
+        // 文件还同步不及的话，从 cfprefsd 缓存兜底
+        id enabledVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("enabled"), CFSTR("de.finngaida.daynightswitch"));
+        enabled = enabledVal ? [enabledVal boolValue] : YES;
+        id globalVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
+        global = globalVal ? [globalVal boolValue] : NO;
+        id styleVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
+        switchStyle = styleVal ? [styleVal integerValue] : 0;
+        return;
+    }
     enabled = [settings objectForKey:@"enabled"] ? [[settings objectForKey:@"enabled"] boolValue] : YES;
     global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
     switchStyle = [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0;
@@ -222,7 +232,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
             [strongSelf setOn:on animated:YES];
         }
 
-        if (shouldNotifyChanged && wasOn != on) {
+        if (shouldNotifyChanged) {
             [strongSelf sendActionsForControlEvents:UIControlEventValueChanged];
         }
     };
