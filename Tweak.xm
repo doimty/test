@@ -68,38 +68,38 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 }
 
 static void DNSRunRespringCommand(void) {
-    NSArray<NSArray<NSString *> *> *commands = @[
-        @[@"/var/jb/usr/bin/sbreload"],
-        @[@"/usr/bin/sbreload"],
-        @[@"/var/jb/usr/bin/ldrestart"],
-        @[@"/usr/bin/ldrestart"],
-        @[@"/var/jb/usr/bin/killall", @"-9", @"SpringBoard"],
-        @[@"/usr/bin/killall", @"-9", @"SpringBoard"],
-        @[@"/bin/killall", @"-9", @"SpringBoard"]
-    ];
-
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSArray<NSString *> *command in commands) {
-        NSString *path = command.firstObject;
-        if (![fm fileExistsAtPath:path]) {
-            continue;
+    // Try sbreload / ldrestart first
+    static const char *safePaths[] = {
+        "/var/jb/usr/bin/sbreload",
+        "/usr/bin/sbreload",
+        "/var/jb/usr/bin/ldrestart",
+        "/usr/bin/ldrestart",
+        NULL
+    };
+    for (int i = 0; safePaths[i]; i++) {
+        if (access(safePaths[i], X_OK) == 0) {
+            pid_t pid;
+            const char *argv[] = {safePaths[i], NULL};
+            if (posix_spawn(&pid, safePaths[i], NULL, NULL, (char *const *)argv, NULL) == 0) {
+                return;
+            }
         }
+    }
 
-        NSUInteger count = command.count;
-        char **args = calloc(count + 1, sizeof(char *));
-        if (!args) {
-            return;
-        }
-        for (NSUInteger i = 0; i < count; i++) {
-            args[i] = (char *)[command[i] UTF8String];
-        }
-        args[count] = NULL;
-
-        pid_t pid = 0;
-        int status = posix_spawn(&pid, [path fileSystemRepresentation], NULL, NULL, args, NULL);
-        free(args);
-        if (status == 0) {
-            return;
+    // Fallback: killall -9 SpringBoard
+    static const char *killPaths[] = {
+        "/var/jb/usr/bin/killall",
+        "/usr/bin/killall",
+        "/bin/killall",
+        NULL
+    };
+    for (int i = 0; killPaths[i]; i++) {
+        if (access(killPaths[i], X_OK) == 0) {
+            pid_t pid;
+            const char *argv[] = {killPaths[i], "-9", "SpringBoard", NULL};
+            if (posix_spawn(&pid, killPaths[i], NULL, NULL, (char *const *)argv, NULL) == 0) {
+                return;
+            }
         }
     }
 }
