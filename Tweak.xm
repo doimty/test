@@ -273,6 +273,9 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         self.thumbTintColor = [UIColor clearColor];
         customSwitch.frame = self.bounds;
         [self bringSubviewToFront:customSwitch];
+        // 保持自定义开关的视觉状态与原生 UISwitch 同步
+        // layoutSubviews 会在 cell 复用/滚回屏幕时触发，此时 setOn: 可能没被调过
+        [self dns_syncCustomSwitchWithOn:self.on animated:NO];
     }
     %orig;
 }
