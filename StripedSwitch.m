@@ -184,6 +184,12 @@
     [self _setOn:on animated:shouldAnimate];
 }
 
+- (void)setOn:(BOOL)on animated:(BOOL)animated {
+    if (_on == on) return;
+    _on = on;
+    [self _setOn:on animated:animated];
+}
+
 // ================= 【核心：#C0D6C4 vs 干净浅灰配色】 =================
 - (void)_setOn:(BOOL)on animated:(BOOL)animated {
     if (self.changeAction && !_shouldSkipChangeAction && animated) {

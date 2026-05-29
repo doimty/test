@@ -2,11 +2,9 @@
 
 #import <Preferences/PSSpecifier.h>
 
-
 #import <notify.h>
 
 static NSString *const DNSPrefsChangedDarwinNotification = @"de.finngaida.daynightswitch/settingschanged";
-static NSString *const DNSRespringDarwinNotification = @"de.finngaida.daynightswitch/respring";
 
 @implementation FGARootListController
 
@@ -21,10 +19,6 @@ static NSString *const DNSRespringDarwinNotification = @"de.finngaida.daynightsw
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
     notify_post([DNSPrefsChangedDarwinNotification UTF8String]);
-}
-
-- (void)respring {
-    notify_post([DNSRespringDarwinNotification UTF8String]);
 }
 
 - (void)twitter {

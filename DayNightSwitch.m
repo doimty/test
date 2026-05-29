@@ -320,6 +320,12 @@
     [self _setOn:on animated:shouldAnimate];
 }
 
+- (void)setOn:(BOOL)on animated:(BOOL)animated {
+    if (_on == on) return;
+    _on = on;
+    [self _setOn:on animated:animated];
+}
+
 // 核心状态切换动画
 - (void)_setOn:(BOOL)on animated:(BOOL)animated {
     if (self.changeAction && !_shouldSkipChangeAction && animated) {

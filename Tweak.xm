@@ -1,6 +1,4 @@
 #import <objc/runtime.h>
-#import <spawn.h>
-#import <stdlib.h>
 #import "DayNightSwitch.h" // 原版自带效果
 #import "StripedSwitch.h"  // 新版条纹效果
 #import "DongRiYueSwitch.h"
@@ -69,52 +67,8 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     });
 }
 
-static void DNSRunRespringCommand(void) {
-    // Try sbreload / ldrestart first
-    static const char *safePaths[] = {
-        "/var/jb/usr/bin/sbreload",
-        "/usr/bin/sbreload",
-        "/var/jb/usr/bin/ldrestart",
-        "/usr/bin/ldrestart",
-        NULL
-    };
-    for (int i = 0; safePaths[i]; i++) {
-        if (access(safePaths[i], X_OK) == 0) {
-            pid_t pid;
-            const char *argv[] = {safePaths[i], NULL};
-            if (posix_spawn(&pid, safePaths[i], NULL, NULL, (char *const *)argv, NULL) == 0) {
-                return;
-            }
-        }
-    }
-
-    // Fallback: killall -9 SpringBoard
-    static const char *killPaths[] = {
-        "/var/jb/usr/bin/killall",
-        "/usr/bin/killall",
-        "/bin/killall",
-        NULL
-    };
-    for (int i = 0; killPaths[i]; i++) {
-        if (access(killPaths[i], X_OK) == 0) {
-            pid_t pid;
-            const char *argv[] = {killPaths[i], "-9", "SpringBoard", NULL};
-            if (posix_spawn(&pid, killPaths[i], NULL, NULL, (char *const *)argv, NULL) == 0) {
-                return;
-            }
-        }
-    }
-}
-
-static void DNSRespringRequested(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        DNSRunRespringCommand();
-    });
-}
-
 %ctor {
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, DNSPrefsChanged, CFSTR("de.finngaida.daynightswitch/settingschanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, DNSRespringRequested, CFSTR("de.finngaida.daynightswitch/respring"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
     DNSReadPrefs();
 }
 
@@ -316,13 +270,17 @@ static void DNSRespringRequested(CFNotificationCenterRef center, void *observer,
 }
 
 - (void)layoutSubviews {
-    %orig;
     UIView *customSwitch = self.dns_dayNightSwitch;
     if (customSwitch) {
+        // 在 %orig 之前把自定义开关放好、隐藏原生开关外观，防止原生闪烁
+        self.tintColor = [UIColor clearColor];
+        self.onTintColor = [UIColor clearColor];
+        self.thumbTintColor = [UIColor clearColor];
         customSwitch.frame = self.bounds;
         [self dns_syncCustomSwitchWithOn:self.on animated:NO];
         [self bringSubviewToFront:customSwitch];
     }
+    %orig;
 }
 
 %new
@@ -352,9 +310,20 @@ static void DNSRespringRequested(CFNotificationCenterRef center, void *observer,
 }
 
 - (void)setOn:(BOOL)arg1 animated:(BOOL)arg2 {
-    // Only animate the custom switch when user is actually touching it
-    // Prevents flicker from programmatic setOn:animated: calls (alarm cell, etc.)
     %orig;
-    [self dns_syncCustomSwitchWithOn:arg1 animated:(arg2 && self.isTracking)];
+    [self dns_syncCustomSwitchWithOn:arg1 animated:arg2];
 }
+%end
+
+@interface MTAAlarmTableViewCell : UITableViewCell
+@end
+
+%hook MTAAlarmTableViewCell
+
+- (void)layoutSubviews {
+    [UIView performWithoutAnimation:^{
+        %orig;
+    }];
+}
+
 %end

@@ -36,4 +36,6 @@
 
 - (void)dns_disableAnimations;
 
+- (void)setOn:(BOOL)on animated:(BOOL)animated;
+
 @end
