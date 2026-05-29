@@ -233,12 +233,22 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     }
     sub.on = self.on;
 
-    // 关键修复：自定义 switch 只做视觉皮肤，不直接接管业务开关事件。
-    // 闹钟、蜂窝、通知等列表里的 UISwitch 往往由系统 cell 绑定数据源；
-    // 如果皮肤层自己改 self.on / sendActions，容易绕过系统原本的 tracking 流程，造成列表复用时串行关掉其它开关。
-    // 因此点击仍交给原生 UISwitch 处理，我们只在 setOn/layout 里同步视觉状态。
-    sub.userInteractionEnabled = NO;
-    sub.changeAction = nil;
+    __weak __typeof(self) weakSelf = self;
+    sub.changeAction = ^(BOOL on, BOOL shouldNotifyChanged) {
+        __strong __typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) {
+            return;
+        }
+
+        BOOL wasOn = strongSelf.on;
+        if (wasOn != on) {
+            [strongSelf setOn:on animated:YES];
+        }
+
+        if (shouldNotifyChanged && wasOn != on) {
+            [strongSelf sendActionsForControlEvents:UIControlEventValueChanged];
+        }
+    };
 
     self.dns_dayNightSwitch = sub;
     self.dns_currentStyle = @(switchStyle);
