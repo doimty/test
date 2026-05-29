@@ -40,6 +40,20 @@ static NSString *DNSPrefsPath(void) {
     return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences/de.finngaida.daynightswitch.plist"];
 }
 
+// 当 cfprefs 返回 nil 时，回退到真正的越狱前缀文件读取
+static NSMutableDictionary *DNSPrefsReadFromFile(void) {
+    for (NSString *path in @[
+        DNSPrefsPath(),                                     // roothide: /Library/Preferences/...
+        @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist",         // rootful
+        @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist",  // rootless
+    ]) {
+        if (path == nil) continue;
+        NSMutableDictionary *d = [[NSMutableDictionary alloc] initWithContentsOfFile:path];
+        if (d) return d;
+    }
+    return nil;
+}
+
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
 
@@ -48,8 +62,8 @@ static void DNSReadPrefs(void) {
     id globalCF  = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
     id styleCF   = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
 
-    // 2) 文件持久化值（所有进程都能读到，但可能有延迟）
-    NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
+    // 2) 文件持久化值 - 尝试所有已知越狱路径（cfprefs 兜底）
+    NSMutableDictionary *settings = DNSPrefsReadFromFile();
 
     // 3) 优先用 cfprefs（实时），没有则 fallback 到文件（兼容）
     if (enabledCF) {
@@ -128,6 +142,9 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 - (void)didMoveToSuperview {
     %orig;
     [self dns_setup];
+    // 无条件注册通知：即使当前没挂皮（global=NO），等 global 切 ON 时也能热切换
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
 }
 
 %new
