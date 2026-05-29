@@ -103,8 +103,8 @@
     self.planeIcon.contentMode = UIViewContentModeScaleAspectFit;
     self.planeIcon.tintColor = ColorHex(0x6B6D76);
 
-    // 原生大客机是机头朝上的，我们顺时针旋转 45 度，让它正好向右平飞
-    self.planeIcon.transform = CGAffineTransformMakeRotation(M_PI_4);
+    // 原生大客机本身就是向右的，这里不再旋转，避免变成向右下飞
+    self.planeIcon.transform = CGAffineTransformIdentity;
 
     [self.knobView addSubview:self.planeIcon];
     [self.trackView addSubview:self.knobView];

@@ -1,11 +1,10 @@
-Package: com.hang.kaiguan
+Package: de.finngaida.daynightswitch
 Name: DayNightSwitch
 Depends: firmware (>= 14.0), mobilesubstrate
 Version: 1.2.1
 Architecture: iphoneos-arm
-Description: Dynamic switch skins for iOS
-Depiction: https://github.com/doimty/DayNightSwitch
-Icon: https://raw.githubusercontent.com/doimty/DayNightSwitch/master/daynightswitch/Resources/icon@3x.png
-Maintainer: 航
-Author: 航
+Description: Add some style to your switches
+Depiction: https://finngaida.de/repo/depictions/de.finngaida.daynightswitch
+Maintainer: Finn Gaida
+Author: Finn Gaida
 Section: Tweaks
