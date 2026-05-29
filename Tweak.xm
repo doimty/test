@@ -37,12 +37,7 @@ static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
 // 注意：fdf730f 版本工作正常，改用 CFPreferencesCopyAppValue 后部分进程读不到 global=YES
 
 static NSString *DNSPrefsPath(void) {
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *mobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
-    if ([fm fileExistsAtPath:mobilePath]) {
-        return mobilePath;
-    }
-    return @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences/de.finngaida.daynightswitch.plist"];
 }
 
 static void DNSReadPrefs(void) {
