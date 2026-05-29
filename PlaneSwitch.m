@@ -273,6 +273,10 @@
         self.moved = NO;
         self.hovering = NO;
         [self animateHoverState];
+
+        if (self.isOn != self.isOnBeforeDrag && self.changeAction) {
+            self.changeAction(self.isOn, YES);
+        }
     }
 }
 
@@ -283,7 +287,7 @@
     _on = on;
 
     if (self.changeAction && !_shouldSkipChangeAction && animated) {
-        self.changeAction(on, YES);
+        self.changeAction(on, !self.isMoved);
     }
     BOOL doAnimate = animated && _shouldAnimateImportant;
 
