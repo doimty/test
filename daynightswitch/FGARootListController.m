@@ -6,6 +6,8 @@
 #import <spawn.h>
 #import <notify.h>
 
+extern char **environ;
+
 static NSString *const DNSPrefsChangedDarwinNotification = @"de.finngaida.daynightswitch/settingschanged";
 
 @implementation FGARootListController
@@ -24,30 +26,42 @@ static NSString *const DNSPrefsChangedDarwinNotification = @"de.finngaida.daynig
 }
 
 - (void)respring {
-    pid_t pid;
-    NSArray<NSString *> *candidates = @[@"/var/jb/usr/bin/sbreload", @"/usr/bin/sbreload", @"/var/jb/usr/bin/killall", @"/usr/bin/killall", @"/bin/killall"];
-    NSString *toolPath = nil;
-    for (NSString *path in candidates) {
-        if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
-            toolPath = path;
-            break;
-        }
-    }
-    if (!toolPath) {
-        return;
-    }
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSArray<NSArray<NSString *> *> *commands = @[
+            @[@"/var/jb/usr/bin/sbreload"],
+            @[@"/usr/bin/sbreload"],
+            @[@"/var/jb/usr/bin/ldrestart"],
+            @[@"/usr/bin/ldrestart"],
+            @[@"/var/jb/usr/bin/killall", @"-9", @"SpringBoard"],
+            @[@"/usr/bin/killall", @"-9", @"SpringBoard"],
+            @[@"/bin/killall", @"-9", @"SpringBoard"]
+        ];
 
-    const char *args[4];
-    if ([[toolPath lastPathComponent] isEqualToString:@"sbreload"]) {
-        args[0] = "sbreload";
-        args[1] = NULL;
-    } else {
-        args[0] = "killall";
-        args[1] = "-9";
-        args[2] = "SpringBoard";
-        args[3] = NULL;
-    }
-    posix_spawn(&pid, [toolPath fileSystemRepresentation], NULL, NULL, (char *const *)args, NULL);
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSArray<NSString *> *command in commands) {
+            NSString *path = command.firstObject;
+            if (![fm fileExistsAtPath:path]) {
+                continue;
+            }
+
+            NSUInteger count = command.count;
+            char **args = calloc(count + 1, sizeof(char *));
+            if (!args) {
+                return;
+            }
+            for (NSUInteger i = 0; i < count; i++) {
+                args[i] = (char *)[command[i] UTF8String];
+            }
+            args[count] = NULL;
+
+            pid_t pid = 0;
+            int status = posix_spawn(&pid, [path fileSystemRepresentation], NULL, NULL, args, environ);
+            free(args);
+            if (status == 0) {
+                return;
+            }
+        }
+    });
 }
 
 - (void)twitter {
