@@ -313,12 +313,12 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
 %end
 
-static UIView *DNSFindViewConformingToSwitchProtocol(UIView *view) {
-    if ([view conformsToProtocol:@protocol(FGASwitchProtocol)]) {
+static UIView *DNSFindSwitchViewThatCanDisableAnimations(UIView *view) {
+    if ([view respondsToSelector:@selector(dns_disableAnimations)]) {
         return view;
     }
     for (UIView *subview in view.subviews) {
-        UIView *foundView = DNSFindViewConformingToSwitchProtocol(subview);
+        UIView *foundView = DNSFindSwitchViewThatCanDisableAnimations(subview);
         if (foundView) {
             return foundView;
         }
@@ -334,9 +334,9 @@ static UIView *DNSFindViewConformingToSwitchProtocol(UIView *view) {
 - (void)layoutSubviews {
     %orig;
 
-    UIView *customSwitch = DNSFindViewConformingToSwitchProtocol(self.contentView);
-    if ([customSwitch respondsToSelector:@selector(dns_disableAnimations)]) {
-        [(id<FGASwitchProtocol>)customSwitch dns_disableAnimations];
+    UIView *customSwitch = DNSFindSwitchViewThatCanDisableAnimations(self.contentView);
+    if (customSwitch) {
+        [(id)customSwitch dns_disableAnimations];
     }
 }
 
