@@ -153,7 +153,7 @@
     [self addGestureRecognizer:tapGesture];
 
     UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panGestureOccurred:)];
-    panGesture.cancelsTouchesInView = NO;
+    panGesture.cancelsTouchesInView = YES;
     [self addGestureRecognizer:panGesture];
 }
 
