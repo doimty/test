@@ -4,13 +4,7 @@
 #import "StripedSwitch.h"
 #import "DongRiYueSwitch.h"
 #import "PlaneSwitch.h"
-#import "MagicSwitch.h"
-#import "FoodSwitch.h"
 #import "BB8Switch.h"
-#import "NavSwitch.h"
-#import "TeethSwitch.h"
-#import "XiXiSwitch.h"
-#import "DoggoSwitch.h"
 
 
 @interface PSSwitchTableCell : UITableViewCell
@@ -203,29 +197,11 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     } else if (switchStyle == 3) {
         // 对应 3: 飞机跑道
         sub = (UIView<FGASwitchProtocol> *)[[PlaneSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 4) {
-        // 对应 4: 日月交替
-        sub = (UIView<FGASwitchProtocol> *)[[MagicSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 5) {
-        // 对应 5: 汉堡薯条
-        sub = (UIView<FGASwitchProtocol> *)[[FoodSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else if (switchStyle == 6) {
         // 对应 6: 星战机器人 (BB-8)
         sub = (UIView<FGASwitchProtocol> *)[[BB8Switch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 7) {
-        // 对应 7: 星夜火箭
-        sub = (UIView<FGASwitchProtocol> *)[[NavSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 8) {
-        // 对应 8: 纯洁牙齿
-        sub = (UIView<FGASwitchProtocol> *)[[TeethSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 9) {
-        // 对应 9: 嘻嘻
-        sub = (UIView<FGASwitchProtocol> *)[[XiXiSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 10) {
-        // 对应 10: 狗狗翻滚
-        sub = (UIView<FGASwitchProtocol> *)[[DoggoSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else {
-        // 默认对应 0 (以及 9~10 的敬请期待): 日夜交替 (静态)
+        // 默认 0: 经典日月
         sub = (UIView<FGASwitchProtocol> *)[[DayNightSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     }
     sub.on = self.on;

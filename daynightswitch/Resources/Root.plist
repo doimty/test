@@ -50,13 +50,7 @@
 				<integer>1</integer>
 				<integer>2</integer>
 				<integer>3</integer>
-				<integer>4</integer>
-				<integer>5</integer>
 				<integer>6</integer>
-				<integer>7</integer>
-				<integer>8</integer>
-				<integer>9</integer>
-				<integer>10</integer>
 			</array>
 			<key>validTitles</key>
 			<array>
@@ -64,13 +58,7 @@
 				<string>清晰条纹</string>
 				<string>动态日月</string>
 				<string>飞机跑道</string>
-				<string>日月交替</string>
-				<string>汉堡薯条</string>
 				<string>星战机器</string>
-				<string>星空火箭</string>
-				<string>纯洁牙齿</string>
-				<string>嘻嘻嘻嘻</string>
-				<string>狗狗翻滚</string>
 			</array>
 		</dict>
 
