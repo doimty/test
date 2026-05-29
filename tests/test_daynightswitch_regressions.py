@@ -44,8 +44,11 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertIn('return DNSPrefsMobilePath;', body)
         self.assertIn('return DNSPrefsRootlessPath;', body)
 
-    def test_root_plist_restores_enabled_escape_hatch(self):
-        self.assertIn('<string>enabled</string>', ROOT_PLIST)
+    def test_root_plist_matches_deb_ui_copy(self):
+        self.assertNotIn('<string>enabled</string>', ROOT_PLIST)
+        self.assertNotIn('关于作者', ROOT_PLIST)
+        self.assertIn('<string>global</string>', ROOT_PLIST)
+        self.assertIn('<string>switchStyle</string>', ROOT_PLIST)
 
     def test_dns_setup_registers_for_prefs_refresh_before_custom_switch_exists(self):
         body = method_body(TWEAK, '- (void)dns_setup')
@@ -77,7 +80,8 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertFalse(bad.exists(), bad)
 
     def test_plane_switch_cleans_looping_animations_and_rotates_plane(self):
-        self.assertIn('CGAffineTransformMakeRotation(M_PI_4)', PLANE)
+        self.assertIn('self.planeIcon.transform = CGAffineTransformIdentity;', PLANE)
+        self.assertNotIn('CGAffineTransformMakeRotation(M_PI_4)', PLANE)
         self.assertNotIn('CGAffineTransformMakeRotation(M_PI_2)', PLANE)
         body = method_body(PLANE, '- (void)didMoveToWindow')
         self.assertIn('else', body)
@@ -110,10 +114,14 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertNotIn('actions/checkout@v4', WORKFLOW)
         self.assertNotIn('actions/upload-artifact@v4', WORKFLOW)
 
-    def test_control_uses_repo_urls_not_third_party_image_bed(self):
-        self.assertNotIn('imgdb.cn', CONTROL)
-        self.assertIn('github.com/doimty/DayNightSwitch', CONTROL)
-        self.assertIn('raw.githubusercontent.com/doimty/DayNightSwitch', CONTROL)
+    def test_control_matches_deb_metadata_copy(self):
+        self.assertIn('Package: de.finngaida.daynightswitch', CONTROL)
+        self.assertIn('Description: Add some style to your switches', CONTROL)
+        self.assertIn('Depiction: https://finngaida.de/repo/depictions/de.finngaida.daynightswitch', CONTROL)
+        self.assertIn('Maintainer: Finn Gaida', CONTROL)
+        self.assertIn('Author: Finn Gaida', CONTROL)
+        self.assertNotIn('github.com/doimty/DayNightSwitch', CONTROL)
+        self.assertNotIn('raw.githubusercontent.com/doimty/DayNightSwitch', CONTROL)
 
 
 if __name__ == '__main__':

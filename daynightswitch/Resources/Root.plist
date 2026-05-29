@@ -14,18 +14,6 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>de.finngaida.daynightswitch</string>
-			<key>key</key>
-			<string>enabled</string>
-			<key>label</key>
-			<string>启用 DayNightSwitch</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
 			<false/>
 			<key>defaults</key>
 			<string>de.finngaida.daynightswitch</string>
@@ -77,15 +65,6 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
-		</dict>
-
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>关于作者</string>
-			<key>footerText</key>
-			<string>航</string>
 		</dict>
 	</array>
 	<key>title</key>
