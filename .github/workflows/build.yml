@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -48,10 +48,12 @@ jobs:
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/roothide/theos.git "$THEOS"
+          git -C "$THEOS" checkout --detach 88506b2c22e9e07dd4ed055f23c9e398a117a2c7
 
       - name: Install Theos SDK with private frameworks
         run: |
           git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
+          git -C /tmp/theos-sdks checkout --detach 0222fd5413cf4b9af096f37b4621afa2688572f7
           git -C /tmp/theos-sdks sparse-checkout set iPhoneOS16.5.sdk
           mkdir -p "$THEOS/sdks"
           cp -R /tmp/theos-sdks/iPhoneOS16.5.sdk "$THEOS/sdks/"
@@ -63,7 +65,7 @@ jobs:
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME}" SDKVERSION=16.5
 
       - name: Upload deb packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: daynightswitch-${{ matrix.scheme }}-packages
           path: packages/*

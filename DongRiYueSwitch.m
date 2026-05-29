@@ -157,6 +157,86 @@
     [self addGestureRecognizer:panGesture];
 }
 
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if (self.window) {
+        [self dns_startLoopingAnimations];
+    } else {
+        [self dns_stopAllLoopingAnimations];
+    }
+}
+
+- (void)dns_startLoopingAnimations {
+    NSArray<NSNumber *> *delays = @[@0.0, @0.3, @0.6, @0.9, @1.2];
+
+    for (NSUInteger i = 0; i < self.starsClusterContainer.subviews.count; i++) {
+        UIView *star = self.starsClusterContainer.subviews[i];
+        [star.layer removeAnimationForKey:@"twinkle"];
+        [star.layer removeAnimationForKey:@"fade"];
+
+        CGFloat delay = i < delays.count ? delays[i].doubleValue : 0.0;
+
+        CABasicAnimation *twinkle = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
+        twinkle.fromValue = @(1.0);
+        twinkle.toValue = @(1.2);
+        twinkle.duration = 0.5;
+        twinkle.autoreverses = YES;
+        twinkle.repeatCount = HUGE_VALF;
+        twinkle.beginTime = CACurrentMediaTime() + delay;
+        [star.layer addAnimation:twinkle forKey:@"twinkle"];
+
+        CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+        fade.fromValue = @(0.3);
+        fade.toValue = @(1.0);
+        fade.duration = 0.5;
+        fade.autoreverses = YES;
+        fade.repeatCount = HUGE_VALF;
+        fade.beginTime = CACurrentMediaTime() + delay;
+        [star.layer addAnimation:fade forKey:@"fade"];
+    }
+
+    for (UIView *particle in [self.nightSkyEffectsContainer.subviews copy]) {
+        [particle removeFromSuperview];
+    }
+    [self addParticleToSky:@"shootingStar" w:2 h:2 color:0xFFFFFF delay:0 duration:2 type:1];
+    [self addParticleToSky:@"shootingStar2" w:1 h:1 color:0xFFFFFF delay:1 duration:3 type:1];
+    [self addParticleToSky:@"meteor" w:3 h:3 color:0xFFD700 delay:2 duration:4 type:2];
+    [self addParticleToSky:@"comet1" w:2 h:2 color:0xFFFFFF delay:0 duration:4 type:3];
+    [self addParticleToSky:@"comet2" w:2 h:2 color:0xFFFFFF delay:2 duration:6 type:3];
+}
+
+- (void)dns_stopAllLoopingAnimations {
+    [self.layer removeAllAnimations];
+    [self.trackView.layer removeAllAnimations];
+    [self.dayBgView.layer removeAllAnimations];
+    [self.nightBgView.layer removeAllAnimations];
+    [self.circleContainer.layer removeAllAnimations];
+    [self.sunMoonContainer.layer removeAllAnimations];
+    [self.moonView.layer removeAllAnimations];
+    [self.haloView.layer removeAllAnimations];
+    [self.cloudsContainer.layer removeAllAnimations];
+    [self.starsClusterContainer.layer removeAllAnimations];
+    [self.nightSkyEffectsContainer.layer removeAllAnimations];
+
+    for (UIView *cloudPart in self.cloudsContainer.subviews) {
+        [cloudPart.layer removeAllAnimations];
+        for (UIView *subview in cloudPart.subviews) {
+            [subview.layer removeAllAnimations];
+        }
+    }
+
+    for (UIView *star in self.starsClusterContainer.subviews) {
+        [star.layer removeAllAnimations];
+    }
+
+    for (UIView *particle in self.nightSkyEffectsContainer.subviews) {
+        [particle.layer removeAllAnimations];
+        for (CALayer *sublayer in particle.layer.sublayers) {
+            [sublayer removeAllAnimations];
+        }
+    }
+}
+
 // ================= 【手势事件接管】 =================
 - (void)tapGestureOccurred:(UITapGestureRecognizer *)sender {
     if (self.isDragging) return;
@@ -185,7 +265,6 @@
         self.moved = NO;
         self.hovering = NO;
         [self animateHoverState];
-
         if (self.isOn != self.isOnBeforeDrag && self.changeAction) {
             self.changeAction(self.isOn, YES);
         }
@@ -397,5 +476,9 @@
 - (CGFloat)knobMargin { return 3.0; }
 - (void)blockChangeActionAnimated:(BOOL)animated { _shouldSkipChangeAction = YES; }
 - (void)unblockChangeAction { _shouldSkipChangeAction = NO; }
+
+- (void)dealloc {
+    [self dns_stopAllLoopingAnimations];
+}
 
 @end

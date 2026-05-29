@@ -103,8 +103,8 @@
     self.planeIcon.contentMode = UIViewContentModeScaleAspectFit;
     self.planeIcon.tintColor = ColorHex(0x6B6D76);
 
-    // 原生大客机是机头朝上的，我们顺时针旋转 90 度，让它完美向右平飞
-    self.planeIcon.transform = CGAffineTransformMakeRotation(0.0 * M_PI / 180.0);
+    // 原生大客机是机头朝上的，我们顺时针旋转 45 度，让它正好向右平飞
+    self.planeIcon.transform = CGAffineTransformMakeRotation(M_PI_4);
 
     [self.knobView addSubview:self.planeIcon];
     [self.trackView addSubview:self.knobView];
@@ -125,6 +125,8 @@
     [super didMoveToWindow];
     if (self.window) {
         [self startAllLoopingAnimations];
+    } else {
+        [self dns_stopAllLoopingAnimations];
     }
 }
 
@@ -171,6 +173,23 @@
         anim.duration = 2.0;
         anim.repeatCount = HUGE_VALF;
         [light.layer addAnimation:anim forKey:@"lightsBlink"];
+    }
+}
+
+- (void)dns_stopAllLoopingAnimations {
+    [self.layer removeAllAnimations];
+    [self.trackView.layer removeAllAnimations];
+    [self.streetBgView.layer removeAllAnimations];
+    [self.skyBgView.layer removeAllAnimations];
+    [self.runwayContainer.layer removeAllAnimations];
+    [self.cloudsContainer.layer removeAllAnimations];
+    [self.cloud1.layer removeAllAnimations];
+    [self.cloud2.layer removeAllAnimations];
+    [self.knobView.layer removeAllAnimations];
+    [self.planeIcon.layer removeAllAnimations];
+
+    for (UIView *light in self.runwayLights) {
+        [light.layer removeAllAnimations];
     }
 }
 
@@ -273,7 +292,6 @@
         self.moved = NO;
         self.hovering = NO;
         [self animateHoverState];
-
         if (self.isOn != self.isOnBeforeDrag && self.changeAction) {
             self.changeAction(self.isOn, YES);
         }
@@ -338,5 +356,9 @@
 - (CGFloat)knobMargin { return 1.0; }
 - (void)blockChangeActionAnimated:(BOOL)animated { _shouldSkipChangeAction = YES; }
 - (void)unblockChangeAction { _shouldSkipChangeAction = NO; }
+
+- (void)dealloc {
+    [self dns_stopAllLoopingAnimations];
+}
 
 @end

@@ -192,7 +192,6 @@
         self.moved = NO;
         self.hovering = NO;
         [self animateHoverState];
-
         if (self.isOn != self.isOnBeforeDrag && self.changeAction) {
             self.changeAction(self.isOn, YES);
         }
