@@ -3,12 +3,10 @@
 #import <Preferences/PSSpecifier.h>
 
 
-#import <spawn.h>
 #import <notify.h>
 
-extern char **environ;
-
 static NSString *const DNSPrefsChangedDarwinNotification = @"de.finngaida.daynightswitch/settingschanged";
+static NSString *const DNSRespringDarwinNotification = @"de.finngaida.daynightswitch/respring";
 
 @implementation FGARootListController
 
@@ -26,42 +24,7 @@ static NSString *const DNSPrefsChangedDarwinNotification = @"de.finngaida.daynig
 }
 
 - (void)respring {
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSArray<NSArray<NSString *> *> *commands = @[
-            @[@"/var/jb/usr/bin/sbreload"],
-            @[@"/usr/bin/sbreload"],
-            @[@"/var/jb/usr/bin/ldrestart"],
-            @[@"/usr/bin/ldrestart"],
-            @[@"/var/jb/usr/bin/killall", @"-9", @"SpringBoard"],
-            @[@"/usr/bin/killall", @"-9", @"SpringBoard"],
-            @[@"/bin/killall", @"-9", @"SpringBoard"]
-        ];
-
-        NSFileManager *fm = [NSFileManager defaultManager];
-        for (NSArray<NSString *> *command in commands) {
-            NSString *path = command.firstObject;
-            if (![fm fileExistsAtPath:path]) {
-                continue;
-            }
-
-            NSUInteger count = command.count;
-            char **args = calloc(count + 1, sizeof(char *));
-            if (!args) {
-                return;
-            }
-            for (NSUInteger i = 0; i < count; i++) {
-                args[i] = (char *)[command[i] UTF8String];
-            }
-            args[count] = NULL;
-
-            pid_t pid = 0;
-            int status = posix_spawn(&pid, [path fileSystemRepresentation], NULL, NULL, args, environ);
-            free(args);
-            if (status == 0) {
-                return;
-            }
-        }
-    });
+    notify_post([DNSRespringDarwinNotification UTF8String]);
 }
 
 - (void)twitter {

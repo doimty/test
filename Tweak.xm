@@ -1,4 +1,7 @@
 #import <objc/runtime.h>
+#import <spawn.h>
+
+extern char **environ;
 #import "DayNightSwitch.h" // 原版自带效果
 #import "StripedSwitch.h"  // 新版条纹效果
 #import "DongRiYueSwitch.h"
@@ -65,8 +68,52 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     });
 }
 
+static void DNSRunRespringCommand(void) {
+    NSArray<NSArray<NSString *> *> *commands = @[
+        @[@"/var/jb/usr/bin/sbreload"],
+        @[@"/usr/bin/sbreload"],
+        @[@"/var/jb/usr/bin/ldrestart"],
+        @[@"/usr/bin/ldrestart"],
+        @[@"/var/jb/usr/bin/killall", @"-9", @"SpringBoard"],
+        @[@"/usr/bin/killall", @"-9", @"SpringBoard"],
+        @[@"/bin/killall", @"-9", @"SpringBoard"]
+    ];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSArray<NSString *> *command in commands) {
+        NSString *path = command.firstObject;
+        if (![fm fileExistsAtPath:path]) {
+            continue;
+        }
+
+        NSUInteger count = command.count;
+        char **args = calloc(count + 1, sizeof(char *));
+        if (!args) {
+            return;
+        }
+        for (NSUInteger i = 0; i < count; i++) {
+            args[i] = (char *)[command[i] UTF8String];
+        }
+        args[count] = NULL;
+
+        pid_t pid = 0;
+        int status = posix_spawn(&pid, [path fileSystemRepresentation], NULL, NULL, args, environ);
+        free(args);
+        if (status == 0) {
+            return;
+        }
+    }
+}
+
+static void DNSRespringRequested(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        DNSRunRespringCommand();
+    });
+}
+
 %ctor {
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, DNSPrefsChanged, CFSTR("de.finngaida.daynightswitch/settingschanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, DNSRespringRequested, CFSTR("de.finngaida.daynightswitch/respring"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
     DNSReadPrefs();
 }
 
