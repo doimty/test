@@ -77,7 +77,8 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertFalse(bad.exists(), bad)
 
     def test_plane_switch_cleans_looping_animations_and_rotates_plane(self):
-        self.assertIn('CGAffineTransformMakeRotation(M_PI_2)', PLANE)
+        self.assertIn('CGAffineTransformMakeRotation(M_PI_4)', PLANE)
+        self.assertNotIn('CGAffineTransformMakeRotation(M_PI_2)', PLANE)
         body = method_body(PLANE, '- (void)didMoveToWindow')
         self.assertIn('else', body)
         self.assertIn('[self dns_stopAllLoopingAnimations];', body)
