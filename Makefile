@@ -11,7 +11,7 @@ DayNightSwitch_FILES += DayNightSwitch.m
 DayNightSwitch_FILES += StripedSwitch.m
 DayNightSwitch_FILES += DongRiYueSwitch.m
 DayNightSwitch_FILES += PlaneSwitch.m
-DayNightSwitch_FILES += BB8Switch.m
+DayNightSwitch_FILES += TeethSwitch.m
 DayNightSwitch_CFLAGS += -fobjc-arc
 
 DayNightSwitch_CFLAGS += -Wno-nullability-completeness

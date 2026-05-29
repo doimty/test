@@ -4,7 +4,7 @@
 #import "StripedSwitch.h"
 #import "DongRiYueSwitch.h"
 #import "PlaneSwitch.h"
-#import "BB8Switch.h"
+#import "TeethSwitch.h"
 
 
 @interface PSSwitchTableCell : UITableViewCell
@@ -33,20 +33,24 @@ static BOOL enabled = NO;
 static BOOL global = NO;
 static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
 
-// 删掉了 DNSPrefsPath — 改用 CFPreferencesCopyAppValue 直接从缓存读
-// 不再需要 plist 文件路径，不需要检查 /var/mobile 还是 /var/jb
+// 恢复 DNSPrefsPath：使用 plist 文件直接读取配置
+// 注意：fdf730f 版本工作正常，改用 CFPreferencesCopyAppValue 后部分进程读不到 global=YES
+
+static NSString *DNSPrefsPath(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *mobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
+    if ([fm fileExistsAtPath:mobilePath]) {
+        return mobilePath;
+    }
+    return @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
+}
 
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
-
-    id enabledVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("enabled"), CFSTR("de.finngaida.daynightswitch"));
-    enabled = enabledVal ? [enabledVal boolValue] : YES;
-
-    id globalVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
-    global = globalVal ? [globalVal boolValue] : NO;
-
-    id styleVal = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
-    switchStyle = styleVal ? [styleVal integerValue] : 0;
+    NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
+    enabled = [settings objectForKey:@"enabled"] ? [[settings objectForKey:@"enabled"] boolValue] : YES;
+    global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
+    switchStyle = [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0;
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -197,9 +201,9 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     } else if (switchStyle == 3) {
         // 对应 3: 飞机跑道
         sub = (UIView<FGASwitchProtocol> *)[[PlaneSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 6) {
-        // 对应 6: 星战机器人 (BB-8)
-        sub = (UIView<FGASwitchProtocol> *)[[BB8Switch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
+    } else if (switchStyle == 8) {
+        // 对应 8: 纯洁牙齿
+        sub = (UIView<FGASwitchProtocol> *)[[TeethSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else {
         // 默认 0: 经典日月
         sub = (UIView<FGASwitchProtocol> *)[[DayNightSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
@@ -249,9 +253,6 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         self.thumbTintColor = [UIColor clearColor];
         customSwitch.frame = self.bounds;
         [self bringSubviewToFront:customSwitch];
-        // 保持自定义开关的视觉状态与原生 UISwitch 同步
-        // layoutSubviews 会在 cell 复用/滚回屏幕时触发，此时 setOn: 可能没被调过
-        [self dns_syncCustomSwitchWithOn:self.on animated:NO];
     }
     %orig;
 }
