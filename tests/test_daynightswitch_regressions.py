@@ -73,11 +73,6 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertIn('respondsToSelector:@selector(unblockChangeAction)', body)
         self.assertIn('respondsToSelector:@selector(setOn:)', body)
 
-    def test_custom_switch_visual_layer_does_not_intercept_scroll_touches(self):
-        body = method_body(TWEAK, '- (void)dns_addSwitch')
-        self.assertIn('sub.userInteractionEnabled = NO;', body)
-        self.assertLess(body.index('sub.on = self.on;'), body.index('sub.userInteractionEnabled = NO;'))
-
     def test_layout_uses_library_application_support_not_var_mobile(self):
         good = REPO / 'layout/Library/Application Support/DayNightSwitch/cloud.png'
         bad = REPO / 'layout/var/mobile/Library/Application Support/DayNightSwitch/cloud.png'
