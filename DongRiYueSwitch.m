@@ -124,7 +124,7 @@
 
     self.sunMoonContainer.layer.shadowColor = [UIColor blackColor].CGColor;
     self.sunMoonContainer.layer.shadowOffset = CGSizeMake(0.062 * _em, 0.125 * _em);
-    self.sunMoonContainer.layer.shadowOpacity = 0.25;
+    self.sunMoonContainer.layer.shadowOpacity = 0.0;
     self.sunMoonContainer.layer.shadowRadius = 0.125 * _em;
 
     self.haloView = [[UIView alloc] initWithFrame:CGRectInset(self.sunMoonContainer.bounds, -5, -5)];
@@ -323,7 +323,7 @@
         UIView *star = [[UIView alloc] initWithFrame:CGRectMake(starPositions[i][1] * self.starsClusterContainer.bounds.size.width, starPositions[i][0] * self.starsClusterContainer.bounds.size.height, 2, 2)];
         star.backgroundColor = [UIColor whiteColor]; star.layer.cornerRadius = 1;
         star.layer.shadowColor = [UIColor whiteColor].CGColor; star.layer.shadowRadius = 4;
-        star.layer.shadowOpacity = 1; star.layer.shadowOffset = CGSizeZero;
+        star.layer.shadowOpacity = 0.0; star.layer.shadowOffset = CGSizeZero;
         [self.starsClusterContainer addSubview:star];
 
     }

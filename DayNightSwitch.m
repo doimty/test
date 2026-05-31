@@ -110,7 +110,7 @@
     // 给滑块本体加一个外阴影，立体感更强
     v.layer.shadowColor = [UIColor blackColor].CGColor;
     v.layer.shadowOffset = CGSizeMake(0, 2);
-    v.layer.shadowOpacity = 0.2;
+    v.layer.shadowOpacity = 0.0;
     v.layer.shadowRadius = 3.0;
     v.layer.masksToBounds = NO;
 
@@ -140,7 +140,7 @@
         star.backgroundColor = [UIColor whiteColor];
         star.layer.cornerRadius = star.frame.size.width / 2.0;
         star.layer.shadowColor = [UIColor whiteColor].CGColor;
-        star.layer.shadowOpacity = 0.8;
+        star.layer.shadowOpacity = 0.0;
         star.layer.shadowRadius = 2.0;
         star.layer.shadowOffset = CGSizeZero;
 
