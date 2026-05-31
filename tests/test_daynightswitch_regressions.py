@@ -4,6 +4,7 @@ import unittest
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TWEAK = (REPO / "Tweak.xm").read_text(encoding="utf-8")
 ROOT_PLIST = (REPO / "daynightswitch/Resources/Root.plist").read_text(encoding="utf-8")
+DAY = (REPO / "DayNightSwitch.m").read_text(encoding="utf-8")
 PLANE = (REPO / "PlaneSwitch.m").read_text(encoding="utf-8")
 DONG = (REPO / "DongRiYueSwitch.m").read_text(encoding="utf-8")
 TEETH = (REPO / "TeethSwitch.m").read_text(encoding="utf-8")
@@ -76,7 +77,15 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
     def test_custom_switch_visual_layer_does_not_intercept_scroll_touches(self):
         body = method_body(TWEAK, '- (void)dns_addSwitch')
         self.assertIn('sub.userInteractionEnabled = NO;', body)
+        self.assertIn('sub.layer.shouldRasterize = YES;', body)
+        self.assertIn('sub.layer.rasterizationScale = UIScreen.mainScreen.scale;', body)
         self.assertLess(body.index('sub.on = self.on;'), body.index('sub.userInteractionEnabled = NO;'))
+
+    def test_heavy_styles_avoid_continuous_scroll_time_rendering(self):
+        self.assertNotIn('UIVisualEffectView', DAY)
+        body = method_body(DONG, '- (void)didMoveToWindow')
+        self.assertNotIn('dns_startLoopingAnimations', body)
+        self.assertIn('[self dns_stopAllLoopingAnimations];', body)
 
     def test_layout_uses_library_application_support_not_var_mobile(self):
         good = REPO / 'layout/Library/Application Support/DayNightSwitch/cloud.png'

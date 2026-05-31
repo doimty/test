@@ -275,6 +275,8 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     sub.on = self.on;
     // 视觉层不接管触摸，避免列表滚动扫过开关时触发自定义 pan 动画导致掉帧。
     sub.userInteractionEnabled = NO;
+    sub.layer.shouldRasterize = YES;
+    sub.layer.rasterizationScale = UIScreen.mainScreen.scale;
 
     __weak __typeof(self) weakSelf = self;
     sub.changeAction = ^(BOOL on, BOOL shouldNotifyChanged) {
