@@ -1,0 +1,64 @@
+Package: com.be-huge.insulation
+Name: insulation
+Description: 解除温控，一切从简即可。代码已开源：https://github.com/be-huge/insulation
+Maintainer: be-huge
+Author: be-huge
+Section: Tweaks
+Depends: dev.theos.orion (>= 1.0.0), firmware (>= 12.2)
+Architecture: iphoneos-arm64
+Version: 0.0.13
+Installed-Size: 704
+Filename: debs/com.be-huge.insulation_0.0.13_iphoneos-arm64.deb
+Size: 107012
+MD5sum: a32d55fe950bb4eb9b76b0833c1b480e
+SHA1: 72459230821a66c81c325cfc2e32a62c931983fb
+SHA256: 2045b5643539eb78c3979b8259aa1cfc3c5aa64baae26b10bf47bd6c2196187e
+
+Package: com.be-huge.insulation
+Name: insulation
+Description: 解除温控，一切从简即可。代码已开源：https://github.com/be-huge/insulation
+Maintainer: be-huge
+Author: be-huge
+Section: Tweaks
+Depends: dev.theos.orion (>= 1.0.0), firmware (>= 12.2)
+Architecture: iphoneos-arm64e
+Version: 0.0.13
+Installed-Size: 704
+Filename: debs/com.be-huge.insulation_0.0.13_iphoneos-arm64e.deb
+Size: 105034
+MD5sum: 16e1efd1cf4924dca54f073c5ab755dc
+SHA1: a4b108efb1370bce9413c19bf661a27925b56606
+SHA256: 312b9a68e186a855ff946f6fde0e09f7a7eaa9543df3a5f23e0b45af9f3aac5c
+
+Package: com.be-huge.insulation
+Name: insulation
+Description: 解除温控，一切从简即可。代码来自开源项目：https://github.com/be-huge/insulation 进行简单维护
+Maintainer: doimty
+Author: be-huge & doimty
+Section: Tweaks
+Depends: dev.theos.orion (>= 1.0.0), firmware (>= 12.2)
+Architecture: iphoneos-arm64
+Version: 0.0.18
+Installed-Size: 704
+Filename: debs/com.be-huge.insulation_0.0.18_iphoneos-arm64.deb
+Size: 107154
+MD5sum: edfc7163528001f68c78f9f33187cd10
+SHA1: ae13a6a5f8fcfe3cc25e03cbd5959b628bf54731
+SHA256: 801b15e3616b74dfabb77f3c2f5483e2b46d1d07921fcbc7e6977ec9c8c7cfcb
+
+Package: com.be-huge.insulation
+Name: insulation
+Description: 解除温控，一切从简即可。代码来自开源项目：https://github.com/be-huge/insulation 进行简单维护
+Maintainer: doimty
+Author: be-huge & doimty
+Section: Tweaks
+Depends: dev.theos.orion (>= 1.0.0), firmware (>= 12.2)
+Architecture: iphoneos-arm64e
+Version: 0.0.18
+Installed-Size: 704
+Filename: debs/com.be-huge.insulation_0.0.18_iphoneos-arm64e.deb
+Size: 105270
+MD5sum: 3df459f8ac65f61c05d4048dd5611413
+SHA1: eaa5a284672554726853a93d1dbfcd2fc278ebd7
+SHA256: 277a8d9aabbfa6b51435509a8aa1e6a48783aa8989463c005563da352ba5b4cd
+

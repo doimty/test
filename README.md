@@ -1,4 +1,4 @@
-# doimty Test Repo
+# Doimty Repo
 
 GitHub Pages hosted jailbreak APT repo.
 
