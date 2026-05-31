@@ -81,7 +81,7 @@
 // ================= 【主开关控件】 =================
 @interface DayNightSwitch ()
 @property(nonatomic, strong) Knob *knob;
-@property(nonatomic, strong) UIVisualEffectView *blurBackground;
+@property(nonatomic, strong) UIView *blurBackground;
 @property(nonatomic, strong) UIView *colorTintView;
 
 // 视觉元素图层
@@ -199,14 +199,10 @@
     self.dragging = NO;
     self.backgroundColor = [UIColor clearColor];
 
-    // --- 1. 毛玻璃底座层 ---
-    UIBlurEffect *blurEffect;
-    if (@available(iOS 13.0, *)) {
-        blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialLight];
-    } else {
-        blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
-    }
-    self.blurBackground = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+    // --- 1. 半透明底座层 ---
+    // 实时毛玻璃在滚动列表里会触发额外合成，经典日月会把刷新率压到 60。
+    self.blurBackground = [[UIView alloc] initWithFrame:self.bounds];
+    self.blurBackground.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.28];
     self.blurBackground.userInteractionEnabled = NO;
     self.blurBackground.layer.masksToBounds = YES;
     self.blurBackground.layer.borderWidth = 1.0;

@@ -117,6 +117,11 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
             self.assertNotIn('shadowOpacity = 1', source)
             self.assertNotIn('shadowOpacity = on ?', source)
 
+    def test_classic_daynight_does_not_use_live_blur_effect(self):
+        self.assertNotIn('UIVisualEffectView', DAY)
+        self.assertNotIn('UIBlurEffect', DAY)
+        self.assertIn('backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.28];', DAY)
+
     def test_all_switches_use_consistent_change_action_semantics(self):
         self.assertIn('self.changeAction(on, !self.isMoved);', DONG)
         self.assertIn('self.changeAction(on, !self.isMoved);', PLANE)
