@@ -92,8 +92,20 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
     def test_dong_switch_cleans_looping_animations(self):
         self.assertIn('- (void)dns_stopAllLoopingAnimations', DONG)
         body = method_body(DONG, '- (void)didMoveToWindow')
-        self.assertIn('[self dns_stopAllLoopingAnimations];', body)
+        self.assertIn('[self dns_updateLoopingAnimations];', body)
+        update_body = method_body(DONG, '- (void)dns_updateLoopingAnimations')
+        self.assertIn('self.window && self.isOn', update_body)
+        self.assertIn('[self dns_startLoopingAnimations];', update_body)
+        self.assertIn('[self dns_stopAllLoopingAnimations];', update_body)
         self.assertIn('- (void)dealloc', DONG)
+
+    def test_dong_switch_does_not_start_hidden_night_animations_at_init(self):
+        stars_body = method_body(DONG, '- (void)setupStarsCluster')
+        night_body = method_body(DONG, '- (void)setupNightSkyEffects')
+        self.assertNotIn('addAnimation:', stars_body)
+        self.assertNotIn('addParticleToSky:', night_body)
+        start_body = method_body(DONG, '- (void)dns_startLoopingAnimations')
+        self.assertIn('if (!self.window || !self.isOn)', start_body)
 
     def test_all_switches_use_consistent_change_action_semantics(self):
         self.assertIn('self.changeAction(on, !self.isMoved);', DONG)

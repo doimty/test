@@ -159,7 +159,11 @@
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    if (self.window) {
+    [self dns_updateLoopingAnimations];
+}
+
+- (void)dns_updateLoopingAnimations {
+    if (self.window && self.isOn) {
         [self dns_startLoopingAnimations];
     } else {
         [self dns_stopAllLoopingAnimations];
@@ -167,6 +171,11 @@
 }
 
 - (void)dns_startLoopingAnimations {
+    if (!self.window || !self.isOn) {
+        [self dns_stopAllLoopingAnimations];
+        return;
+    }
+
     NSArray<NSNumber *> *delays = @[@0.0, @0.3, @0.6, @0.9, @1.2];
 
     for (NSUInteger i = 0; i < self.starsClusterContainer.subviews.count; i++) {
@@ -206,34 +215,17 @@
 }
 
 - (void)dns_stopAllLoopingAnimations {
-    [self.layer removeAllAnimations];
-    [self.trackView.layer removeAllAnimations];
-    [self.dayBgView.layer removeAllAnimations];
-    [self.nightBgView.layer removeAllAnimations];
-    [self.circleContainer.layer removeAllAnimations];
-    [self.sunMoonContainer.layer removeAllAnimations];
-    [self.moonView.layer removeAllAnimations];
-    [self.haloView.layer removeAllAnimations];
-    [self.cloudsContainer.layer removeAllAnimations];
-    [self.starsClusterContainer.layer removeAllAnimations];
-    [self.nightSkyEffectsContainer.layer removeAllAnimations];
-
-    for (UIView *cloudPart in self.cloudsContainer.subviews) {
-        [cloudPart.layer removeAllAnimations];
-        for (UIView *subview in cloudPart.subviews) {
-            [subview.layer removeAllAnimations];
-        }
-    }
-
     for (UIView *star in self.starsClusterContainer.subviews) {
-        [star.layer removeAllAnimations];
+        [star.layer removeAnimationForKey:@"twinkle"];
+        [star.layer removeAnimationForKey:@"fade"];
     }
 
-    for (UIView *particle in self.nightSkyEffectsContainer.subviews) {
+    for (UIView *particle in [self.nightSkyEffectsContainer.subviews copy]) {
         [particle.layer removeAllAnimations];
-        for (CALayer *sublayer in particle.layer.sublayers) {
+        for (CALayer *sublayer in [particle.layer.sublayers copy]) {
             [sublayer removeAllAnimations];
         }
+        [particle removeFromSuperview];
     }
 }
 
@@ -334,15 +326,6 @@
         star.layer.shadowOpacity = 1; star.layer.shadowOffset = CGSizeZero;
         [self.starsClusterContainer addSubview:star];
 
-        CABasicAnimation *twinkle = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
-        twinkle.fromValue = @(1.0); twinkle.toValue = @(1.2); twinkle.duration = 0.5;
-        twinkle.autoreverses = YES; twinkle.repeatCount = HUGE_VALF; twinkle.beginTime = CACurrentMediaTime() + starPositions[i][2];
-        [star.layer addAnimation:twinkle forKey:@"twinkle"];
-
-        CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
-        fade.fromValue = @(0.3); fade.toValue = @(1.0); fade.duration = 0.5;
-        fade.autoreverses = YES; fade.repeatCount = HUGE_VALF; fade.beginTime = CACurrentMediaTime() + starPositions[i][2];
-        [star.layer addAnimation:fade forKey:@"fade"];
     }
 }
 
@@ -350,12 +333,6 @@
     self.nightSkyEffectsContainer = [[UIView alloc] initWithFrame:self.bounds];
     self.nightSkyEffectsContainer.alpha = 0;
     [self.trackView addSubview:self.nightSkyEffectsContainer];
-
-    [self addParticleToSky:@"shootingStar" w:2 h:2 color:0xFFFFFF delay:0 duration:2 type:1];
-    [self addParticleToSky:@"shootingStar2" w:1 h:1 color:0xFFFFFF delay:1 duration:3 type:1];
-    [self addParticleToSky:@"meteor" w:3 h:3 color:0xFFD700 delay:2 duration:4 type:2];
-    [self addParticleToSky:@"comet1" w:2 h:2 color:0xFFFFFF delay:0 duration:4 type:3];
-    [self addParticleToSky:@"comet2" w:2 h:2 color:0xFFFFFF delay:2 duration:6 type:3];
 }
 
 - (void)addParticleToSky:(NSString *)name w:(CGFloat)w h:(CGFloat)h color:(uint)color delay:(CGFloat)delay duration:(CGFloat)duration type:(int)type {
@@ -419,11 +396,14 @@
 
         [UIView animateWithDuration:0.5 delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
             [self layoutForCurrentStateAnimated:YES];
-        } completion:nil];
+        } completion:^(BOOL finished) {
+            [self dns_updateLoopingAnimations];
+        }];
 
         [CATransaction commit];
     } else {
         [self layoutForCurrentStateAnimated:NO];
+        [self dns_updateLoopingAnimations];
     }
 }
 
