@@ -146,7 +146,6 @@
     [self.trackView addSubview:self.circleContainer];
 
     [self layoutForCurrentStateAnimated:NO];
-    [self dns_stopAllLoopingAnimations];
 
     // ================= 手势事件绑定 =================
     UITapGestureRecognizer *tapGesture = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapGestureOccurred:)];
@@ -160,8 +159,11 @@
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    // 列表滚动时持续 CA 动画会拖慢合成刷新率；默认保持静态视觉。
-    [self dns_stopAllLoopingAnimations];
+    if (self.window) {
+        [self dns_startLoopingAnimations];
+    } else {
+        [self dns_stopAllLoopingAnimations];
+    }
 }
 
 - (void)dns_startLoopingAnimations {
