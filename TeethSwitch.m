@@ -77,7 +77,7 @@
     self.trackContainer.layer.shadowColor = [UIColor blackColor].CGColor;
     self.trackContainer.layer.shadowOffset = CGSizeMake(0, 4);
     self.trackContainer.layer.shadowRadius = 8;
-    self.trackContainer.layer.shadowOpacity = 0.0;
+    self.trackContainer.layer.shadowOpacity = 0.15;
     self.mouthTrackView.layer.borderWidth = 1.0;
     self.mouthTrackView.layer.borderColor = [UIColor colorWithWhite:0 alpha:0.1].CGColor;
     [self.trackContainer addSubview:self.mouthTrackView];
@@ -93,7 +93,7 @@
     self.knobContainer.layer.shadowColor = [UIColor blackColor].CGColor;
     self.knobContainer.layer.shadowOffset = CGSizeMake(0, 2);
     self.knobContainer.layer.shadowRadius = 4;
-    self.knobContainer.layer.shadowOpacity = 0.0;
+    self.knobContainer.layer.shadowOpacity = 0.25;
     [self.trackContainer addSubview:self.knobContainer];
 
     // 滑块本体

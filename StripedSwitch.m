@@ -101,7 +101,7 @@
     // 悬浮阴影
     self.knobView.layer.shadowColor = [UIColor blackColor].CGColor;
     self.knobView.layer.shadowOffset = CGSizeMake(0, 3);
-    self.knobView.layer.shadowOpacity = 0.0;
+    self.knobView.layer.shadowOpacity = 0.2;
     self.knobView.layer.shadowRadius = 5.0;
     self.knobView.layer.masksToBounds = NO;
 
@@ -235,7 +235,7 @@
 
             // 外部阴影 (在浅色背景下不再用死黑，而是通透的同色系阴影)
             self.knobView.layer.shadowColor = on ? onShadowColor.CGColor : [UIColor blackColor].CGColor;
-            self.knobView.layer.shadowOpacity = 0.0;
+            self.knobView.layer.shadowOpacity = on ? 0.8 : 0.2;
             self.knobView.layer.shadowRadius = on ? 5.0 : 4.0;
         } completion:nil];
 
@@ -258,7 +258,7 @@
                 line.backgroundColor = targetColor;
                 // 白线在浅色背景下加微弱的发光增强对比
                 line.layer.shadowColor = on ? targetColor.CGColor : [UIColor clearColor].CGColor;
-                line.layer.shadowOpacity = 0.0;
+                line.layer.shadowOpacity = on ? 0.6 : 0.0;
             } completion:nil];
         }
     } else {
@@ -270,7 +270,7 @@
 
         self.innerIndicator.opacity = on ? 1.0 : 0.0;
         self.knobView.layer.shadowColor = on ? onShadowColor.CGColor : [UIColor blackColor].CGColor;
-        self.knobView.layer.shadowOpacity = 0.0;
+        self.knobView.layer.shadowOpacity = on ? 0.8 : 0.2;
         self.knobView.layer.shadowRadius = on ? 5.0 : 4.0;
 
         self.line1.center = CGPointMake(linesTargetX, centerY - 6.0);
@@ -285,7 +285,7 @@
             UIColor *targetColor = on ? auroraColors[i] : offLineColor;
             line.backgroundColor = targetColor;
             line.layer.shadowColor = on ? targetColor.CGColor : [UIColor clearColor].CGColor;
-            line.layer.shadowOpacity = 0.0;
+            line.layer.shadowOpacity = on ? 0.6 : 0.0;
         }
     }
 }
