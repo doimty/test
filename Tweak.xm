@@ -17,6 +17,10 @@
 - (NSString *)identifier;
 @end
 
+@interface UISwitch (DNSPrefObserverDeclarations)
+- (void)dns_registerPrefsObserver;
+@end
+
 static char DNSDayNightSwitchKey;
 static char DNSCurrentStyleKey;
 static NSString *const DNSPrefsChangedNotification = @"DNSPrefsChangedNotification";
