@@ -324,6 +324,7 @@
         star.backgroundColor = [UIColor whiteColor]; star.layer.cornerRadius = 1;
         star.layer.shadowColor = [UIColor whiteColor].CGColor; star.layer.shadowRadius = 4;
         star.layer.shadowOpacity = 1; star.layer.shadowOffset = CGSizeZero;
+        star.layer.shadowPath = [UIBezierPath bezierPathWithOvalInRect:star.bounds].CGPath;
         [self.starsClusterContainer addSubview:star];
 
     }

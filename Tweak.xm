@@ -159,6 +159,11 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     %orig;
     [self dns_setup];
     // 无条件注册通知：即使当前没挂皮（global=NO），等 global 切 ON 时也能热切换
+    [self dns_registerPrefsObserver];
+}
+
+%new
+- (void)dns_registerPrefsObserver {
     [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
 }
@@ -199,8 +204,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
 %new
 - (void)dns_setup {
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
+    [self dns_registerPrefsObserver];
 
     if (![self dns_shouldApply]) {
         if (self.dns_dayNightSwitch) {
