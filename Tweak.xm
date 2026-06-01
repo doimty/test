@@ -204,7 +204,8 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
 %new
 - (void)dns_setup {
-    [self dns_registerPrefsObserver];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
 
     if (![self dns_shouldApply]) {
         if (self.dns_dayNightSwitch) {
