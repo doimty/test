@@ -3,87 +3,76 @@
 #import <QuartzCore/QuartzCore.h>
 #import <rootless.h>
 #import <Metal/Metal.h>
-#import <objc/runtime.h>
-#import <objc/message.h>
 
-#ifndef PM120_INLINE
-#define PM120_INLINE static inline
+// ============================================================
+#define TWEAK_NAME @"ProMotion120"
+#define TARGET_FPS 120
+
+// ============================================================
+// CAFrameRateRange 结构体定义 (iOS 15+)
+// ============================================================
+#ifndef __IPHONE_15_0
+typedef struct {
+    float minimum;
+    float preferred;
+    float maximum;
+} CAFrameRateRange;
 #endif
 
-// Recovered from com.promotion120 1.0.0-17+debug.
-// Notes:
-// - This is source reconstruction, not the lost original source.
-// - Behavior intentionally mirrors the uploaded debug deb first.
-// - Do not publish until tested on-device.
+// ============================================================
+// 真实硬件 ProMotion 检测 (通过 QuartzCore CADisplay)
+// 绕过 iOS 16 对未授权应用进程的 UIScreen.maximumFramesPerSecond 限制 (返回 60)
+// ============================================================
+@interface CADisplayMode : NSObject
+@property (nonatomic, readonly) double refreshRate;
+@end
 
-static BOOL pm120_checked = NO;
-static BOOL pm120_supported = NO;
-
-PM120_INLINE id PM120ClassCall0(Class cls, SEL sel) {
-    if (!cls || !sel || ![cls respondsToSelector:sel]) return nil;
-    return ((id (*)(Class, SEL))objc_msgSend)(cls, sel);
-}
+@interface CADisplay : NSObject
++ (CADisplay *)mainDisplay;
+@property (nonatomic, readonly) NSArray *availableModes;
+@end
 
 static BOOL deviceSupports120Hz(void) {
-    if (pm120_checked) {
-        return pm120_supported;
-    }
-
-    pm120_checked = YES;
-    pm120_supported = NO;
-
-    @try {
-        Class CADisplayClass = NSClassFromString(@"CADisplay");
-        SEL mainDisplaySel = NSSelectorFromString(@"mainDisplay");
-        id display = PM120ClassCall0(CADisplayClass, mainDisplaySel);
-        id modes = nil;
-
-        if (display && [display respondsToSelector:@selector(valueForKey:)]) {
-            modes = [display valueForKey:@"availableModes"];
-        }
-
-        for (id mode in modes) {
-            id rateObject = nil;
-            if ([mode respondsToSelector:@selector(valueForKey:)]) {
-                rateObject = [mode valueForKey:@"refreshRate"];
-            }
-            double rate = [rateObject respondsToSelector:@selector(doubleValue)] ? [rateObject doubleValue] : 0.0;
-            if (rate >= 119.0) {
-                pm120_supported = YES;
-                break;
+    static BOOL checked = NO;
+    static BOOL supported = NO;
+    if (!checked) {
+        @autoreleasepool {
+            Class CADisplayClass = NSClassFromString(@"CADisplay");
+            if (CADisplayClass) {
+                CADisplay *mainDisplay = [CADisplayClass performSelector:@selector(mainDisplay)];
+                if (mainDisplay) {
+                    NSArray *modes = [mainDisplay valueForKey:@"availableModes"];
+                    for (id mode in modes) {
+                        double rate = [[mode valueForKey:@"refreshRate"] doubleValue];
+                        if (rate >= 119.0) {
+                            supported = YES;
+                            break;
+                        }
+                    }
+                }
             }
         }
-    } @catch (__unused NSException *exception) {
-        pm120_supported = NO;
+        checked = YES;
     }
-
-    return pm120_supported;
+    return supported;
 }
 
-PM120_INLINE CAFrameRateRange PM120RangeFromOriginal(CAFrameRateRange original) {
-    float minimum = original.minimum;
-    if (minimum <= 0.0f || minimum > 120.0f) {
-        minimum = 10.0f;
-    }
-    return CAFrameRateRangeMake(minimum, 120.0f, 120.0f);
-}
-
-PM120_INLINE CAFrameRateRange PM120DefaultRange(void) {
-    return CAFrameRateRangeMake(10.0f, 120.0f, 120.0f);
-}
-
-PM120_INLINE NSTimeInterval PM120FrameDuration(void) {
-    return 1.0 / 120.0;
-}
-
+// ============================================================
+// 层次 1: SBProMotionPolicy Hook
+// 从系统策略层面解除 80Hz 限制 (仅在 SpringBoard 进程生效)
+// ============================================================
 %hook SBProMotionPolicy
 
-- (NSInteger)maximumSupportedRefreshRate {
-    return 120;
+- (long long)maximumSupportedRefreshRate {
+    return TARGET_FPS;
 }
 
-- (NSInteger)effectiveMaxRefreshRate {
-    return 120;
+- (long long)effectiveMaxRefreshRate {
+    return TARGET_FPS;
+}
+
+- (long long)policyRefreshRate {
+    return TARGET_FPS;
 }
 
 - (BOOL)isLimitFrameRateEnabled {
@@ -96,6 +85,22 @@ PM120_INLINE NSTimeInterval PM120FrameDuration(void) {
 
 %end
 
+// ============================================================
+// 低电量模式绕过
+// 确保低电量模式下也保持 120Hz
+// ============================================================
+
+@interface SBLowPowerModeController : NSObject
++ (instancetype)sharedInstance;
+- (BOOL)isInLowPowerMode;
+@end
+
+@interface _CDBatterySaver : NSObject
++ (id)batterySaver;
+- (NSInteger)getPowerMode;
+@end
+
+// Hook SpringBoard 的低电量模式控制器
 %hook SBLowPowerModeController
 
 - (BOOL)isInLowPowerMode {
@@ -104,14 +109,16 @@ PM120_INLINE NSTimeInterval PM120FrameDuration(void) {
 
 %end
 
+// Hook 核心电量保存服务 (CoreDuet)
 %hook _CDBatterySaver
 
 - (NSInteger)getPowerMode {
-    return 0;
+    return 0; // 0 = 正常模式, 1 = 低电量模式
 }
 
 %end
 
+// Hook NSProcessInfo 的低电量模式检测 (App 和 SpringBoard)
 %hook NSProcessInfo
 
 - (BOOL)isLowPowerModeEnabled {
@@ -120,87 +127,136 @@ PM120_INLINE NSTimeInterval PM120FrameDuration(void) {
 
 %end
 
+// ============================================================
+// 层次 2: SBDisplayRefreshRateController Hook
+// 确保刷新率控制器支持最大 120Hz
+// ============================================================
 %hook SBDisplayRefreshRateController
 
-- (NSInteger)maximumRefreshRate {
-    return 120;
+- (long long)maximumRefreshRate {
+    return TARGET_FPS;
 }
 
 %end
 
+// ============================================================
+// UIScreen 欺骗 Hook
+// 确保第三方应用查询主屏幕最大帧率时也能得到 120Hz 从而激活自身的 120Hz 布局 and 帧率自适应
+// ============================================================
 %hook UIScreen
 
 - (NSInteger)maximumFramesPerSecond {
     if (deviceSupports120Hz()) {
-        return 120;
+        return TARGET_FPS;
     }
     return %orig;
 }
 
 %end
 
+// ============================================================
+// 层次 3: CADisplayLink Hook
+// 强制所有 CADisplayLink 实例请求最大帧率
+// ============================================================
 %hook CADisplayLink
 
-+ (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)selector {
-    CADisplayLink *link = %orig(target, selector);
-
-    if (deviceSupports120Hz() && link) {
+// Factory method Hook
+// 拦截 CADisplayLink 创建时，赋予安全的帧率范围，防止默认采用 60Hz 限制范围
++ (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
+    CADisplayLink *link = %orig;
+    if (deviceSupports120Hz()) {
         if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
-            link.preferredFrameRateRange = PM120DefaultRange();
+            CAFrameRateRange range;
+            range.minimum = 10;                 // 允许降至最低 10Hz 省电
+            range.preferred = TARGET_FPS;       // 120Hz
+            range.maximum = TARGET_FPS;         // 120Hz
+            [link setPreferredFrameRateRange:range];
         } else if ([link respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
-            link.preferredFramesPerSecond = 0;
+            [link setPreferredFramesPerSecond:0];
         }
     }
-
     return link;
 }
 
+// Hook preferredFrameRateRange (iOS 15+)
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
     if (deviceSupports120Hz()) {
-        %orig(PM120RangeFromOriginal(range));
-        return;
+        CAFrameRateRange newRange;
+        // 保证 minimum <= preferred <= maximum 约束，防止抛出异常
+        newRange.minimum = (range.minimum > 0 && range.minimum <= TARGET_FPS) ? range.minimum : 10;
+        newRange.preferred = TARGET_FPS;
+        newRange.maximum = TARGET_FPS;
+        
+        // 双重保险：如果原设置 the minimum 大于 120，则修正它
+        if (newRange.minimum > TARGET_FPS) {
+            newRange.minimum = 10;
+        }
+        %orig(newRange);
+    } else {
+        %orig;
     }
-    %orig(range);
 }
 
+// Hook preferredFramesPerSecond (iOS 10-15)
 - (void)setPreferredFramesPerSecond:(NSInteger)fps {
     if (deviceSupports120Hz()) {
-        %orig(0);
-        return;
+        %orig(0); // 0 = 使用设备最大帧率
+    } else {
+        %orig;
     }
-    %orig(fps);
 }
 
+// Hook frameInterval
 - (void)setFrameInterval:(NSInteger)interval {
     if (deviceSupports120Hz()) {
-        %orig(1);
-        return;
+        %orig(1); // 1 = 每帧渲染，不做稀释
+    } else {
+        %orig;
     }
-    %orig(interval);
 }
 
 %end
 
+// ============================================================
+// CAAnimation Hook
+// 拦截 CoreAnimation 动画更新周期，将其帧率范围上限拓展为 120Hz
+// ============================================================
 %hook CAAnimation
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
     if (deviceSupports120Hz()) {
-        %orig(PM120RangeFromOriginal(range));
-        return;
+        CAFrameRateRange newRange;
+        newRange.minimum = (range.minimum > 0 && range.minimum <= TARGET_FPS) ? range.minimum : 10;
+        newRange.preferred = TARGET_FPS;
+        newRange.maximum = TARGET_FPS;
+        
+        if (newRange.minimum > TARGET_FPS) {
+            newRange.minimum = 10;
+        }
+        %orig(newRange);
+    } else {
+        %orig;
     }
-    %orig(range);
 }
 
 %end
 
+// ============================================================
+// CAMetalLayer Hook (Metal 渲染优化)
+// 确保 Metal 应用使用三重缓冲且解除最长呈现延迟
+// ============================================================
+@interface CAMetalLayer (Private)
+@property (assign) NSUInteger maximumDrawableCount;
+@end
+
 %hook CAMetalLayer
 
 - (NSUInteger)maximumDrawableCount {
-    NSUInteger original = %orig;
-    if (deviceSupports120Hz() && original < 3) {
-        return 3;
+    NSUInteger orig = %orig;
+    if (deviceSupports120Hz() && orig < 3) {
+        return 3; // 三重缓冲以支持 120Hz
     }
-    return original;
+    return orig;
 }
 
 %end
@@ -209,22 +265,39 @@ PM120_INLINE NSTimeInterval PM120FrameDuration(void) {
 
 - (void)presentAfterMinimumDuration:(CFTimeInterval)duration {
     if (deviceSupports120Hz()) {
-        %orig(PM120FrameDuration());
-        return;
+        %orig(1.0 / TARGET_FPS);
+    } else {
+        %orig;
     }
-    %orig(duration);
 }
 
 %end
 
 %hook MTLCommandBuffer
 
-- (void)presentDrawable:(id)drawable afterMinimumDuration:(CFTimeInterval)duration {
+- (void)presentDrawable:(id)drawable afterMinimumDuration:(CFTimeInterval)minimumDuration {
     if (deviceSupports120Hz()) {
-        %orig(drawable, PM120FrameDuration());
-        return;
+        %orig(drawable, 1.0 / TARGET_FPS);
+    } else {
+        %orig(drawable, minimumDuration);
     }
-    %orig(drawable, duration);
 }
 
 %end
+
+// ============================================================
+// 构造函数 - 插件加载入口
+// ============================================================
+%ctor {
+    @autoreleasepool {
+        NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
+        NSLog(@"[%@] 载入进程: %@", TWEAK_NAME, bundleID ?: @"unknown");
+        
+        if (deviceSupports120Hz()) {
+            %init;
+            NSLog(@"[%@] ✅ Hook 初始化完成 (动态 120Hz 全局模式)", TWEAK_NAME);
+        } else {
+            NSLog(@"[%@] ⚠️ 设备不支持 120Hz ProMotion，跳过注入", TWEAK_NAME);
+        }
+    }
+}

@@ -7,7 +7,7 @@ export ARCHS = arm64 arm64e
 
 TWEAK_NAME = ProMotion120
 ProMotion120_FILES = Tweak.xm
-ProMotion120_FRAMEWORKS = Foundation UIKit QuartzCore
+ProMotion120_FRAMEWORKS = UIKit QuartzCore
 ProMotion120_CFLAGS = -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk

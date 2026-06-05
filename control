@@ -1,9 +1,10 @@
 Package: com.promotion120
 Name: ProMotion 120Hz
-Author: doimty
+Author: Unknown
 Description: 强制全局 120Hz ProMotion 刷新率，解除系统 80Hz 限制。仅支持 iPhone 13 Pro 及以上 ProMotion 设备。
-Depends: mobilesubstrate, firmware (>= 15.0)
-Maintainer: doimty
-Section: Tweaks
+Depends: mobilesubstrate
+Maintainer: Unknown
 Architecture: iphoneos-arm64
-Version: 1.0.0-17-recovered2
+Section: Tweaks
+Version: 1.0.0
+Tag: supports::roothide
