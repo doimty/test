@@ -17,11 +17,6 @@
 static BOOL pm120_checked = NO;
 static BOOL pm120_supported = NO;
 
-PM120_INLINE id PM120Call0(id target, SEL sel) {
-    if (!target || !sel || ![target respondsToSelector:sel]) return nil;
-    return ((id (*)(id, SEL))objc_msgSend)(target, sel);
-}
-
 PM120_INLINE id PM120ClassCall0(Class cls, SEL sel) {
     if (!cls || !sel || ![cls respondsToSelector:sel]) return nil;
     return ((id (*)(Class, SEL))objc_msgSend)(cls, sel);
