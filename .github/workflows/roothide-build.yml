@@ -6,6 +6,7 @@ on:
     branches:
       - master
       - main
+      - promotion120-roothide
     paths:
       - '.github/workflows/roothide-build.yml'
       - '**/*.h'
