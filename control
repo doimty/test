@@ -6,5 +6,5 @@ Depends: mobilesubstrate
 Maintainer: Unknown
 Architecture: iphoneos-arm64
 Section: Tweaks
-Version: 1.0.0
+Version: 1.0.0-18+realtest1
 Tag: supports::roothide
