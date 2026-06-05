@@ -1,0 +1,27 @@
+#import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
+#import <QuartzCore/QuartzCore.h>
+#import <rootless.h>
+#import <Metal/Metal.h>
+
+// ============================================================
+#define TWEAK_NAME @"ProMotion120"
+#define TARGET_FPS 120
+
+// ============================================================
+// CAFrameRateRange 结构体定义 (iOS 15+)
+// ============================================================
+#ifndef __IPHONE_15_0
+typedef struct {
+    float minimum;
+    float preferred;
+    float maximum;
+} CAFrameRateRange;
+#endif
+
+// ============================================================
+// 真实硬件 ProMotion 检测 (通过 QuartzCore CADisplay)
+// 绕过 iOS 16 对未授权应用进程的 UIScreen.maximumFramesPerSecond 限制 (返回 60)
+// ============================================================
+@interface CADisplayMode : NSObject
+@property (no
