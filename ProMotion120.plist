@@ -6,7 +6,10 @@
 	<dict>
 		<key>Bundles</key>
 		<array>
+			<string>com.apple.UIKit</string>
 			<string>com.apple.springboard</string>
+			<string>com.apple.UserNotificationsUIServer</string>
+			<string>com.apple.springboard.SpringBoardOutofCallUI</string>
 		</array>
 	</dict>
 </dict>
