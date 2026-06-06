@@ -6,6 +6,7 @@
 #import <objc/message.h>
 #import <substrate.h>
 #import <rootless.h>
+#import <Metal/Metal.h>
 
 #define TWEAK_NAME @"ProMotion120"
 #define TARGET_FPS 120
@@ -95,6 +96,15 @@ static CAFrameRateRange PMForce120Range(void) {
     range.preferred = TARGET_FPS;
     range.maximum = TARGET_FPS;
     return range;
+}
+
+static CAFrameRateRange PMGlobal120RangeFromRange(CAFrameRateRange range) {
+    CAFrameRateRange newRange;
+    newRange.minimum = (range.minimum > 0 && range.minimum <= TARGET_FPS) ? range.minimum : 10;
+    newRange.preferred = TARGET_FPS;
+    newRange.maximum = TARGET_FPS;
+    if (newRange.minimum > TARGET_FPS) newRange.minimum = 10;
+    return newRange;
 }
 
 typedef void (*PMRangeSetterDyn)(id, SEL, CAFrameRateRange);
@@ -403,6 +413,193 @@ static void PMEndBannerSession(NSString *event, NSString *note, id presentable) 
     }
 }
 
+
+// ============================================================
+// Full ProMotion path: global/system 120Hz hooks
+// ============================================================
+%hook SBProMotionPolicy
+
+- (long long)maximumSupportedRefreshRate {
+    return TARGET_FPS;
+}
+
+- (long long)effectiveMaxRefreshRate {
+    return TARGET_FPS;
+}
+
+- (long long)policyRefreshRate {
+    return TARGET_FPS;
+}
+
+- (BOOL)isLimitFrameRateEnabled {
+    return NO;
+}
+
+- (BOOL)shouldLimitFrameRate {
+    return NO;
+}
+
+%end
+
+@interface SBLowPowerModeController : NSObject
++ (instancetype)sharedInstance;
+- (BOOL)isInLowPowerMode;
+@end
+
+@interface _CDBatterySaver : NSObject
++ (id)batterySaver;
+- (NSInteger)getPowerMode;
+@end
+
+%hook SBLowPowerModeController
+
+- (BOOL)isInLowPowerMode {
+    return NO;
+}
+
+%end
+
+%hook _CDBatterySaver
+
+- (NSInteger)getPowerMode {
+    return 0;
+}
+
+%end
+
+%hook NSProcessInfo
+
+- (BOOL)isLowPowerModeEnabled {
+    return NO;
+}
+
+%end
+
+%hook SBDisplayRefreshRateController
+
+- (long long)maximumRefreshRate {
+    return TARGET_FPS;
+}
+
+%end
+
+%hook UIScreen
+
+- (NSInteger)maximumFramesPerSecond {
+    if (PMDeviceSupports120Hz()) return TARGET_FPS;
+    return %orig;
+}
+
+%end
+
+%hook CADisplayLink
+
++ (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
+    CADisplayLink *link = %orig;
+    if (PMDeviceSupports120Hz() && link) {
+        if (PMIsEligibleNow()) {
+            PMApplyToCAObject(link, YES, NO);
+        } else if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+            CAFrameRateRange range;
+            range.minimum = 10;
+            range.preferred = TARGET_FPS;
+            range.maximum = TARGET_FPS;
+            [link setPreferredFrameRateRange:range];
+        } else if ([link respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
+            [link setPreferredFramesPerSecond:0];
+        }
+    }
+    return link;
+}
+
+- (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
+    if (PMDeviceSupports120Hz()) {
+        if (PMIsEligibleNow()) {
+            PMSetHighFrameRateReasonIfPossible(self, YES, NO);
+            %orig(PMForce120Range());
+        } else {
+            %orig(PMGlobal120RangeFromRange(range));
+        }
+    } else {
+        %orig;
+    }
+}
+
+- (void)setPreferredFramesPerSecond:(NSInteger)fps {
+    if (PMDeviceSupports120Hz()) {
+        if (PMIsEligibleNow()) PMSetHighFrameRateReasonIfPossible(self, YES, NO);
+        %orig(PMIsEligibleNow() ? TARGET_FPS : 0);
+    } else {
+        %orig;
+    }
+}
+
+- (void)setFrameInterval:(NSInteger)interval {
+    if (PMDeviceSupports120Hz()) {
+        if (PMIsEligibleNow()) PMSetHighFrameRateReasonIfPossible(self, YES, NO);
+        %orig(1);
+    } else {
+        %orig;
+    }
+}
+
+%end
+
+%hook CAAnimation
+
+- (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
+    if (PMDeviceSupports120Hz()) {
+        if (PMIsEligibleNow()) {
+            PMSetHighFrameRateReasonIfPossible(self, NO, NO);
+            %orig(PMForce120Range());
+        } else {
+            %orig(PMGlobal120RangeFromRange(range));
+        }
+    } else {
+        %orig;
+    }
+}
+
+%end
+
+@interface CAMetalLayer (Private)
+@property (assign) NSUInteger maximumDrawableCount;
+@end
+
+%hook CAMetalLayer
+
+- (NSUInteger)maximumDrawableCount {
+    NSUInteger orig = %orig;
+    if (PMDeviceSupports120Hz() && orig < 3) return 3;
+    return orig;
+}
+
+%end
+
+%hook CAMetalDrawable
+
+- (void)presentAfterMinimumDuration:(CFTimeInterval)duration {
+    if (PMDeviceSupports120Hz()) {
+        %orig(1.0 / TARGET_FPS);
+    } else {
+        %orig;
+    }
+}
+
+%end
+
+%hook MTLCommandBuffer
+
+- (void)presentDrawable:(id)drawable afterMinimumDuration:(CFTimeInterval)minimumDuration {
+    if (PMDeviceSupports120Hz()) {
+        %orig(drawable, 1.0 / TARGET_FPS);
+    } else {
+        %orig(drawable, minimumDuration);
+    }
+}
+
+%end
+
 typedef void (*PMObjIMP)(id, SEL, id);
 typedef void (*PMObjIntIMP)(id, SEL, id, NSInteger);
 typedef void (*PMVoidIMP)(id, SEL);
@@ -424,14 +621,6 @@ static PMObjIntIMP orig_NCNotificationPresentableViewController_presentableWillD
 static PMObjIntIMP orig_NCNotificationPresentableViewController_presentableDidDisappearAsBanner = NULL;
 static PMObjIntIMP orig_NCNotificationPresentableViewController_presentableWillNotAppearAsBanner = NULL;
 static PMVoidIMP orig_NCNotificationShortLookView_didMoveToWindow = NULL;
-static PMRangeSetterIMP orig_CAAnimation_setPreferredFrameRateRange = NULL;
-static PMUIntSetterIMP orig_CAAnimation_setHighFrameRateReason = NULL;
-static PMRangeSetterIMP orig_CADisplayLink_setPreferredFrameRateRange = NULL;
-static PMIntSetterIMP orig_CADisplayLink_setPreferredFramesPerSecond = NULL;
-static PMIntSetterIMP orig_CADisplayLink_setFrameInterval = NULL;
-static PMUIntSetterIMP orig_CADisplayLink_setHighFrameRateReason = NULL;
-static PMReasonsSetterIMP orig_CADisplayLink_setHighFrameRateReasons_count = NULL;
-static PMClassDLFactoryIMP orig_CADisplayLink_displayLinkWithTarget_selector = NULL;
 static PMRangeSetterIMP orig_CADynamicFrameRateSource_setPreferredFrameRateRange = NULL;
 static PMReasonsSetterIMP orig_CADynamicFrameRateSource_setHighFrameRateReasons_count = NULL;
 static PMLayerAddAnimationIMP orig_CALayer_addAnimation_forKey = NULL;
@@ -440,13 +629,6 @@ static BOOL PMInstallHookIfExists(const char *className, SEL selector, IMP repla
     Class cls = objc_getClass(className);
     if (!cls || !class_getInstanceMethod(cls, selector)) return NO;
     MSHookMessageEx(cls, selector, replacement, original);
-    return YES;
-}
-
-static BOOL PMInstallClassHookIfExists(const char *className, SEL selector, IMP replacement, IMP *original) {
-    Class cls = objc_getClass(className);
-    if (!cls || !class_getClassMethod(cls, selector)) return NO;
-    MSHookMessageEx(object_getClass(cls), selector, replacement, original);
     return YES;
 }
 
@@ -507,65 +689,6 @@ static void repl_NCNotificationShortLookView_didMoveToWindow(id self, SEL _cmd) 
     PMCaptureWindowFromView(self, @"NCNotificationShortLookView.didMoveToWindow");
 }
 
-static void repl_CAAnimation_setPreferredFrameRateRange(id self, SEL _cmd, CAFrameRateRange range) {
-    if (PMIsEligibleNow()) {
-        PMSetHighFrameRateReasonIfPossible(self, NO, NO);
-        if (orig_CAAnimation_setPreferredFrameRateRange) orig_CAAnimation_setPreferredFrameRateRange(self, _cmd, PMForce120Range());
-    } else if (orig_CAAnimation_setPreferredFrameRateRange) {
-        orig_CAAnimation_setPreferredFrameRateRange(self, _cmd, range);
-    }
-}
-
-static void repl_CAAnimation_setHighFrameRateReason(id self, SEL _cmd, unsigned int reason) {
-    if (orig_CAAnimation_setHighFrameRateReason) orig_CAAnimation_setHighFrameRateReason(self, _cmd, PMIsEligibleNow() ? 1U : reason);
-}
-
-static void repl_CADisplayLink_setPreferredFrameRateRange(id self, SEL _cmd, CAFrameRateRange range) {
-    if (PMIsEligibleNow()) {
-        PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-        if (orig_CADisplayLink_setPreferredFrameRateRange) orig_CADisplayLink_setPreferredFrameRateRange(self, _cmd, PMForce120Range());
-    } else if (orig_CADisplayLink_setPreferredFrameRateRange) {
-        orig_CADisplayLink_setPreferredFrameRateRange(self, _cmd, range);
-    }
-}
-
-static void repl_CADisplayLink_setPreferredFramesPerSecond(id self, SEL _cmd, NSInteger fps) {
-    if (PMIsEligibleNow()) {
-        PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-        if (orig_CADisplayLink_setPreferredFramesPerSecond) orig_CADisplayLink_setPreferredFramesPerSecond(self, _cmd, TARGET_FPS);
-    } else if (orig_CADisplayLink_setPreferredFramesPerSecond) {
-        orig_CADisplayLink_setPreferredFramesPerSecond(self, _cmd, fps);
-    }
-}
-
-static void repl_CADisplayLink_setFrameInterval(id self, SEL _cmd, NSInteger interval) {
-    if (PMIsEligibleNow()) {
-        PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-        if (orig_CADisplayLink_setFrameInterval) orig_CADisplayLink_setFrameInterval(self, _cmd, 1);
-    } else if (orig_CADisplayLink_setFrameInterval) {
-        orig_CADisplayLink_setFrameInterval(self, _cmd, interval);
-    }
-}
-
-static void repl_CADisplayLink_setHighFrameRateReason(id self, SEL _cmd, unsigned int reason) {
-    if (orig_CADisplayLink_setHighFrameRateReason) orig_CADisplayLink_setHighFrameRateReason(self, _cmd, PMIsEligibleNow() ? 1U : reason);
-}
-
-static void repl_CADisplayLink_setHighFrameRateReasons_count(id self, SEL _cmd, const unsigned int *reasons, NSUInteger count) {
-    if (PMIsEligibleNow()) {
-        unsigned int forced[1] = { 1U };
-        if (orig_CADisplayLink_setHighFrameRateReasons_count) orig_CADisplayLink_setHighFrameRateReasons_count(self, _cmd, forced, 1);
-    } else if (orig_CADisplayLink_setHighFrameRateReasons_count) {
-        orig_CADisplayLink_setHighFrameRateReasons_count(self, _cmd, reasons, count);
-    }
-}
-
-static id repl_CADisplayLink_displayLinkWithTarget_selector(id self, SEL _cmd, id target, SEL sel) {
-    id link = orig_CADisplayLink_displayLinkWithTarget_selector ? orig_CADisplayLink_displayLinkWithTarget_selector(self, _cmd, target, sel) : nil;
-    if (PMIsEligibleNow() && link) PMApplyToCAObject(link, YES, NO);
-    return link;
-}
-
 static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SEL _cmd, CAFrameRateRange range) {
     if (PMIsEligibleNow()) {
         PMSetHighFrameRateReasonIfPossible(self, NO, YES);
@@ -606,14 +729,6 @@ static void PMInstallHooks(void) {
     PMInstallHookIfExists("NCNotificationPresentableViewController", @selector(presentableWillNotAppearAsBanner:withReason:), (IMP)repl_NCNotificationPresentableViewController_presentableWillNotAppearAsBanner, (IMP *)&orig_NCNotificationPresentableViewController_presentableWillNotAppearAsBanner);
     PMInstallHookIfExists("NCNotificationShortLookView", @selector(didMoveToWindow), (IMP)repl_NCNotificationShortLookView_didMoveToWindow, (IMP *)&orig_NCNotificationShortLookView_didMoveToWindow);
 
-    PMInstallHookIfExists("CAAnimation", @selector(setPreferredFrameRateRange:), (IMP)repl_CAAnimation_setPreferredFrameRateRange, (IMP *)&orig_CAAnimation_setPreferredFrameRateRange);
-    PMInstallHookIfExists("CAAnimation", NSSelectorFromString(@"setHighFrameRateReason:"), (IMP)repl_CAAnimation_setHighFrameRateReason, (IMP *)&orig_CAAnimation_setHighFrameRateReason);
-    PMInstallHookIfExists("CADisplayLink", @selector(setPreferredFrameRateRange:), (IMP)repl_CADisplayLink_setPreferredFrameRateRange, (IMP *)&orig_CADisplayLink_setPreferredFrameRateRange);
-    PMInstallHookIfExists("CADisplayLink", @selector(setPreferredFramesPerSecond:), (IMP)repl_CADisplayLink_setPreferredFramesPerSecond, (IMP *)&orig_CADisplayLink_setPreferredFramesPerSecond);
-    PMInstallHookIfExists("CADisplayLink", @selector(setFrameInterval:), (IMP)repl_CADisplayLink_setFrameInterval, (IMP *)&orig_CADisplayLink_setFrameInterval);
-    PMInstallHookIfExists("CADisplayLink", NSSelectorFromString(@"setHighFrameRateReason:"), (IMP)repl_CADisplayLink_setHighFrameRateReason, (IMP *)&orig_CADisplayLink_setHighFrameRateReason);
-    PMInstallHookIfExists("CADisplayLink", NSSelectorFromString(@"setHighFrameRateReasons:count:"), (IMP)repl_CADisplayLink_setHighFrameRateReasons_count, (IMP *)&orig_CADisplayLink_setHighFrameRateReasons_count);
-    PMInstallClassHookIfExists("CADisplayLink", @selector(displayLinkWithTarget:selector:), (IMP)repl_CADisplayLink_displayLinkWithTarget_selector, (IMP *)&orig_CADisplayLink_displayLinkWithTarget_selector);
     PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setPreferredFrameRateRange:"), (IMP)repl_CADynamicFrameRateSource_setPreferredFrameRateRange, (IMP *)&orig_CADynamicFrameRateSource_setPreferredFrameRateRange);
     PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setHighFrameRateReasons:count:"), (IMP)repl_CADynamicFrameRateSource_setHighFrameRateReasons_count, (IMP *)&orig_CADynamicFrameRateSource_setHighFrameRateReasons_count);
     PMInstallHookIfExists("CALayer", @selector(addAnimation:forKey:), (IMP)repl_CALayer_addAnimation_forKey, (IMP *)&orig_CALayer_addAnimation_forKey);
@@ -621,8 +736,11 @@ static void PMInstallHooks(void) {
 
 %ctor {
     @autoreleasepool {
-        if (PMIsTargetProcess() && PMDeviceSupports120Hz()) {
-            PMInstallHooks();
+        if (PMDeviceSupports120Hz()) {
+            %init;
+            if (PMIsTargetProcess()) {
+                PMInstallHooks();
+            }
         }
     }
 }
