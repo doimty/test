@@ -1,36 +1,37 @@
 # ProMotion120
 
-Recovered source skeleton for `com.promotion120` from the uploaded `1.0.0-17+debug` rootless deb.
+Notification-banner focused ProMotion tweak for `com.promotion120`.
 
 ## Status
 
-- Local reconstruction only.
-- Do **not** publish to the jailbreak source until tested.
-- Baseline package: `references/com.promotion120_1.0.0-17+debug_iphoneos-arm64.deb`.
+- Current source is the cleaned notification-banner implementation derived from the validated `bannerdisplay5` test line.
+- Diagnostic plist logging and test counters have been removed.
+- Injection is limited to SpringBoard.
 
-## Recovered behavior
+## Current behavior
 
-- Forces SpringBoard ProMotion policy maximum/effective refresh rate to 120.
-- Disables frame-rate limiting and low-power-mode checks exposed through common APIs.
-- Forces 120Hz-related behavior for `UIScreen`, `CADisplayLink`, `CAAnimation`, `CAMetalLayer`, `CAMetalDrawable`, and `MTLCommandBuffer` when a 120Hz display mode is detected.
-- Injection filter matches the uploaded package:
-  - `com.apple.UIKit`
-  - `com.apple.springboard`
-  - `com.apple.UserNotificationsUIServer`
-  - `com.apple.springboard.SpringBoardOutofCallUI`
+- Targets real notification banner presentation in SpringBoard.
+- Confirms `SBBannerWindow` before applying banner-specific 120Hz behavior.
+- During banner lifetime, creates and holds a `CADynamicFrameRateSource` on the main `CADisplay`.
+- Applies:
+  - `setHighFrameRateReasons:count:`
+  - `setPreferredFrameRateRange:{80,120,120}`
+- Uses raw presentable identity to ignore stale disappear events from previous notifications in stacked/continuous notification flows.
+- Keeps the display-level request alive through the exit animation with bounded exit polling.
+- Releases the request after window disappearance confirmation or a 4 second safety timeout.
+- Keeps lightweight `CAAnimation` / `CADisplayLink` / `CALayer addAnimation:` support scoped to the confirmed banner window.
 
-## Known weak spots from testing
+## Validation baseline
 
-- Notification banners still do not fully hold 120Hz.
-- WeChat image viewer drops to around 40 FPS at the moment an image opens.
+Validated behavior from the test line:
 
-## Next maintenance steps
+- Single notification banner enters and exits at 120Hz by visual testing.
+- Continuous notification stacks no longer drop the final banner exit to 60Hz by visual testing.
+- Test logs showed clean lifecycle accounting before logging was removed:
+  - `displaySourceCreate == displaySourceRelease`
+  - `displaySourceActive = false`
+  - stale/late disappear events occur during stacked notifications and are intentionally ignored.
 
-1. Build rootless locally or via CI and compare package contents.
-2. Add temporary debug logging around:
-   - `com.apple.UserNotificationsUIServer`
-   - `com.apple.springboard`
-   - `com.tencent.xin`
-   - `CADisplayLink`, `CAAnimation`, `CALayer`, and Metal present paths.
-3. Add targeted fixes for notification banners and WeChat image viewer.
-4. Only then decide on a formal version such as `1.0.0-18`.
+## Notes
+
+This cleaned source intentionally does **not** include the older broad/global hooks such as SpringBoard ProMotion policy overrides, `UIScreen.maximumFramesPerSecond` spoofing, Metal hooks, or low-power-mode overrides. The notification-banner path is kept narrow because the validated fix is `SBBannerWindow + CADynamicFrameRateSource` rather than broad policy probing.

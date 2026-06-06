@@ -1,10 +1,10 @@
 Package: com.promotion120
 Name: ProMotion 120Hz
 Author: Unknown
-Description: 强制全局 120Hz ProMotion 刷新率，解除系统 80Hz 限制。仅支持 iPhone 13 Pro 及以上 ProMotion 设备。
+Description: 通知横幅 120Hz ProMotion 增强：仅注入 SpringBoard，针对 SBBannerWindow 横幅生命周期申请并释放 display-level 高刷 request。
 Depends: mobilesubstrate
 Maintainer: Unknown
 Architecture: iphoneos-arm64
 Section: Tweaks
-Version: 1.0.0-18+realtest1
+Version: 1.0.0-35+notifyclean1
 Tag: supports::roothide
