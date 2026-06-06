@@ -1,10 +1,10 @@
 Package: com.promotion120
 Name: ProMotion 120Hz
 Author: Unknown
-Description: 通知横幅 120Hz ProMotion 增强：仅注入 SpringBoard，针对 SBBannerWindow 横幅生命周期申请并释放 display-level 高刷 request。
+Description: 全功能 120Hz ProMotion 增强：保留全局刷新率/低电量/DisplayLink/Animation/Metal hooks，并合入通知横幅 SBBannerWindow display-level 高刷修复。
 Depends: mobilesubstrate
 Maintainer: Unknown
 Architecture: iphoneos-arm64
 Section: Tweaks
-Version: 1.0.0-35+notifyclean1
+Version: 1.0.0-36+fullnotify1
 Tag: supports::roothide
