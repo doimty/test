@@ -52,25 +52,13 @@ static BOOL PMIsTargetProcess(void) {
     return [PMBundleID() isEqualToString:@"com.apple.springboard"];
 }
 
-static BOOL PMIsKnownFilzaBundle(NSString *bundleID) {
-    return [bundleID isEqualToString:@"com.torchsq.app.filza"]
-        || [bundleID isEqualToString:@"com.tigisoftware.Filza"]
-        || [bundleID isEqualToString:@"com.tigisoftware.filza"]
-        || [bundleID isEqualToString:@"com.tigisoftware.FilzaFileManager"];
-}
-
-static BOOL PMIsMenuAppProcess(void) {
-    NSString *bundleID = PMBundleID();
-    return [bundleID isEqualToString:@"com.tencent.xin"] || PMIsKnownFilzaBundle(bundleID);
-}
-
 static BOOL PMIsArmed(void) {
     return CFAbsoluteTimeGetCurrent() < PMBannerArmUntil;
 }
 
 static BOOL PMIsAppProcessEligible(void) {
-    // App-process gate only. Device capability is checked at apply sites.
-    return PMIsMenuAppProcess();
+    // All UIKit apps eligible (com.apple.UIKit in plist)
+    return !PMIsTargetProcess();
 }
 
 static BOOL PMIsEligibleNow(void) {
@@ -485,7 +473,7 @@ static void PMEndBannerSession(NSString *event, NSString *note, id presentable) 
 // Only records class names, counters, and frame-rate parameters.
 // It intentionally does not record chat text, contacts, image paths, URLs, or screenshots.
 // ============================================================
-#define PM_SCOPEPROBE_VERSION @"1.0.0-61"
+#define PM_SCOPEPROBE_VERSION @"1.0.5"
 #define PM_ENABLE_DIAGNOSTIC_PROBES 0
 #define PM_WECHAT_PROBE_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.tencent.xin.plist"
 
@@ -1300,7 +1288,7 @@ static BOOL PMFloatProbeShouldRecord(void) {
     // Allow: SpringBoard, floating-view plugin, WeChat, Filza/common menu app bundles.
     return [bundleID isEqualToString:@"com.apple.springboard"]
         || [bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE]
-        || PMIsMenuAppProcess()
+
         || [bundleID isEqualToString:@"com.apple.UIKit"];
 }
 
@@ -1308,7 +1296,7 @@ static NSString *PMFloatProbeLogPath(void) {
     NSString *bundleID = PMBundleID();
     if ([bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE]) return PM_FLOAT_PROBE_PLUGIN_LOG_PATH;
     if ([bundleID isEqualToString:@"com.tencent.xin"]) return PM_FLOAT_PROBE_WECHAT_LOG_PATH;
-    if (PMIsKnownFilzaBundle(bundleID)) return PM_FLOAT_PROBE_FILZA_LOG_PATH;
+    if ([bundleID containsString:@"filza"] || [bundleID containsString:@"Filza"]) return PM_FLOAT_PROBE_FILZA_LOG_PATH;
     return PM_FLOAT_PROBE_SPRINGBOARD_LOG_PATH;
 }
 
