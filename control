@@ -1,10 +1,10 @@
-Package: com.promotion120
+Package: com.doimty.promotion
 Name: ProMotion 120Hz
-Author: Unknown
+Author: doimty
 Description: ProMotion120：全功能120Hz，支持App进程（Filza等）+ 通知横幅 + 小窗浮窗。
 Depends: mobilesubstrate
-Maintainer: Unknown
+Maintainer: doimty
 Architecture: iphoneos-arm64
 Section: Tweaks
-Version: 1.0.0-61
+Version: 1.0.4
 Tag: supports::roothide
