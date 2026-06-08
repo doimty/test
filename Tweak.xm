@@ -1566,7 +1566,6 @@ static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
 }
 
 static void PMFloatArm(NSString *event) {
-    if (!PMFloatProbeShouldRecord()) return;
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
