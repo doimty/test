@@ -1769,11 +1769,8 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
             } else {
                 PMApplyToCAObjectDirect(link);
             }
-        } else if (PMFloatIsEligibleNow()) {
-            // Float window: apply 120Hz (higher priority)
-            PMApplyToCAObjectDirect(link);
-        } else if (PMIsAppEligibleNow()) {
-            // App process: apply 120Hz
+        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+            // Float window or App process: apply 120Hz
             PMApplyToCAObjectDirect(link);
         } else {
             // Fallback: should rarely reach here
@@ -1807,12 +1804,8 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
                 PMSetHighFrameRateReasonDirect(self);
             }
             appliedRange = PMForce120Range();
-        } else if (PMFloatIsEligibleNow()) {
-            // Float window: apply 120Hz (higher priority)
-            PMSetHighFrameRateReasonDirect(self);
-            appliedRange = PMForce120Range();
-        } else if (PMIsAppEligibleNow()) {
-            // App process: apply 120Hz
+        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+            // Float window or App process: apply 120Hz
             PMSetHighFrameRateReasonDirect(self);
             appliedRange = PMForce120Range();
         } else {
@@ -1918,12 +1911,8 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
                 PMSetHighFrameRateReasonDirect(self);
             }
             appliedRange = PMForce120Range();
-        } else if (PMFloatIsEligibleNow()) {
-            // Float window: apply 120Hz (higher priority)
-            PMSetHighFrameRateReasonDirect(self);
-            appliedRange = PMForce120Range();
-        } else if (PMIsAppEligibleNow()) {
-            // App process: apply 120Hz
+        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+            // Float window or App process: apply 120Hz
             PMSetHighFrameRateReasonDirect(self);
             appliedRange = PMForce120Range();
         } else {
