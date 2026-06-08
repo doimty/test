@@ -1471,7 +1471,7 @@ static BOOL PMFloatIsArmed(void) {
 }
 
 static BOOL PMFloatIsEligibleNow(void) {
-    return PMFloatProbeShouldRecord() && PMFloatWindowConfirmed && PMFloatIsArmed();
+    return PMFloatWindowConfirmed && PMFloatIsArmed();
 }
 
 static BOOL PMStringHasFloatingViewMarker(NSString *name) {
