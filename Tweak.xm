@@ -57,7 +57,9 @@ static BOOL PMIsArmed(void) {
 }
 
 static BOOL PMIsAppProcessEligible(void) {
-    // All UIKit apps eligible (com.apple.UIKit in plist)
+    // Returns YES for any UIKit app (Filza, WeChat, etc.)
+    // This is the primary high-refresh path for app processes.
+    // Note: SpringBoard process returns NO here (see PMIsTargetProcess).
     return !PMIsTargetProcess();
 }
 
@@ -595,7 +597,7 @@ static NSArray *PMProbeWindowSummary(void) {
     return summary;
 }
 
-static void PMProbeCaptureCurrentWindowInfo(id viewOrController) {
+__attribute__((unused)) static void PMProbeCaptureCurrentWindowInfo(id viewOrController) {
     if (!PMProbeIsWeChat()) return;
     @try {
         UIView *view = nil;
@@ -1174,7 +1176,7 @@ static void PMProbeWriteState(NSString *event, NSString *note, BOOL force) {
     }
 }
 
-static void PMProbeRecordRange(NSString *event, CAFrameRateRange range) {
+__attribute__((unused)) static void PMProbeRecordRange(NSString *event, CAFrameRateRange range) {
     if (!PMProbeIsWeChat()) return;
     PMProbeLastRangeMinimum = range.minimum;
     PMProbeLastRangePreferred = range.preferred;
@@ -1716,6 +1718,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook NSProcessInfo
 
 - (BOOL)isLowPowerModeEnabled {
+    // Bypass low power mode restriction in all processes (SB + Apps)
     return NO;
 }
 
@@ -1732,10 +1735,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook UIScreen
 
 - (NSInteger)maximumFramesPerSecond {
-    if (PMProbeIsWeChat()) {
-        PMProbeUIScreenMaxQueryCount += 1;
-        PMProbeWriteState(@"UIScreen.maximumFramesPerSecond", @"queried", NO);
-    }
     if (PMDeviceSupports120Hz()) return TARGET_FPS;
     return %orig;
 }
@@ -1746,11 +1745,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 + (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
     CADisplayLink *link = %orig;
-    if (PMProbeIsWeChat()) {
-        PMProbeDisplayLinkCreateCount += 1;
-        PMProbeLastDisplayLinkTargetClass = [PMClassName(target) copy];
-        PMProbeWriteState(@"CADisplayLink.displayLinkWithTarget", PMProbeLastDisplayLinkTargetClass ?: @"", YES);
-    }
     if (PMIsTargetProcess()) {
         PMJankRecordDisplayLinkTarget(PMClassName(target));
     }
@@ -1767,25 +1761,34 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         PMFloatWriteState(@"CADisplayLink.displayLinkWithTarget", PMFloatLastDisplayLinkTargetClass ?: @"", YES);
     }
     if (PMDeviceSupports120Hz() && link) {
-        if (PMIsEligibleNow()) {
-            PMApplyToCAObject(link, YES, NO);
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+        if (PMIsTargetProcess()) {
+            // SpringBoard: always apply 120Hz
+            // Use banner lifecycle management when banner is active, otherwise direct apply
+            if (PMIsEligibleNow()) {
+                PMApplyToCAObject(link, YES, NO);
+            } else {
+                PMApplyToCAObjectDirect(link);
+            }
+        } else if (PMIsAppEligibleNow()) {
+            // App process: always apply 120Hz directly
             PMApplyToCAObjectDirect(link);
-        } else if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
-            CAFrameRateRange range = PMForce120Range();
-            [link setPreferredFrameRateRange:range];
-        } else if ([link respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
-            [link setPreferredFramesPerSecond:0];
+        } else if (PMFloatIsEligibleNow()) {
+            // Float window: apply 120Hz
+            PMApplyToCAObjectDirect(link);
+        } else {
+            // Fallback: should rarely reach here
+            if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+                CAFrameRateRange range = PMForce120Range();
+                [link setPreferredFrameRateRange:range];
+            } else if ([link respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
+                [link setPreferredFramesPerSecond:TARGET_FPS];
+            }
         }
     }
     return link;
 }
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
-    if (PMProbeIsWeChat()) {
-        PMProbeDisplayLinkRangeSetCount += 1;
-        PMProbeRecordRange(@"CADisplayLink.setPreferredFrameRateRange", range);
-    }
     if (PMFloatProbeShouldRecord()) {
         PMFloatDisplayLinkRangeSetCount += 1;
         PMFloatRecordRange(@"CADisplayLink.setPreferredFrameRateRange", range);
@@ -1796,29 +1799,33 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     }
     if (PMDeviceSupports120Hz()) {
         CAFrameRateRange appliedRange;
-        if (PMIsEligibleNow()) {
-            PMSetHighFrameRateReasonIfPossible(self, YES, NO);
+        if (PMIsTargetProcess()) {
+            // SpringBoard: always apply 120Hz
+            if (PMIsEligibleNow()) {
+                PMSetHighFrameRateReasonIfPossible(self, YES, NO);
+            } else {
+                PMSetHighFrameRateReasonDirect(self);
+            }
             appliedRange = PMForce120Range();
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+        } else if (PMIsAppEligibleNow()) {
+            // App process: always apply 120Hz
+            PMSetHighFrameRateReasonDirect(self);
+            appliedRange = PMForce120Range();
+        } else if (PMFloatIsEligibleNow()) {
+            // Float window: apply 120Hz
             PMSetHighFrameRateReasonDirect(self);
             appliedRange = PMForce120Range();
         } else {
+            // Fallback
             appliedRange = PMGlobal120RangeFromRange(range);
         }
-        PMFPSRecordRange(@"CADisplayLink.setPreferredFrameRateRange", PMFloatWindowConfirmed ? @"bannerActive" : @"global", range, appliedRange);
         %orig(appliedRange);
     } else {
-        PMFPSRecordRange(@"CADisplayLink.setPreferredFrameRateRange", PMFloatWindowConfirmed ? @"bannerActive" : @"global", range, range);
         %orig;
     }
 }
 
 - (void)setPreferredFramesPerSecond:(NSInteger)fps {
-    if (PMProbeIsWeChat()) {
-        PMProbeDisplayLinkFPSSetCount += 1;
-        PMProbeLastPreferredFPS = fps;
-        PMProbeWriteState(@"CADisplayLink.setPreferredFramesPerSecond", [NSString stringWithFormat:@"fps=%ld", (long)fps], NO);
-    }
     if (PMFloatProbeShouldRecord()) {
         PMFloatDisplayLinkFPSSetCount += 1;
         PMFloatLastPreferredFPS = fps;
@@ -1840,9 +1847,18 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         PMFPSLastAppliedFPS = TARGET_FPS;
         if (fps != TARGET_FPS) PMFPSOverriddenCount += 1;
 #endif
-        if (PMIsEligibleNow()) PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-        if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) PMSetHighFrameRateReasonDirect(self);
-        PMFPSWrite();
+        // Always apply 120Hz with highFrameRateReason
+        if (PMIsTargetProcess()) {
+            // SpringBoard
+            if (PMIsEligibleNow()) {
+                PMSetHighFrameRateReasonIfPossible(self, YES, NO);
+            } else {
+                PMSetHighFrameRateReasonDirect(self);
+            }
+        } else if (PMIsAppEligibleNow() || PMFloatIsEligibleNow()) {
+            // App or Float
+            PMSetHighFrameRateReasonDirect(self);
+        }
         %orig(TARGET_FPS);
     } else {
         %orig;
@@ -1850,11 +1866,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 }
 
 - (void)setFrameInterval:(NSInteger)interval {
-    if (PMProbeIsWeChat()) {
-        PMProbeDisplayLinkFrameIntervalSetCount += 1;
-        PMProbeLastFrameInterval = interval;
-        PMProbeWriteState(@"CADisplayLink.setFrameInterval", [NSString stringWithFormat:@"interval=%ld", (long)interval], NO);
-    }
     if (PMFloatProbeShouldRecord()) {
         PMFloatDisplayLinkFrameIntervalSetCount += 1;
         PMFloatLastFrameInterval = interval;
@@ -1869,9 +1880,18 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         PMFPSLastAppliedInterval = 1;
         if (interval != 1) PMFPSOverriddenCount += 1;
 #endif
-        if (PMIsEligibleNow()) PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-        if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) PMSetHighFrameRateReasonDirect(self);
-        PMFPSWrite();
+        // Always apply 120Hz with highFrameRateReason
+        if (PMIsTargetProcess()) {
+            // SpringBoard
+            if (PMIsEligibleNow()) {
+                PMSetHighFrameRateReasonIfPossible(self, YES, NO);
+            } else {
+                PMSetHighFrameRateReasonDirect(self);
+            }
+        } else if (PMIsAppEligibleNow() || PMFloatIsEligibleNow()) {
+            // App or Float
+            PMSetHighFrameRateReasonDirect(self);
+        }
         %orig(1);
     } else {
         %orig;
@@ -1883,11 +1903,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook CAAnimation
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
-    if (PMProbeIsWeChat()) {
-        PMProbeAnimationRangeSetCount += 1;
-        PMProbeLastAnimationClass = [PMClassName(self) copy];
-        PMProbeRecordRange(@"CAAnimation.setPreferredFrameRateRange", range);
-    }
     if (PMFloatProbeShouldRecord()) {
         PMFloatAnimationRangeSetCount += 1;
         PMFloatLastAnimationClass = [PMClassName(self) copy];
@@ -1895,19 +1910,28 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     }
     if (PMDeviceSupports120Hz()) {
         CAFrameRateRange appliedRange;
-        if (PMIsEligibleNow()) {
-            PMSetHighFrameRateReasonIfPossible(self, NO, NO);
+        if (PMIsTargetProcess()) {
+            // SpringBoard: always apply 120Hz
+            if (PMIsEligibleNow()) {
+                PMSetHighFrameRateReasonIfPossible(self, NO, NO);
+            } else {
+                PMSetHighFrameRateReasonDirect(self);
+            }
             appliedRange = PMForce120Range();
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+        } else if (PMIsAppEligibleNow()) {
+            // App process: always apply 120Hz
+            PMSetHighFrameRateReasonDirect(self);
+            appliedRange = PMForce120Range();
+        } else if (PMFloatIsEligibleNow()) {
+            // Float window: apply 120Hz
             PMSetHighFrameRateReasonDirect(self);
             appliedRange = PMForce120Range();
         } else {
+            // Fallback: should rarely reach here
             appliedRange = PMGlobal120RangeFromRange(range);
         }
-        PMFPSRecordRange(@"CAAnimation.setPreferredFrameRateRange", @"animation", range, appliedRange);
         %orig(appliedRange);
     } else {
-        PMFPSRecordRange(@"CAAnimation.setPreferredFrameRateRange", @"animation", range, range);
         %orig;
     }
 }
@@ -1931,10 +1955,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook CAMetalDrawable
 
 - (void)presentAfterMinimumDuration:(CFTimeInterval)duration {
-    if (PMProbeIsWeChat()) {
-        PMProbeMetalDrawablePresentCount += 1;
-        PMProbeWriteState(@"CAMetalDrawable.presentAfterMinimumDuration", [NSString stringWithFormat:@"duration=%.5f", duration], NO);
-    }
     if (PMDeviceSupports120Hz()) {
         %orig(1.0 / TARGET_FPS);
     } else {
@@ -1947,10 +1967,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook MTLCommandBuffer
 
 - (void)presentDrawable:(id)drawable afterMinimumDuration:(CFTimeInterval)minimumDuration {
-    if (PMProbeIsWeChat()) {
-        PMProbeCommandBufferPresentCount += 1;
-        PMProbeWriteState(@"MTLCommandBuffer.presentDrawable", [NSString stringWithFormat:@"duration=%.5f", minimumDuration], NO);
-    }
     if (PMDeviceSupports120Hz()) {
         %orig(drawable, 1.0 / TARGET_FPS);
     } else {
@@ -1965,22 +1981,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    if (PMProbeIsWeChat()) {
-        PMProbeViewDidAppearCount += 1;
-        PMProbeLastViewControllerClass = [PMClassName(self) copy];
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UIViewController.viewDidAppear", PMProbeLastViewControllerClass ?: @"", YES);
-    }
 }
 
 - (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
-    if (PMProbeIsWeChat()) {
-        PMProbePresentViewControllerCount += 1;
-        PMProbeLastViewControllerClass = [PMClassName(self) copy];
-        PMProbeLastPresentedViewControllerClass = [PMClassName(viewControllerToPresent) copy];
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UIViewController.presentViewController", PMProbeLastPresentedViewControllerClass ?: @"", YES);
-    }
     %orig;
 }
 
@@ -1989,12 +1992,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook UINavigationController
 
 - (void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
-    if (PMProbeIsWeChat()) {
-        PMProbePushViewControllerCount += 1;
-        PMProbeLastNavigationPushedClass = [PMClassName(viewController) copy];
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UINavigationController.pushViewController", PMProbeLastNavigationPushedClass ?: @"", YES);
-    }
     %orig;
 }
 
@@ -2007,12 +2004,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeCollectionReloadCount += 1;
-        PMProbeLastCollectionClass = [PMClassName(self) copy];
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UICollectionView.reloadData", PMProbeLastCollectionClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UICollectionView.reloadData", YES);
     %orig;
 }
@@ -2022,12 +2013,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeCollectionLayoutCount += 1;
-        PMProbeLastCollectionClass = [PMClassName(self) copy];
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UICollectionView.layoutSubviews", PMProbeLastCollectionClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UICollectionView.layoutSubviews", NO);
 }
 
@@ -2040,24 +2025,12 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeTableReloadCount += 1;
-        PMProbeLastTableClass = [PMClassName(self) copy];
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UITableView.reloadData", PMProbeLastTableClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UITableView.reloadData", YES);
     %orig;
 }
 
 - (void)layoutSubviews {
     %orig;
-    if (PMProbeIsWeChat()) {
-        PMProbeTableLayoutCount += 1;
-        PMProbeLastTableClass = [PMClassName(self) copy];
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UITableView.layoutSubviews", PMProbeLastTableClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UITableView.layoutSubviews", NO);
 }
 
@@ -2079,13 +2052,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeWindowSetFrameCount += 1;
-        PMProbeLastWindowClass = [PMClassName(self) copy];
-        PMProbeLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
-        PMProbeLastFrame = frame;
-        PMProbeWriteState(@"UIWindow.setFrame", PMProbeLastWindowClass ?: @"", NO);
-    }
     if (PMFloatProbeShouldRecord()) {
         PMFloatWindowSetFrameCount += 1;
         PMFloatLastWindowClass = [PMClassName(self) copy];
@@ -2109,13 +2075,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeWindowSetBoundsCount += 1;
-        PMProbeLastWindowClass = [PMClassName(self) copy];
-        PMProbeLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
-        PMProbeLastBounds = bounds;
-        PMProbeWriteState(@"UIWindow.setBounds", PMProbeLastWindowClass ?: @"", NO);
-    }
     if (PMFloatProbeShouldRecord()) {
         PMFloatWindowSetBoundsCount += 1;
         PMFloatLastWindowClass = [PMClassName(self) copy];
@@ -2144,13 +2103,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeViewSetFrameCount += 1;
-        PMProbeLastViewClass = [PMClassName(self) copy];
-        PMProbeLastFrame = frame;
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UIView.setFrame", PMProbeLastViewClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setFrame", frame, NO);
     if (PMFloatProbeShouldRecord()) {
         PMFloatViewSetFrameCount += 1;
@@ -2177,13 +2129,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeViewSetBoundsCount += 1;
-        PMProbeLastViewClass = [PMClassName(self) copy];
-        PMProbeLastBounds = bounds;
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UIView.setBounds", PMProbeLastViewClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setBounds", bounds, YES);
     if (PMFloatProbeShouldRecord()) {
         PMFloatViewSetBoundsCount += 1;
@@ -2205,14 +2150,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeScrollSetContentOffsetCount += 1;
-        PMProbeLastViewClass = [PMClassName(self) copy];
-        PMProbeLastContentOffset = contentOffset;
-        PMProbeLastContentSize = self.contentSize;
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UIScrollView.setContentOffset", PMProbeLastViewClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordScrollView((UIScrollView *)self, contentOffset);
     %orig;
 }
@@ -2222,14 +2159,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeScrollSetContentOffsetCount += 1;
-        PMProbeLastViewClass = [PMClassName(self) copy];
-        PMProbeLastContentOffset = contentOffset;
-        PMProbeLastContentSize = self.contentSize;
-        PMProbeCaptureCurrentWindowInfo(self);
-        PMProbeWriteState(@"UIScrollView.setContentOffset:animated", animated ? @"animated" : @"notAnimated", YES);
-    }
     if (PMIsTargetProcess()) PMJankRecordScrollView((UIScrollView *)self, contentOffset);
     %orig;
 }
@@ -2243,10 +2172,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbePropertyAnimatorStartCount += 1;
-        PMProbeWriteState(@"UIViewPropertyAnimator.startAnimation", PMClassName(self), YES);
-    }
     if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimation");
     %orig;
 }
@@ -2256,10 +2181,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbePropertyAnimatorStartCount += 1;
-        PMProbeWriteState(@"UIViewPropertyAnimator.startAnimationAfterDelay", [NSString stringWithFormat:@"delay=%.3f", delay], YES);
-    }
     if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimationAfterDelay");
     %orig;
 }
@@ -2286,13 +2207,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeLayerAddAnimationCount += 1;
-        PMProbeLastLayerClass = [PMClassName(self) copy];
-        PMProbeLastAnimationClass = [PMClassName(animation) copy];
-        PMProbeLastAnimationKey = [key copy] ?: @"";
-        PMProbeWriteState(@"CALayer.addAnimation", PMProbeLastAnimationKey ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordLayerAnimation((CALayer *)self, animation, key);
     if (PMFloatProbeShouldRecord()) {
         PMFloatLayerAddAnimationCount += 1;
@@ -2317,12 +2231,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeLayerSetBoundsCount += 1;
-        PMProbeLastLayerClass = [PMClassName(self) copy];
-        PMProbeLastBounds = bounds;
-        PMProbeWriteState(@"CALayer.setBounds", PMProbeLastLayerClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setBounds");
     if (PMFloatProbeShouldRecord()) {
         PMFloatLayerSetBoundsCount += 1;
@@ -2342,12 +2250,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeLayerSetPositionCount += 1;
-        PMProbeLastLayerClass = [PMClassName(self) copy];
-        PMProbeLastPosition = position;
-        PMProbeWriteState(@"CALayer.setPosition", PMProbeLastLayerClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setPosition");
     if (PMFloatProbeShouldRecord()) {
         PMFloatLayerSetPositionCount += 1;
@@ -2367,11 +2269,6 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMProbeIsWeChat()) {
-        PMProbeLayerSetTransformCount += 1;
-        PMProbeLastLayerClass = [PMClassName(self) copy];
-        PMProbeWriteState(@"CALayer.setTransform", PMProbeLastLayerClass ?: @"", NO);
-    }
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setTransform");
     if (PMFloatProbeShouldRecord()) {
         PMFloatLayerSetTransformCount += 1;
@@ -2651,9 +2548,6 @@ static void PMInstallHooks(void) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     PMGlobalSBSetup();
                 });
-            }
-            if (PMProbeIsWeChat()) {
-                PMProbeInjectedCount += 1;
             }
             if (PMFloatProbeShouldRecord()) {
                 PMFloatProbeInjectedCount += 1;
