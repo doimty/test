@@ -2283,7 +2283,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         // Record ALL window activations for diagnosis
         PMFloatWriteState(@"window.makeKeyAndVisible", winClass ?: @"", YES);
         // Try to apply 120Hz to ALL windows (low risk, SpringBoard only)
-        if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"window.any");
+        if (PMFloatProbeShouldRecord()) {
+            PMFloatArm(@"window.any");
+        }
     }
     %orig;
 }
@@ -2297,7 +2299,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         // Menu-level windows (above normal but below critical)
         if (level >= 1000 && level < 2000) {
             PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
-            if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"windowLevel.menu");
+            if (PMFloatProbeShouldRecord()) {
+                PMFloatArm(@"windowLevel.menu");
+            }
         }
     }
     %orig;
@@ -2311,7 +2315,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         NSString *vcClass = PMClassName(self);
         // Record modal/popover/sheet presentations
         PMFloatWriteState(@"vc.viewWillAppear", vcClass ?: @"", YES);
-        if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"vc.presentation");
+        if (PMFloatProbeShouldRecord()) {
+            PMFloatArm(@"vc.presentation");
+        }
     }
     %orig;
 }
@@ -2322,7 +2328,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 - (void)viewDidAppear:(BOOL)animated {
     if (PMFloatProbeShouldRecord()) {
         PMFloatWriteState(@"alert.viewDidAppear", PMClassName(self), YES);
-        if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"alert.viewDidAppear");
+        if (PMFloatProbeShouldRecord()) {
+            PMFloatArm(@"alert.viewDidAppear");
+        }
     }
     %orig;
 }
@@ -2333,14 +2341,18 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 - (void)showFromRect:(CGRect)rect inView:(UIView *)view animated:(BOOL)animated {
     if (PMFloatProbeShouldRecord()) {
         PMFloatWriteState(@"menu.showFromRect", PMClassName(view), YES);
-        if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"menu.showFromRect");
+        if (PMFloatProbeShouldRecord()) {
+            PMFloatArm(@"menu.showFromRect");
+        }
     }
     %orig;
 }
 - (void)showFromBarButtonItem:(id)item animated:(BOOL)animated {
     if (PMFloatProbeShouldRecord()) {
         PMFloatWriteState(@"menu.showFromBarButton", PMClassName(item), YES);
-        if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"menu.showFromBarButton");
+        if (PMFloatProbeShouldRecord()) {
+            PMFloatArm(@"menu.showFromBarButton");
+        }
     }
     %orig;
 }
@@ -2351,7 +2363,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 - (void)viewDidAppear:(BOOL)animated {
     if (PMFloatProbeShouldRecord()) {
         PMFloatWriteState(@"popover.viewDidAppear", PMClassName(self), YES);
-        if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"popover.viewDidAppear");
+        if (PMFloatProbeShouldRecord()) {
+            PMFloatArm(@"popover.viewDidAppear");
+        }
     }
     %orig;
 }
@@ -2369,7 +2383,9 @@ static void PMHookContextMenuInteractionIfAvailable(void) {
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
         if (PMFloatProbeShouldRecord()) {
             PMFloatWriteState(@"ctxMenu.present", @"UIContextMenuInteraction", YES);
-            if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"ctxMenu.present");
+            if (PMFloatProbeShouldRecord()) {
+                PMFloatArm(@"ctxMenu.present");
+            }
         }
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
@@ -2388,7 +2404,9 @@ static void PMHookEditMenuInteractionIfAvailable(void) {
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
         if (PMFloatProbeShouldRecord()) {
             PMFloatWriteState(@"editMenu.present", @"UIEditMenuInteraction", YES);
-            if (PMFloatIsEligibleNow()) PMFloatApplyDisplayFrameRateSource(@"editMenu.present");
+            if (PMFloatProbeShouldRecord()) {
+                PMFloatArm(@"editMenu.present");
+            }
         }
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
