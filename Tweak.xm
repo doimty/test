@@ -1855,8 +1855,8 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
             } else {
                 PMSetHighFrameRateReasonDirect(self);
             }
-        } else if (PMIsAppEligibleNow() || PMFloatIsEligibleNow()) {
-            // App or Float
+        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+            // Float or App (Float has higher priority in check order)
             PMSetHighFrameRateReasonDirect(self);
         }
         %orig(TARGET_FPS);
@@ -1888,8 +1888,8 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
             } else {
                 PMSetHighFrameRateReasonDirect(self);
             }
-        } else if (PMIsAppEligibleNow() || PMFloatIsEligibleNow()) {
-            // App or Float
+        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+            // Float or App (Float has higher priority in check order)
             PMSetHighFrameRateReasonDirect(self);
         }
         %orig(1);
