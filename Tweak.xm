@@ -1365,6 +1365,13 @@ static NSMutableDictionary *PMFloatLoadRoot(void) {
 }
 
 static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
+    // 1.0.6: telemetry plist writes fully disabled for release.
+    // The PMFloat* functional path (high-refresh arming) stays active;
+    // only the diagnostic writeToFile is suppressed to avoid disk I/O.
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    (void)event; (void)note; (void)force;
+    return;
+#else
     // DISABLED in 45+nologall: prevents SIGSEGV crashes from inProcessAnimationManager
     // Re-enable for menu/edit-menu diagnosis in WeChat/Filza (limited writes only)
     // Skip if not in a target bundle
@@ -1434,6 +1441,7 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
         };
         [root writeToFile:PMFloatProbeLogPath() atomically:YES];
     }
+#endif // PM_ENABLE_DIAGNOSTIC_PROBES
 }
 
 static void PMFloatCaptureWindowInfoForView(UIView *view) {
