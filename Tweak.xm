@@ -1748,7 +1748,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     if (PMIsTargetProcess()) {
         PMJankRecordDisplayLinkTarget(PMClassName(target));
     }
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatDisplayLinkCreateCount += 1;
         PMFloatLastDisplayLinkTargetClass = [PMClassName(target) copy];
         if (link && PMFloatLastDisplayLinkTargetClass) {
@@ -1786,7 +1786,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 }
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatDisplayLinkRangeSetCount += 1;
         PMFloatRecordRange(@"CADisplayLink.setPreferredFrameRateRange", range);
         if (PMFloatAnyFloatingWindowVisible() && ((range.preferred > 0 && range.preferred < TARGET_FPS) || (range.maximum > 0 && range.maximum < TARGET_FPS))) {
@@ -1819,7 +1819,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 }
 
 - (void)setPreferredFramesPerSecond:(NSInteger)fps {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatDisplayLinkFPSSetCount += 1;
         PMFloatLastPreferredFPS = fps;
         NSString *targetClass = PMFloatDisplayLinkTargetClass(self);
@@ -1859,7 +1859,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 }
 
 - (void)setFrameInterval:(NSInteger)interval {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatDisplayLinkFrameIntervalSetCount += 1;
         PMFloatLastFrameInterval = interval;
         PMFloatWriteState(@"CADisplayLink.setFrameInterval", [NSString stringWithFormat:@"interval=%ld", (long)interval], NO);
@@ -1896,7 +1896,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook CAAnimation
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatAnimationRangeSetCount += 1;
         PMFloatLastAnimationClass = [PMClassName(self) copy];
         PMFloatRecordRange(@"CAAnimation.setPreferredFrameRateRange", range);
@@ -2030,7 +2030,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)setFrame:(CGRect)frame {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try {
             if (PMFloatWindowLooksLikeStatusShrinkWindow((UIWindow *)self) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
                 PMFloatPreArm(@"UIWindow.statusBar.smallFrame");
@@ -2041,7 +2041,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     %orig;
     return;
 #endif
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatWindowSetFrameCount += 1;
         PMFloatLastWindowClass = [PMClassName(self) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
@@ -2058,13 +2058,13 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try { PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatWindowSetBoundsCount += 1;
         PMFloatLastWindowClass = [PMClassName(self) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
@@ -2081,7 +2081,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)setFrame:(CGRect)frame {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try {
             if (PMFloatWindowLooksLikeStatusShrinkWindow(((UIView *)self).window) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
                 PMFloatPreArm(@"UIView.statusBar.smallFrame");
@@ -2093,7 +2093,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setFrame", frame, NO);
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatViewSetFrameCount += 1;
         PMFloatLastViewClass = [PMClassName(self) copy];
         PMFloatLastFrame = frame;
@@ -2112,14 +2112,14 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try { PMFloatArmForView((UIView *)self, @"UIView.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setBounds", bounds, YES);
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatViewSetBoundsCount += 1;
         PMFloatLastViewClass = [PMClassName(self) copy];
         PMFloatLastBounds = bounds;
@@ -2183,7 +2183,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         PMApplyToCAObject(animation, NO, NO);
     }
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try {
             NSString *floatKey = [key copy] ?: @"";
             if (PMFloatAnyFloatingWindowVisible() && ([floatKey isEqualToString:@"opacity"] || [floatKey containsString:@"position"] || [floatKey containsString:@"bounds"] || [floatKey containsString:@"transform"])) {
@@ -2197,7 +2197,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerAnimation((CALayer *)self, animation, key);
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatLayerAddAnimationCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatLastAnimationClass = [PMClassName(animation) copy];
@@ -2214,14 +2214,14 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setBounds");
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatLayerSetBoundsCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatLastBounds = bounds;
@@ -2233,14 +2233,14 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)setPosition:(CGPoint)position {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setPosition");
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatLayerSetPositionCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatLastPosition = position;
@@ -2252,14 +2252,14 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 
 - (void)setTransform:(CATransform3D)transform {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setTransform");
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatLayerSetTransformCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatWriteState(@"CALayer.setTransform", PMFloatLastLayerClass ?: @"", NO);
@@ -2279,11 +2279,11 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 %hook UIWindow
 - (void)makeKeyAndVisible {
     NSString *winClass = PMClassName(self);
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         // Record ALL window activations for diagnosis
         PMFloatWriteState(@"window.makeKeyAndVisible", winClass ?: @"", YES);
         // Try to apply 120Hz to ALL windows (low risk, SpringBoard only)
-        if (PMFloatProbeShouldRecord()) {
+        if (!PMIsTargetProcess()) {
             PMFloatArm(@"window.any");
         }
     }
@@ -2294,14 +2294,12 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // Detect menu/presentation windows via windowLevel
 %hook UIWindow
 - (void)setWindowLevel:(UIWindowLevel)level {
-    if (PMFloatProbeShouldRecord() && level > 0) {
+    if (level > 0 && !PMIsTargetProcess()) {
         NSString *winClass = PMClassName(self);
         // Menu-level windows (above normal but below critical)
         if (level >= 1000 && level < 2000) {
             PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
-            if (PMFloatProbeShouldRecord()) {
-                PMFloatArm(@"windowLevel.menu");
-            }
+            PMFloatArm(@"windowLevel.menu");
         }
     }
     %orig;
@@ -2311,13 +2309,11 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // Catch view controller presentation lifecycle
 %hook UIViewController
 - (void)viewWillAppear:(BOOL)animated {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         NSString *vcClass = PMClassName(self);
         // Record modal/popover/sheet presentations
         PMFloatWriteState(@"vc.viewWillAppear", vcClass ?: @"", YES);
-        if (PMFloatProbeShouldRecord()) {
-            PMFloatArm(@"vc.presentation");
-        }
+        PMFloatArm(@"vc.presentation");
     }
     %orig;
 }
@@ -2326,11 +2322,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // Catch alert/modal presentations
 %hook UIAlertController
 - (void)viewDidAppear:(BOOL)animated {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatWriteState(@"alert.viewDidAppear", PMClassName(self), YES);
-        if (PMFloatProbeShouldRecord()) {
-            PMFloatArm(@"alert.viewDidAppear");
-        }
+        PMFloatArm(@"alert.viewDidAppear");
     }
     %orig;
 }
@@ -2339,20 +2333,16 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // Catch UIMenuController (classic menu)
 %hook UIMenuController
 - (void)showFromRect:(CGRect)rect inView:(UIView *)view animated:(BOOL)animated {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatWriteState(@"menu.showFromRect", PMClassName(view), YES);
-        if (PMFloatProbeShouldRecord()) {
-            PMFloatArm(@"menu.showFromRect");
-        }
+        PMFloatArm(@"menu.showFromRect");
     }
     %orig;
 }
 - (void)showFromBarButtonItem:(id)item animated:(BOOL)animated {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatWriteState(@"menu.showFromBarButton", PMClassName(item), YES);
-        if (PMFloatProbeShouldRecord()) {
-            PMFloatArm(@"menu.showFromBarButton");
-        }
+        PMFloatArm(@"menu.showFromBarButton");
     }
     %orig;
 }
@@ -2361,11 +2351,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // Catch UIPopoverPresentationController
 %hook UIPopoverPresentationController
 - (void)viewDidAppear:(BOOL)animated {
-    if (PMFloatProbeShouldRecord()) {
+    if (!PMIsTargetProcess()) {
         PMFloatWriteState(@"popover.viewDidAppear", PMClassName(self), YES);
-        if (PMFloatProbeShouldRecord()) {
-            PMFloatArm(@"popover.viewDidAppear");
-        }
+        PMFloatArm(@"popover.viewDidAppear");
     }
     %orig;
 }
@@ -2381,11 +2369,9 @@ static void PMHookContextMenuInteractionIfAvailable(void) {
     if (!m) return;
     IMP origImp = method_getImplementation(m);
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
-        if (PMFloatProbeShouldRecord()) {
+        if (!PMIsTargetProcess()) {
             PMFloatWriteState(@"ctxMenu.present", @"UIContextMenuInteraction", YES);
-            if (PMFloatProbeShouldRecord()) {
-                PMFloatArm(@"ctxMenu.present");
-            }
+            PMFloatArm(@"ctxMenu.present");
         }
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
@@ -2402,11 +2388,9 @@ static void PMHookEditMenuInteractionIfAvailable(void) {
     if (!m) return;
     IMP origImp = method_getImplementation(m);
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
-        if (PMFloatProbeShouldRecord()) {
+        if (!PMIsTargetProcess()) {
             PMFloatWriteState(@"editMenu.present", @"UIEditMenuInteraction", YES);
-            if (PMFloatProbeShouldRecord()) {
-                PMFloatArm(@"editMenu.present");
-            }
+            PMFloatArm(@"editMenu.present");
         }
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
@@ -2556,7 +2540,7 @@ static void PMInstallHooks(void) {
                     PMGlobalSBSetup();
                 });
             }
-            if (PMFloatProbeShouldRecord()) {
+            if (!PMIsTargetProcess()) {
                 PMFloatProbeInjectedCount += 1;
             }
         }
