@@ -1226,7 +1226,7 @@ static NSInteger PMFloatLastFrameInterval = 0;
 static CGRect PMFloatLastFrame = {{0, 0}, {0, 0}};
 static CGRect PMFloatLastBounds = {{0, 0}, {0, 0}};
 static CGPoint PMFloatLastPosition = {0, 0};
-static CFAbsoluteTime PMFloatLastWriteTime = 0;
+static CFAbsoluteTime PMFloatLastWriteTime __attribute__((unused)) = 0;
 
 // === Global Display Source for SpringBoard (minimal, safe) ===
 static BOOL PMFloatWindowConfirmed = NO;
@@ -1309,14 +1309,14 @@ static NSDictionary *PMFloatRectDict(CGRect rect) {
     };
 }
 
-static NSDictionary *PMFloatPointDict(CGPoint point) {
+__attribute__((unused)) static NSDictionary *PMFloatPointDict(CGPoint point) {
     return @{
         @"x": @(point.x),
         @"y": @(point.y)
     };
 }
 
-static NSArray *PMFloatWindowSummary(void) {
+__attribute__((unused)) static NSArray *PMFloatWindowSummary(void) {
     if (!PMFloatProbeShouldRecord()) return @[];
     NSMutableArray *summary = [NSMutableArray array];
     @try {
@@ -1353,7 +1353,7 @@ static NSArray *PMFloatWindowSummary(void) {
     return summary;
 }
 
-static NSMutableDictionary *PMFloatLoadRoot(void) {
+__attribute__((unused)) static NSMutableDictionary *PMFloatLoadRoot(void) {
     NSMutableDictionary *root = [NSMutableDictionary dictionaryWithContentsOfFile:PMFloatProbeLogPath()];
     if (!root) root = [NSMutableDictionary dictionary];
     root[@"version"] = PM_SCOPEPROBE_VERSION;
