@@ -1,0 +1,26 @@
+Origin: Doimty Repo
+Label: Doimty Repo
+Suite: stable
+Version: 1.0
+Codename: ios
+Architectures: iphoneos-arm64 iphoneos-arm64e
+Components: main
+Description: Doimty Repo jailbreak packages
+Date: Tue, 09 Jun 2026 20:45:19 +0800
+NotAutomatic: No
+
+MD5Sum:
+ 7c5f5229e2d694153748fc4ffa3debf6 4694 Packages
+ 9268161e2b2f6112be831ef5ff1974d5 1278 Packages.gz
+ 28f62a13b8e943438f6eb09e48e39725 1200 Packages.xz
+ 4016a0773c680ca732602ce4238f4163 1154 Packages.lzma
+SHA1:
+ 7646c1f064b9f240f1eb6c108ddae435a19c2ccd 4694 Packages
+ dba825f10d2241babff1bc898853eb1027431800 1278 Packages.gz
+ aaeca2b8e06f1f271a3b3218be96eea3cd90b081 1200 Packages.xz
+ be4a3f1855131deaca09921c50afc5f7e37c8801 1154 Packages.lzma
+SHA256:
+ 3e383ec68d2adb091503d7d7ffc716f9d3413cea5912e8362fff91277206bce4 4694 Packages
+ d2f0e41aa438b084d7f7cd545d98a3e34a4f3a48043fb68ab12ca632e9171c11 1278 Packages.gz
+ 2215ece443d04bf2ac0229b44e0172d5a54bf9a73c1a73d6a5ae73410a562551 1200 Packages.xz
+ 04fa7ef1b939a335440fb54b8072b4b6d4fe44d43fbec6a4b5c04be23db762d0 1154 Packages.lzma
