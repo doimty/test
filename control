@@ -1,10 +1,10 @@
 Package: com.doimty.promotion
 Name: ProMotion 120Hz
 Author: doimty
-Description: ProMotion120 crashfixA + strict 120Hz lock + scrollB-auditfixB：恢复 scrollB 触发强度，保留 dynamic source 安全释放和 ARC 生命周期修复。
+Description: ProMotion120 crashfixA + strict 120Hz lock + scrollB-restore：恢复用户确认手感最好的 scrollB 代码线，仅改版本号便于区分。
 Depends: mobilesubstrate
 Maintainer: doimty
 Architecture: iphoneos-arm64
 Section: Tweaks
-Version: 1.0.6+scrollB-auditfixB
+Version: 1.0.6+scrollB-restore
 Tag: supports::roothide

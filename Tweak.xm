@@ -28,10 +28,6 @@ typedef struct {
 @property (nonatomic, readonly) double refreshRate;
 @end
 
-@interface NSObject (PMCADynamicFrameRateSourceInit)
-- (id)initWithDisplay:(id)display;
-@end
-
 static BOOL PMBannerLifecycleActive = NO;
 static BOOL PMBannerWindowConfirmed = NO;
 static CFAbsoluteTime PMBannerArmUntil = 0;
@@ -193,18 +189,6 @@ static void PMSetFrameRateRangeDirect(id obj) {
     }
 }
 
-static void PMClearHighFrameRateReasonsDirect(id obj) {
-    if (!obj) return;
-    @try {
-        SEL multiSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
-        if ([obj respondsToSelector:multiSel]) {
-            PMReasonsSetterDyn fn = (PMReasonsSetterDyn)objc_msgSend;
-            fn(obj, multiSel, NULL, (NSUInteger)0);
-        }
-    } @catch (__unused NSException *e) {
-    }
-}
-
 static void PMApplyToCAObjectDirect(id obj) {
     PMSetHighFrameRateReasonDirect(obj);
     PMSetFrameRateRangeDirect(obj);
@@ -220,19 +204,6 @@ static id PMMainCADisplay(void) {
     return display;
 }
 
-static id PMCreateDynamicFrameRateSource(void) {
-    @try {
-        Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
-        id display = PMMainCADisplay();
-        if (!SourceClass || !display) return nil;
-        id allocated = [SourceClass alloc];
-        if (![allocated respondsToSelector:NSSelectorFromString(@"initWithDisplay:")]) return nil;
-        return [allocated initWithDisplay:display];
-    } @catch (__unused NSException *e) {
-        return nil;
-    }
-}
-
 // Forward declarations for FPS probe (defined later)
 static void PMFPSRecordRange(NSString *event, NSString *reason, CAFrameRateRange origRange, CAFrameRateRange appliedRange);
 static void PMFPSRecordSourceApply(NSString *event, NSString *reason);
@@ -244,7 +215,17 @@ static void PMApplyDisplayFrameRateSource(NSString *source) {
     if (PMBannerLastSourceApplyAt > 0 && (now - PMBannerLastSourceApplyAt) < 0.10) return;
     @try {
         if (!PMBannerDynamicFrameRateSource) {
-            PMBannerDynamicFrameRateSource = PMCreateDynamicFrameRateSource();
+            Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
+            id display = PMMainCADisplay();
+            if (SourceClass && display) {
+                id allocated = [SourceClass alloc];
+                SEL initSel = NSSelectorFromString(@"initWithDisplay:");
+                if ([allocated respondsToSelector:initSel]) {
+                    typedef id (*PMInitWithDisplayFn)(id, SEL, id);
+                    PMInitWithDisplayFn fn = (PMInitWithDisplayFn)objc_msgSend;
+                    PMBannerDynamicFrameRateSource = fn(allocated, initSel, display);
+                }
+            }
         }
         if (PMBannerDynamicFrameRateSource) {
             PMSetHighFrameRateReasonIfPossible(PMBannerDynamicFrameRateSource, NO, YES);
@@ -260,7 +241,14 @@ static void PMReleaseDisplayFrameRateSource(NSString *source) {
     if (!PMBannerDynamicFrameRateSource) return;
     id sourceObject = PMBannerDynamicFrameRateSource;
     PMBannerDynamicFrameRateSource = nil;
-    PMClearHighFrameRateReasonsDirect(sourceObject);
+    @try {
+        SEL multiSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
+        if ([sourceObject respondsToSelector:multiSel]) {
+            PMReasonsSetterDyn fn = (PMReasonsSetterDyn)objc_msgSend;
+            fn(sourceObject, multiSel, NULL, (NSUInteger)0);
+        }
+    } @catch (__unused NSException *e) {
+    }
 }
 
 static BOOL PMLayerBelongsToBannerWindow(CALayer *layer) {
@@ -1259,8 +1247,18 @@ static void PMGlobalSBApply(NSString *reason) {
     if (PMGlobalLastApply > 0 && (now - PMGlobalLastApply) < 0.20) return;
     @try {
         if (!PMGlobalSBDisplaySource) {
-            PMGlobalSBDisplaySource = PMCreateDynamicFrameRateSource();
-            if (PMGlobalSBDisplaySource) PMGlobalSBCreateCount += 1;
+            Class SC = NSClassFromString(@"CADynamicFrameRateSource");
+            id display = PMMainCADisplay();
+            if (SC && display) {
+                id allocd = [SC alloc];
+                SEL initS = NSSelectorFromString(@"initWithDisplay:");
+                if ([allocd respondsToSelector:initS]) {
+                    typedef id (*PMInitFn)(id, SEL, id);
+                    PMInitFn f = (PMInitFn)objc_msgSend;
+                    PMGlobalSBDisplaySource = f(allocd, initS, display);
+                    PMGlobalSBCreateCount += 1;
+                }
+            }
         }
         if (PMGlobalSBDisplaySource) {
             PMSetHighFrameRateReasonDirect(PMGlobalSBDisplaySource);
@@ -1543,8 +1541,18 @@ static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
     if (!PMFloatIsEligibleNow()) return;
     @try {
         if (!PMFloatDynamicFrameRateSource) {
-            PMFloatDynamicFrameRateSource = PMCreateDynamicFrameRateSource();
-            if (PMFloatDynamicFrameRateSource) PMFloatSourceCreateCount += 1;
+            Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
+            id display = PMMainCADisplay();
+            if (SourceClass && display) {
+                id allocated = [SourceClass alloc];
+                SEL initSel = NSSelectorFromString(@"initWithDisplay:");
+                if ([allocated respondsToSelector:initSel]) {
+                    typedef id (*PMInitWithDisplayFn)(id, SEL, id);
+                    PMInitWithDisplayFn fn = (PMInitWithDisplayFn)objc_msgSend;
+                    PMFloatDynamicFrameRateSource = fn(allocated, initSel, display);
+                    PMFloatSourceCreateCount += 1;
+                }
+            }
         }
         if (PMFloatDynamicFrameRateSource) {
             CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -1648,10 +1656,7 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         return;
     }
     if (PMFloatDynamicFrameRateSource) {
-        id sourceObject = PMFloatDynamicFrameRateSource;
         PMFloatDynamicFrameRateSource = nil;
-        PMFloatLastSourceApplyAt = 0;
-        PMClearHighFrameRateReasonsDirect(sourceObject);
         PMFloatSourceReleaseCount += 1;
     }
     PMFloatWindowConfirmed = NO;
@@ -1689,7 +1694,17 @@ static void PMAppScrollApplyDisplayFrameRateSource(NSString *event) {
     if (PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
     @try {
         if (!PMAppScrollDynamicFrameRateSource) {
-            PMAppScrollDynamicFrameRateSource = PMCreateDynamicFrameRateSource();
+            Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
+            id display = PMMainCADisplay();
+            if (SourceClass && display) {
+                id allocated = [SourceClass alloc];
+                SEL initSel = NSSelectorFromString(@"initWithDisplay:");
+                if ([allocated respondsToSelector:initSel]) {
+                    typedef id (*PMInitWithDisplayFn)(id, SEL, id);
+                    PMInitWithDisplayFn fn = (PMInitWithDisplayFn)objc_msgSend;
+                    PMAppScrollDynamicFrameRateSource = fn(allocated, initSel, display);
+                }
+            }
         }
         if (PMAppScrollDynamicFrameRateSource) {
             CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -1726,13 +1741,8 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
         });
         return;
     }
-    if (PMAppScrollDynamicFrameRateSource) {
-        id sourceObject = PMAppScrollDynamicFrameRateSource;
-        PMAppScrollDynamicFrameRateSource = nil;
-        PMClearHighFrameRateReasonsDirect(sourceObject);
-    }
+    PMAppScrollDynamicFrameRateSource = nil;
     PMAppScrollLastApplyAt = 0;
-    PMAppScrollLastReleaseScheduleAt = 0;
 }
 
 // ============================================================
@@ -2457,8 +2467,6 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 
 // Runtime hook for UIContextMenuInteraction (iOS 14+)
 static void PMHookContextMenuInteractionIfAvailable(void) {
-    static BOOL installed = NO;
-    if (installed) return;
     Class cls = NSClassFromString(@"UIContextMenuInteraction");
     if (!cls) return;
     SEL sel = NSSelectorFromString(@"_presentMenuAtLocation:");
@@ -2474,13 +2482,10 @@ static void PMHookContextMenuInteractionIfAvailable(void) {
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
     method_setImplementation(m, newImp);
-    installed = YES;
 }
 
 // Runtime hook for UIEditMenuInteraction (iOS 16+)
 static void PMHookEditMenuInteractionIfAvailable(void) {
-    static BOOL installed = NO;
-    if (installed) return;
     Class cls = NSClassFromString(@"UIEditMenuInteraction");
     if (!cls) return;
     SEL sel = NSSelectorFromString(@"_presentMenuAtLocation:");
@@ -2496,7 +2501,6 @@ static void PMHookEditMenuInteractionIfAvailable(void) {
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
     method_setImplementation(m, newImp);
-    installed = YES;
 }
 
 // ========== END MENU / MODAL / OVERLAY DETECTION ==========
