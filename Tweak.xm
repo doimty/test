@@ -1666,6 +1666,9 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // App-process scroll source: keep a high refresh dynamic source alive while
 // UIScrollView is actively moving. This targets slight scroll jank in apps
 // without broadening Apple's CADynamicFrameRateSource cleanup hook surface.
+static const CFTimeInterval PMAppScrollArmTailSeconds = 2.50;
+static const CFTimeInterval PMAppScrollApplyMinIntervalSeconds = 0.10;
+static const CFTimeInterval PMAppScrollReleaseRescheduleSeconds = 0.50;
 static id PMAppScrollDynamicFrameRateSource = nil;
 static CFAbsoluteTime PMAppScrollArmUntil = 0;
 static CFAbsoluteTime PMAppScrollLastApplyAt = 0;
@@ -1674,6 +1677,15 @@ static NSUInteger PMAppScrollSession = 0;
 
 static BOOL PMAppScrollIsArmed(void) {
     return CFAbsoluteTimeGetCurrent() < PMAppScrollArmUntil;
+}
+
+static BOOL PMAppScrollViewIsMoving(UIScrollView *scrollView) {
+    if (!scrollView) return NO;
+    @try {
+        return scrollView.dragging || scrollView.tracking || scrollView.decelerating;
+    } @catch (__unused NSException *e) {
+        return NO;
+    }
 }
 
 static void PMAppScrollReleaseIfExpired(NSUInteger session);
@@ -1696,7 +1708,7 @@ static void PMAppScrollApplyDisplayFrameRateSource(NSString *event) {
         }
         if (PMAppScrollDynamicFrameRateSource) {
             CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-            if (PMAppScrollLastApplyAt <= 0 || (now - PMAppScrollLastApplyAt) >= 0.15) {
+            if (PMAppScrollLastApplyAt <= 0 || (now - PMAppScrollLastApplyAt) >= PMAppScrollApplyMinIntervalSeconds) {
                 PMSetHighFrameRateReasonDirect(PMAppScrollDynamicFrameRateSource);
                 PMSetFrameRateRangeDirect(PMAppScrollDynamicFrameRateSource);
                 PMAppScrollLastApplyAt = now;
@@ -1709,13 +1721,13 @@ static void PMAppScrollApplyDisplayFrameRateSource(NSString *event) {
 static void PMAppScrollArm(NSString *event) {
     if (PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    PMAppScrollArmUntil = now + 1.50;
+    PMAppScrollArmUntil = now + PMAppScrollArmTailSeconds;
     PMAppScrollApplyDisplayFrameRateSource(event ?: @"scroll");
-    if (PMAppScrollLastReleaseScheduleAt <= 0 || (now - PMAppScrollLastReleaseScheduleAt) >= 0.50) {
+    if (PMAppScrollLastReleaseScheduleAt <= 0 || (now - PMAppScrollLastReleaseScheduleAt) >= PMAppScrollReleaseRescheduleSeconds) {
         PMAppScrollSession += 1;
         NSUInteger session = PMAppScrollSession;
         PMAppScrollLastReleaseScheduleAt = now;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.60 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((PMAppScrollArmTailSeconds + 0.10) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             PMAppScrollReleaseIfExpired(session);
         });
     }
@@ -2228,6 +2240,21 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 #endif
     if (PMIsTargetProcess()) PMJankRecordScrollView((UIScrollView *)self, contentOffset);
     if (!PMIsTargetProcess()) PMAppScrollArm(@"UIScrollView.setContentOffsetAnimated");
+    %orig;
+}
+
+- (void)layoutSubviews {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try {
+            if (PMAppScrollViewIsMoving((UIScrollView *)self)) PMAppScrollArm(@"UIScrollView.layoutSubviews.moving");
+        } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UIScrollView.layoutSubviews", NO);
+    if (!PMIsTargetProcess() && PMAppScrollViewIsMoving((UIScrollView *)self)) PMAppScrollArm(@"UIScrollView.layoutSubviews.moving");
     %orig;
 }
 
