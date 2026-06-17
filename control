@@ -1,10 +1,10 @@
 Package: com.doimty.promotion
 Name: ProMotion 120Hz
 Author: doimty
-Description: ProMotion120 crashfixA + strict 120Hz lock：放行 CADynamicFrameRateSource 清理路径，并将 CAFrameRateRange minimum/preferred/maximum 全部锁到 120Hz。
+Description: ProMotion120 crashfixA + strict 120Hz lock + scrollA：滑动期间挂载 App 内 CADynamicFrameRateSource 保活 120Hz，停止后自动释放。
 Depends: mobilesubstrate
 Maintainer: doimty
 Architecture: iphoneos-arm64
 Section: Tweaks
-Version: 1.0.6+lockA
+Version: 1.0.6+scrollA
 Tag: supports::roothide
