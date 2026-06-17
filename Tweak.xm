@@ -2500,10 +2500,20 @@ static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SE
 }
 
 static void repl_CADynamicFrameRateSource_setHighFrameRateReasons_count(id self, SEL _cmd, const unsigned int *reasons, NSUInteger count) {
+    if (!orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) return;
+
+    // Preserve Apple's clear/release path. UIKit/QuartzCore can pass NULL/0
+    // while removing in-process animation entries; forcing {1} there may
+    // corrupt CADynamicFrameRateSource internal reason lifetime.
+    if (!reasons || count == 0) {
+        orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, reasons, count);
+        return;
+    }
+
     if (PMIsEligibleNow() || PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
         unsigned int forced[1] = { 1U };
-        if (orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, forced, 1);
-    } else if (orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) {
+        orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, forced, 1);
+    } else {
         orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, reasons, count);
     }
 }
