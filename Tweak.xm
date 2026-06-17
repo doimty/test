@@ -104,7 +104,8 @@ static BOOL PMDeviceSupports120Hz(void) {
 
 static CAFrameRateRange PMForce120Range(void) {
     CAFrameRateRange range;
-    range.minimum = 80;
+    // Strict lock: do not leave 80Hz as a legal lower bound.
+    range.minimum = TARGET_FPS;
     range.preferred = TARGET_FPS;
     range.maximum = TARGET_FPS;
     return range;
@@ -112,7 +113,8 @@ static CAFrameRateRange PMForce120Range(void) {
 
 static CAFrameRateRange PMGlobal120RangeFromRange(CAFrameRateRange range) {
     CAFrameRateRange newRange;
-    newRange.minimum = 80;
+    // Strict lock: minimum/preferred/maximum all 120Hz.
+    newRange.minimum = TARGET_FPS;
     newRange.preferred = TARGET_FPS;
     newRange.maximum = TARGET_FPS;
     return newRange;
