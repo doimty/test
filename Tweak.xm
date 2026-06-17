@@ -7,7 +7,6 @@
 #import <substrate.h>
 #import <rootless.h>
 #import <Metal/Metal.h>
-#import <string.h>
 
 #define TWEAK_NAME @"ProMotion120"
 #define TARGET_FPS 120
@@ -74,10 +73,6 @@ static BOOL PMIsEligibleNow(void) {
 
 static BOOL PMIsAppEligibleNow(void) {
     return PMIsAppProcessEligible();
-}
-
-static BOOL PMIsMainThreadNow(void) {
-    return [NSThread isMainThread];
 }
 
 static NSString *PMClassName(id obj) {
@@ -1456,7 +1451,7 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
 }
 
 static void PMFloatCaptureWindowInfoForView(UIView *view) {
-    if (!PMIsMainThreadNow() || !PMFloatProbeShouldRecord() || !view) return;
+    if (!PMFloatProbeShouldRecord() || !view) return;
     @try {
         UIWindow *window = view.window;
         if (window) {
@@ -1489,7 +1484,7 @@ static BOOL PMStringHasFloatingViewMarker(NSString *name) {
 }
 
 static BOOL PMFloatIsFloatingWindow(UIWindow *window) {
-    if (!PMIsMainThreadNow() || !window) return NO;
+    if (!window) return NO;
     NSString *windowClass = PMClassName(window);
     NSString *rootClass = @"";
     @try { rootClass = PMClassName(window.rootViewController); } @catch (__unused NSException *e) {}
@@ -1497,7 +1492,7 @@ static BOOL PMFloatIsFloatingWindow(UIWindow *window) {
 }
 
 static BOOL PMFloatAnyFloatingWindowVisible(void) {
-    if (!PMIsMainThreadNow() || !PMFloatProbeShouldRecord()) return NO;
+    if (!PMFloatProbeShouldRecord()) return NO;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMFloatVisibleCacheAt > 0 && (now - PMFloatVisibleCacheAt) < 0.25) return PMFloatVisibleCache;
     BOOL visible = NO;
@@ -1532,7 +1527,7 @@ static BOOL PMFloatAnyFloatingWindowVisible(void) {
 }
 
 static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
-    if (!PMIsMainThreadNow() || !PMFloatProbeShouldRecord()) return NO;
+    if (!PMFloatProbeShouldRecord()) return NO;
     if (PMFloatIsFloatingWindow(window)) return YES;
     if (!PMFloatAnyFloatingWindowVisible()) return NO;
     NSString *windowClass = PMClassName(window);
@@ -1545,7 +1540,7 @@ static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
 static void PMFloatReleaseIfExpired(NSUInteger session);
 
 static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
-    if (!PMIsMainThreadNow() || !PMFloatIsEligibleNow()) return;
+    if (!PMFloatIsEligibleNow()) return;
     @try {
         if (!PMFloatDynamicFrameRateSource) {
             PMFloatDynamicFrameRateSource = PMCreateDynamicFrameRateSource();
@@ -1565,7 +1560,6 @@ static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
 }
 
 static void PMFloatArm(NSString *event) {
-    if (!PMIsMainThreadNow()) return;
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
@@ -1577,7 +1571,7 @@ static void PMFloatArm(NSString *event) {
 }
 
 static void PMFloatArmForWindow(UIWindow *window, NSString *event) {
-    if (!PMIsMainThreadNow() || !PMFloatShouldArmForWindow(window)) return;
+    if (!PMFloatShouldArmForWindow(window)) return;
     if (window) {
         PMFloatLastWindowClass = [PMClassName(window) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(window.rootViewController) copy];
@@ -1586,14 +1580,14 @@ static void PMFloatArmForWindow(UIWindow *window, NSString *event) {
 }
 
 static void PMFloatArmForView(UIView *view, NSString *event) {
-    if (!PMIsMainThreadNow() || !view || !PMFloatProbeShouldRecord()) return;
+    if (!view || !PMFloatProbeShouldRecord()) return;
     UIWindow *window = nil;
     @try { window = view.window; } @catch (__unused NSException *e) {}
     PMFloatArmForWindow(window, event);
 }
 
 static void PMFloatArmForLayer(CALayer *layer, NSString *event) {
-    if (!PMIsMainThreadNow() || !layer || !PMFloatProbeShouldRecord()) return;
+    if (!layer || !PMFloatProbeShouldRecord()) return;
     @try {
         id delegate = layer.delegate;
         if ([delegate isKindOfClass:[UIView class]]) {
@@ -1619,7 +1613,7 @@ static BOOL PMFloatWindowLooksLikeStatusShrinkWindow(UIWindow *window) {
 }
 
 static void PMFloatPreArm(NSString *reason) {
-    if (!PMIsMainThreadNow() || !PMFloatProbeShouldRecord() || !PMFloatAnyFloatingWindowVisible()) return;
+    if (!PMFloatProbeShouldRecord() || !PMFloatAnyFloatingWindowVisible()) return;
     PMFloatLastPreArmReason = [reason copy] ?: @"";
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
@@ -1646,12 +1640,6 @@ static BOOL PMFloatTargetIsInProcessAnimationManager(NSString *targetClass) {
 }
 
 static void PMFloatReleaseIfExpired(NSUInteger session) {
-    if (!PMIsMainThreadNow()) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            PMFloatReleaseIfExpired(session);
-        });
-        return;
-    }
     if (session != PMFloatSession) return;
     if (PMFloatIsArmed()) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -1687,7 +1675,7 @@ static BOOL PMAppScrollIsArmed(void) {
 }
 
 static BOOL PMAppScrollViewIsMoving(UIScrollView *scrollView) {
-    if (!PMIsMainThreadNow() || !scrollView) return NO;
+    if (!scrollView) return NO;
     @try {
         return scrollView.dragging || scrollView.tracking || scrollView.decelerating;
     } @catch (__unused NSException *e) {
@@ -1698,7 +1686,7 @@ static BOOL PMAppScrollViewIsMoving(UIScrollView *scrollView) {
 static void PMAppScrollReleaseIfExpired(NSUInteger session);
 
 static void PMAppScrollApplyDisplayFrameRateSource(NSString *event) {
-    if (!PMIsMainThreadNow() || PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
+    if (PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
     @try {
         if (!PMAppScrollDynamicFrameRateSource) {
             PMAppScrollDynamicFrameRateSource = PMCreateDynamicFrameRateSource();
@@ -1716,7 +1704,7 @@ static void PMAppScrollApplyDisplayFrameRateSource(NSString *event) {
 }
 
 static void PMAppScrollArm(NSString *event) {
-    if (!PMIsMainThreadNow() || PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
+    if (PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     PMAppScrollArmUntil = now + PMAppScrollArmTailSeconds;
     PMAppScrollApplyDisplayFrameRateSource(event ?: @"scroll");
@@ -1731,12 +1719,6 @@ static void PMAppScrollArm(NSString *event) {
 }
 
 static void PMAppScrollReleaseIfExpired(NSUInteger session) {
-    if (!PMIsMainThreadNow()) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            PMAppScrollReleaseIfExpired(session);
-        });
-        return;
-    }
     if (session != PMAppScrollSession) return;
     if (PMAppScrollIsArmed()) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -2473,12 +2455,6 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 }
 %end
 
-static BOOL PMMethodEncodingLooksLikeCGPointArg(Method method) {
-    const char *types = method ? method_getTypeEncoding(method) : NULL;
-    if (!types) return NO;
-    return strstr(types, "{CGPoint") != NULL;
-}
-
 // Runtime hook for UIContextMenuInteraction (iOS 14+)
 static void PMHookContextMenuInteractionIfAvailable(void) {
     static BOOL installed = NO;
@@ -2488,7 +2464,7 @@ static void PMHookContextMenuInteractionIfAvailable(void) {
     SEL sel = NSSelectorFromString(@"_presentMenuAtLocation:");
     if (![cls instancesRespondToSelector:sel]) return;
     Method m = class_getInstanceMethod(cls, sel);
-    if (!m || !PMMethodEncodingLooksLikeCGPointArg(m)) return;
+    if (!m) return;
     IMP origImp = method_getImplementation(m);
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
         if (!PMIsTargetProcess()) {
@@ -2510,7 +2486,7 @@ static void PMHookEditMenuInteractionIfAvailable(void) {
     SEL sel = NSSelectorFromString(@"_presentMenuAtLocation:");
     if (![cls instancesRespondToSelector:sel]) return;
     Method m = class_getInstanceMethod(cls, sel);
-    if (!m || !PMMethodEncodingLooksLikeCGPointArg(m)) return;
+    if (!m) return;
     IMP origImp = method_getImplementation(m);
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
         if (!PMIsTargetProcess()) {
