@@ -1,0 +1,8 @@
+api_hub_signin.env
+api_hub_signin.json
+api_hub_signin_import_report.json
+logs/
+*.log
+*.local
+*-backup*.json
+__pycache__/
