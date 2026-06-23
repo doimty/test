@@ -1,0 +1,29 @@
+{
+  "accounts": [
+    {
+      "name": "routerteam",
+      "type": "routerteam",
+      "base_url": "https://ai.router.team",
+      "username_env": "ROUTERTEAM_USERNAME",
+      "password_env": "ROUTERTEAM_PASSWORD",
+      "enabled": true
+    },
+    {
+      "name": "example-new-api",
+      "type": "new-api",
+      "base_url": "https://example.com",
+      "token_env": "EXAMPLE_NEW_API_TOKEN",
+      "user_id": "1001",
+      "enabled": true
+    },
+    {
+      "name": "example-disabled-browser-challenge",
+      "type": "new-api",
+      "base_url": "https://challenge.example.com",
+      "token_env": "EXAMPLE_CHALLENGE_TOKEN",
+      "user_id": "1002",
+      "enabled": false,
+      "disabled_reason": "browser_challenge_required"
+    }
+  ]
+}
