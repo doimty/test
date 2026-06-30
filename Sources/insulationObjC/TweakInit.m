@@ -15,8 +15,8 @@ static void InsulationApplyNotificationCallback(CFNotificationCenterRef center,
                                                 CFStringRef name,
                                                 const void *object,
                                                 CFDictionaryRef userInfo) {
-    InsulationExecutePuppetEvent();
-    InsulationExecutePuppetEventSoon();
+    InsulationExecutePuppetEventWithSource(@"notification.apply");
+    InsulationExecutePuppetEventSoonWithSource(@"notification.applySoon");
 }
 
 static void InsulationRestartNotificationCallback(CFNotificationCenterRef center,
@@ -56,5 +56,5 @@ __attribute__((constructor)) static void InsulationObjCPortInit(void) {
 
     // A power-mode switch restarts thermalmonitord. The new process will not receive the
     // pre-restart apply notification, so replay prefs after startup.
-    InsulationExecutePuppetEventSoon();
+    InsulationExecutePuppetEventSoonWithSource(@"constructor.startupSoon");
 }
