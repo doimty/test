@@ -1,0 +1,9 @@
+Package: com.be-huge.insulation
+Name: insulation
+Description: 解除温控，一切从简即可。代码来自开源项目：https://github.com/be-huge/insulation 进行简单维护
+Maintainer: doimty
+Author: be-huge & doimty
+Section: Tweaks
+Depends: dev.theos.orion (>= 1.0.0), firmware (>= 15.0)
+Architecture: iphoneos-arm64e
+Version: 0.1.31.2
