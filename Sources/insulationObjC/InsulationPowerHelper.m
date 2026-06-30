@@ -419,7 +419,7 @@ static void InsulationApplyThermalTuningPreferences(void) {
     }
 }
 
-static void InsulationExecutePuppetEventLocked(void) {
+static void InsulationExecutePuppetEventLocked(NSString *source) {
     if (InsulationIsApplying) {
         InsulationProbeEvent(@"apply.reentrySkipped");
         return;
@@ -427,7 +427,7 @@ static void InsulationExecutePuppetEventLocked(void) {
     InsulationIsApplying = YES;
     @try {
         InsulationReloadPreferences();
-        InsulationProbeRecordApply(InsulationPowerMode(), insulationFullPowerBootGuardActive());
+        InsulationProbeRecordApply(InsulationPowerMode(), insulationFullPowerBootGuardActive(), source ?: @"unknown");
 
         CommonProduct *product = InsulationCommonProductSnapshot();
         if (InsulationThermalDimmingBypassActive()) {
@@ -454,24 +454,32 @@ static void InsulationExecutePuppetEventLocked(void) {
     }
 }
 
-void InsulationExecutePuppetEvent(void) {
+void InsulationExecutePuppetEventWithSource(NSString *source) {
     dispatch_queue_t queue = InsulationApplyQueue();
     if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
-        InsulationExecutePuppetEventLocked();
+        InsulationExecutePuppetEventLocked(source);
         return;
     }
     dispatch_sync(queue, ^{
-        InsulationExecutePuppetEventLocked();
+        InsulationExecutePuppetEventLocked(source);
     });
 }
 
-void InsulationExecutePuppetEventSoon(void) {
+void InsulationExecutePuppetEvent(void) {
+    InsulationExecutePuppetEventWithSource(@"direct");
+}
+
+void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
     // EXP-D: Reduce background calls from 8 to 4 (match 0.0.13).
     // Keep InsulationRestoreEventCount in sync with this schedule.
     NSArray<NSNumber *> *delays = @[@0.25, @1.0, @2.0, @4.0];
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([delay doubleValue] * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-            InsulationExecutePuppetEvent();
+            InsulationExecutePuppetEventWithSource(source ?: @"soon");
         });
     }
+}
+
+void InsulationExecutePuppetEventSoon(void) {
+    InsulationExecutePuppetEventSoonWithSource(@"soon");
 }
