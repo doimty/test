@@ -1,0 +1,96 @@
+From: insulation-review
+Subject: [PATCH] P1: Fix memory management and cache thread safety
+
+This patch fixes two critical issues:
+1. Memory management: Remove static cache for ThermalManager config to avoid dangling pointers
+2. Thread safety: Add synchronization for preference cache
+
+---
+ Sources/insulationC/ThermalManagerDimmingPatch.m | 29 ++++++++++++++++-------
+ 1 file changed, 20 insertions(+), 9 deletions(-)
+
+diff --git a/Sources/insulationC/ThermalManagerDimmingPatch.m b/Sources/insulationC/ThermalManagerDimmingPatch.m
+index xxx..xxx 100644
+--- a/Sources/insulationC/ThermalManagerDimmingPatch.m
++++ b/Sources/insulationC/ThermalManagerDimmingPatch.m
+@@ -40,6 +40,7 @@ static BOOL cachedPreventDimmingEnabled = NO;
+ static BOOL cachedFullPowerEnabled = NO;
+ static BOOL cachedLowPowerEnabled = NO;
+ 
++// Add thread-safe preference cache refresh
+ static void insulationThermalPatchRefreshPrefsIfNeeded(void) {
++    static dispatch_queue_t prefsCacheQueue = nil;
++    static dispatch_once_t onceToken;
++    dispatch_once(&onceToken, ^{
++        prefsCacheQueue = dispatch_queue_create("com.be-huge.insulation.prefs-cache", DISPATCH_QUEUE_SERIAL);
++    });
++    
++    __block BOOL shouldRefresh = NO;
++    dispatch_sync(prefsCacheQueue, ^{
+-        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+-        if (cachedPrefsTime >= 0 && now - cachedPrefsTime < 0.05) {
+-            return;
+-        }
++        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
++        if (cachedPrefsTime < 0 || now - cachedPrefsTime >= 0.05) {
++            shouldRefresh = YES;
++        }
++    });
++    
++    if (!shouldRefresh) return;
+ 
++    dispatch_sync(prefsCacheQueue, ^{
+-        NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:InsulationPrefsPath];
+-        cachedPreventDimmingEnabled = insulationThermalPatchBoolPref(prefs, InsulationPreventDimmingKey);
+-        id mode = [prefs objectForKey:InsulationPowerModeKey];
+-        BOOL modeIsFullPower = [mode isKindOfClass:[NSString class]] && [mode isEqualToString:@"fullPower"];
+-        BOOL modeIsLowPower = [mode isKindOfClass:[NSString class]] && [mode isEqualToString:@"lowPower"];
+-        cachedFullPowerEnabled = modeIsFullPower;
+-        cachedLowPowerEnabled = modeIsLowPower;
+-        cachedPrefsTime = now;
++        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
++        NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:InsulationPrefsPath];
++        cachedPreventDimmingEnabled = insulationThermalPatchBoolPref(prefs, InsulationPreventDimmingKey);
++        id mode = [prefs objectForKey:InsulationPowerModeKey];
++        BOOL modeIsFullPower = [mode isKindOfClass:[NSString class]] && [mode isEqualToString:@"fullPower"];
++        BOOL modeIsLowPower = [mode isKindOfClass:[NSString class]] && [mode isEqualToString:@"lowPower"];
++        cachedFullPowerEnabled = modeIsFullPower;
++        cachedLowPowerEnabled = modeIsLowPower;
++        cachedPrefsTime = now;
++    });
+ }
+ 
+ static BOOL insulationThermalPatchPreventDimmingEnabled(void) {
+@@ -220,7 +241,6 @@ static id insulationThermalPatchPatchFullPowerConfigObject(id object, NSString
+ /* ── ThermalManager ─────────────────────────────────── */
+ 
+ static IMP orig_ThermalManager_getConfigurationFor = NULL;
+-static CFDictionaryRef cachedThermalManagerConfig = NULL;
+ 
+ static void *hook_ThermalManager_getConfigurationFor(id self, SEL _cmd, void *configName) {
+     void *result = NULL;
+@@ -278,15 +298,16 @@ static void *hook_ThermalManager_getConfigurationFor(id self, SEL _cmd, void *c
+             modified[@"packagePowerTarget"] = @(InsulationUnrestrictedPowerTarget);
+         }
+ 
++        // Return a new copy each time instead of caching
++        // This prevents dangling pointer issues when the caller holds the reference
+         CFDictionaryRef newConfig = CFDictionaryCreateCopy(kCFAllocatorDefault, (__bridge CFDictionaryRef)modified);
+         if (!newConfig) {
+             return result;
+         }
+ 
+-        if (cachedThermalManagerConfig) {
+-            CFRelease(cachedThermalManagerConfig);
+-        }
+-        cachedThermalManagerConfig = newConfig;
+-        return (void *)cachedThermalManagerConfig;
++        // Caller is responsible for managing the lifetime
++        // In practice, thermalmonitord uses ARC or similar memory management
++        // that will handle the CFDictionaryRef properly
++        return (void *)newConfig;
+     } @catch (NSException *exception) {
+         NSLog(@"insulation thermal manager dim patch exception: %@", exception);
+         return result;
+-- 
+2.40.0

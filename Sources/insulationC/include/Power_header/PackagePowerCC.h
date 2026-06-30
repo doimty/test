@@ -1,0 +1,2 @@
+@interface PackagePowerCC
+@end
