@@ -31,6 +31,8 @@ int InsulationMaxComponentPower(int power, int mitigationType);
 void InsulationSetCommonProductObject(CommonProduct *_Nullable product);
 void InsulationSetMitigationControllerObject(MitigationController *_Nullable controller);
 void InsulationExecutePuppetEvent(void);
+void InsulationExecutePuppetEventWithSource(NSString *_Nullable source);
 void InsulationExecutePuppetEventSoon(void);
+void InsulationExecutePuppetEventSoonWithSource(NSString *_Nullable source);
 
 NS_ASSUME_NONNULL_END
