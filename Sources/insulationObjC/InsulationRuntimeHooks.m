@@ -190,7 +190,9 @@ static void Insulation_MitigationController_setCPULevel(id self, SEL _cmd, int l
 }
 
 static void Insulation_MitigationController_setCPULowPowerTarget(id self, SEL _cmd, int power) {
-    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : InsulationLimitedCPUPower(power);
+    // Match the original Swift fullPower semantics: clear CPU low-power target
+    // instead of replacing it with a high ceiling value.
+    int patched = InsulationPowerMitigationsDisabled() ? 0 : InsulationLimitedCPUPower(power);
     InsulationRecordMitigationSetter(self, @"setCPULowPowerTarget", power, patched);
     Orig_MitigationController_setCPULowPowerTarget(self, _cmd, patched);
 }

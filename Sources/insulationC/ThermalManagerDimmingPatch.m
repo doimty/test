@@ -3,6 +3,7 @@
 #import <objc/message.h>
 #import "include/Tweak.h"
 #import "../insulationObjC/InsulationDebug.h"
+#import "../insulationObjC/InsulationProbe.h"
 #include <string.h>
 
 extern char ***_NSGetArgv(void);
@@ -411,18 +412,36 @@ static int hook_MitigationController_getPackagePowerZoneMetric(id self, SEL _cmd
     return ((int (*)(id, SEL))orig_MitigationController_getPackagePowerZoneMetric)(self, _cmd);
 }
 
+static IMP orig_MitigationController_getCPUTargetPower = NULL;
+static int hook_MitigationController_getCPUTargetPower(id self, SEL _cmd) {
+    int original = orig_MitigationController_getCPUTargetPower ? ((int (*)(id, SEL))orig_MitigationController_getCPUTargetPower)(self, _cmd) : 0;
+    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
+    InsulationProbeRecordSetter(@"getCPUTargetPower", original, patched);
+    return patched;
+}
+
 static IMP orig_MitigationController_getGPUTargetPower = NULL;
 static int hook_MitigationController_getGPUTargetPower(id self, SEL _cmd) {
-    if (insulationThermalPatchAggressiveFullPowerEnabled()) return InsulationUnrestrictedPowerTarget;
-    if (!orig_MitigationController_getGPUTargetPower) return 0;
-    return ((int (*)(id, SEL))orig_MitigationController_getGPUTargetPower)(self, _cmd);
+    int original = orig_MitigationController_getGPUTargetPower ? ((int (*)(id, SEL))orig_MitigationController_getGPUTargetPower)(self, _cmd) : 0;
+    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
+    InsulationProbeRecordSetter(@"getGPUTargetPower", original, patched);
+    return patched;
+}
+
+static IMP orig_MitigationController_getPackageCPUPowerTarget = NULL;
+static int hook_MitigationController_getPackageCPUPowerTarget(id self, SEL _cmd) {
+    int original = orig_MitigationController_getPackageCPUPowerTarget ? ((int (*)(id, SEL))orig_MitigationController_getPackageCPUPowerTarget)(self, _cmd) : 0;
+    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
+    InsulationProbeRecordSetter(@"getPackageCPUPowerTarget", original, patched);
+    return patched;
 }
 
 static IMP orig_MitigationController_getPackageGPUPowerTarget = NULL;
 static int hook_MitigationController_getPackageGPUPowerTarget(id self, SEL _cmd) {
-    if (insulationThermalPatchAggressiveFullPowerEnabled()) return InsulationUnrestrictedPowerTarget;
-    if (!orig_MitigationController_getPackageGPUPowerTarget) return 0;
-    return ((int (*)(id, SEL))orig_MitigationController_getPackageGPUPowerTarget)(self, _cmd);
+    int original = orig_MitigationController_getPackageGPUPowerTarget ? ((int (*)(id, SEL))orig_MitigationController_getPackageGPUPowerTarget)(self, _cmd) : 0;
+    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
+    InsulationProbeRecordSetter(@"getPackageGPUPowerTarget", original, patched);
+    return patched;
 }
 
 /* ── Installation ──────────────────────────────────── */
@@ -495,9 +514,17 @@ static void insulationInstallThermalManagerPatch(void) {
         if (m) { orig_MitigationController_getPackagePowerZoneMetric = method_getImplementation(m);
             method_setImplementation(m, (IMP)hook_MitigationController_getPackagePowerZoneMetric); }
 
+        m = class_getInstanceMethod(mitigationController, @selector(getCPUTargetPower));
+        if (m) { orig_MitigationController_getCPUTargetPower = method_getImplementation(m);
+            method_setImplementation(m, (IMP)hook_MitigationController_getCPUTargetPower); }
+
         m = class_getInstanceMethod(mitigationController, @selector(getGPUTargetPower));
         if (m) { orig_MitigationController_getGPUTargetPower = method_getImplementation(m);
             method_setImplementation(m, (IMP)hook_MitigationController_getGPUTargetPower); }
+
+        m = class_getInstanceMethod(mitigationController, @selector(getPackageCPUPowerTarget));
+        if (m) { orig_MitigationController_getPackageCPUPowerTarget = method_getImplementation(m);
+            method_setImplementation(m, (IMP)hook_MitigationController_getPackageCPUPowerTarget); }
 
         m = class_getInstanceMethod(mitigationController, @selector(getPackageGPUPowerTarget));
         if (m) { orig_MitigationController_getPackageGPUPowerTarget = method_getImplementation(m);
