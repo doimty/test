@@ -44,7 +44,6 @@ static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
 static void *InsulationLastObservedMitigationControllerPtr;
 static CFAbsoluteTime InsulationLastMitigationUpdateReapplyTime;
-static CFAbsoluteTime InsulationLastCommonProductApplyTime;
 
 
 static id Insulation_NSDictionary_dictionaryWithContentsOfFile(Class self, SEL _cmd, id path) {
@@ -89,18 +88,9 @@ static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacemen
 }
 
 
-static void InsulationExecuteCommonProductApplyIfDue(NSString *source) {
-    if (!InsulationThermalDimmingBypassActive()) {
-        return;
-    }
+static void InsulationRecordCommonProductBypass(NSString *source) {
     NSString *safeSource = ([source isKindOfClass:[NSString class]] && [source length] > 0) ? source : @"commonProduct";
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if ((now - InsulationLastCommonProductApplyTime) < 1.0) {
-        InsulationProbeEvent([@"apply.throttled." stringByAppendingString:safeSource]);
-        return;
-    }
-    InsulationLastCommonProductApplyTime = now;
-    InsulationExecutePuppetEventWithSource(safeSource);
+    InsulationProbeEvent([@"commonProduct.bypass." stringByAppendingString:safeSource]);
 }
 
 static id Insulation_CommonProduct_initProduct(id self, SEL _cmd, id arg) {
@@ -119,28 +109,30 @@ static void Insulation_CommonProduct_tryTakeAction(id self, SEL _cmd) {
         [product putDeviceInLowTempSimulationMode:@"nominal"];
     }
     Orig_CommonProduct_tryTakeAction(self, _cmd);
-    InsulationExecuteCommonProductApplyIfDue(@"commonProduct.tryTakeAction");
+    if (bypass) {
+        InsulationRecordCommonProductBypass(@"tryTakeAction");
+    }
 }
 
 static void Insulation_CommonProduct_suppressWhenDimmingActive(id self, SEL _cmd, void (*original)(id, SEL), NSString *source) {
     BOOL bypass = InsulationThermalDimmingBypassActive();
     if (bypass) {
-        InsulationExecuteCommonProductApplyIfDue(source);
+        InsulationRecordCommonProductBypass(source);
         return;
     }
     original(self, _cmd);
 }
 
 static void Insulation_CommonProduct_handleMCSThermalPressure(id self, SEL _cmd) {
-    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_handleMCSThermalPressure, @"commonProduct.handleMCSThermalPressure");
+    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_handleMCSThermalPressure, @"handleMCSThermalPressure");
 }
 
 static void Insulation_CommonProduct_simulateLightThermalPressure(id self, SEL _cmd) {
-    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_simulateLightThermalPressure, @"commonProduct.simulateLightThermalPressure");
+    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_simulateLightThermalPressure, @"simulateLightThermalPressure");
 }
 
 static void Insulation_CommonProduct_updatePowerzoneTelemetry(id self, SEL _cmd) {
-    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_updatePowerzoneTelemetry, @"commonProduct.updatePowerzoneTelemetry");
+    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_updatePowerzoneTelemetry, @"updatePowerzoneTelemetry");
 }
 
 // HidSensors hook: block temperature events to prevent throttling
