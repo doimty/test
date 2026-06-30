@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - insulation-objc-build
-      - insulation-objc-build-probe8
+      - insulation-objc-build-probe9
 
 jobs:
   package:
