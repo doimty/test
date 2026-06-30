@@ -15,6 +15,7 @@ BOOL InsulationAggressiveFullPowerEnabled(void);
 BOOL InsulationThermalDimmingBypassActive(void);
 BOOL InsulationPowerMitigationsDisabled(void);
 BOOL InsulationCPURestoreActive(void);
+BOOL InsulationApplyInProgress(void);
 BOOL InsulationCPULimitEnabled(void);
 int InsulationForcedCPULevel(void);
 int InsulationLimitedCPULevel(int level);
