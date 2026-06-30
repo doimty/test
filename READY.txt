@@ -1,0 +1,107 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  🧪 Insulation 性能实验 - 准备完成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## ✅ 已完成的工作
+
+### 1. 代码对比分析
+  - 找到 0.0.13 源代码：commit f3be76a (2026-05-28)
+  - 对比 0.1.35 源代码：commit 9eba2f4
+  - 识别 3 个关键差异
+
+### 2. 创建实验分支
+  ✓ exp-a-no-boot-guard    (0.1.36-expA) - 禁用 Boot Guard
+  ✓ exp-b-reduce-calls     (0.1.36-expB) - 减少后台调用 8→4
+  ✓ exp-c-aggressive-pressure (0.1.36-expC) - 激进 pressure 归零
+
+### 3. 实验文档
+  ✓ EXPERIMENT.md - 详细说明
+  ✓ EXPERIMENT_SUMMARY.txt - 快速参考
+  ✓ push-experiments.sh - 推送脚本
+
+### 4. GitHub Actions 工作流
+  ✓ experiment-build.yml - 自动构建工作流
+  ✓ 支持 rootless + roothide 双架构
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## 📋 下一步操作
+
+### 主人需要做的：
+
+1️⃣  注册 GitHub 账号
+   访问: https://github.com/signup
+
+2️⃣  创建新仓库
+   仓库名建议: insulation
+   可见性: Public (需要 Actions)
+
+3️⃣  运行推送脚本
+   cd /root/.openclaw/workspace/repos/insulation
+   ./push-experiments.sh https://github.com/<你的用户名>/insulation.git
+
+4️⃣  启用 GitHub Actions
+   访问: https://github.com/<你的用户名>/insulation/settings/actions
+   选择: "Allow all actions and reusable workflows"
+
+5️⃣  触发构建
+   方式 1 (自动): 推送后自动触发
+   方式 2 (手动): 访问 Actions 页面 → experiment-build → Run workflow
+
+6️⃣  下载构建产物
+   访问: https://github.com/<你的用户名>/insulation/actions
+   点击最新的 workflow run
+   下载 Artifacts:
+     - insulation-experiment-exp-a-no-boot-guard-rootless-packages
+     - insulation-experiment-exp-a-no-boot-guard-roothide-packages
+     - (同理 exp-b, exp-c)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## 🧬 实验版本详情
+
+┌─────────────────────┬──────────────┬───────────────────────────┐
+│ 分支                │ 版本号       │ 修改内容                  │
+├─────────────────────┼──────────────┼───────────────────────────┤
+│ exp-a-no-boot-guard │ 0.1.36-expA  │ 禁用 Boot Guard           │
+│ exp-b-reduce-calls  │ 0.1.36-expB  │ 后台调用 8→4              │
+│ exp-c-aggressive-   │ 0.1.36-expC  │ 防暗屏时也归零 pressure   │
+│ pressure            │              │                           │
+└─────────────────────┴──────────────┴───────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## 🔬 测试建议
+
+测试场景:
+  1. 冷启动性能 (开机后立即测试)
+  2. 长时间使用流畅度 (1小时+)
+  3. 模式切换响应 (fullPower ↔ off)
+
+对比基准:
+  - 0.0.13 (已知流畅)
+  - 0.1.35 (已知相对卡顿)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## 📦 本地文件位置
+
+工作目录:
+  /root/.openclaw/workspace/repos/insulation
+
+关键文件:
+  - EXPERIMENT.md - 详细文档
+  - EXPERIMENT_SUMMARY.txt - 快速参考
+  - push-experiments.sh - 推送脚本
+  - .github/workflows/experiment-build.yml - CI 工作流
+
+实验分支:
+  - exp-a-no-boot-guard (commit: 3ce6831)
+  - exp-b-reduce-calls (commit: dea29a0)
+  - exp-c-aggressive-pressure (commit: 376d9d9)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🦐 主人注册好 GitHub 账号后，告诉我用户名，我帮你推送喵！
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
