@@ -286,6 +286,10 @@ static BOOL InsulationCaptureMitigationControllerIfChanged(id self) {
 }
 
 static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
+    if (InsulationApplyInProgress()) {
+        return;
+    }
+
     if (changed) {
         // A new MitigationController usually appears during thermalmonitord startup/restart.
         // The daemon can continue applying late mitigation decisions after the first 0.5s,
