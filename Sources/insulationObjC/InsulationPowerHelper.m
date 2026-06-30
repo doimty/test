@@ -296,6 +296,25 @@ static void InsulationRestoreFullCPU(MitigationController *controller) {
     [controller setCPMSMitigationsEnabled:NO];
 }
 
+static void InsulationRestoreFullGPUAndPackage(MitigationController *controller) {
+    if (!controller) {
+        return;
+    }
+    int power = InsulationUnrestrictedPowerLimit();
+    [controller updateGPU];
+    [controller setSGXLevel:0];
+    [controller setGPUPowerCeiling:power fromDecisionSource:0];
+    [controller setGPUPowerFloor:0 fromDecisionSource:0];
+    [controller setGPUPowerZoneTarget:power];
+    [controller setMaxGraphicsDrivePowerTarget:power];
+    [controller updatePackage];
+    [controller setMaxPackagePower:power];
+    [controller setPackagePowerCeiling:power fromDecisionSource:0];
+    [controller setPackagePowerFloor:power fromDecisionSource:0];
+    [controller setPackageLowPowerTarget];
+    [controller setPackagePowerZoneTarget];
+}
+
 static void InsulationApplyCPUPerformancePreference(void) {
     MitigationController *controller = InsulationMitigationControllerSnapshot();
     NSString *mode = InsulationPowerMode();
@@ -305,6 +324,7 @@ static void InsulationApplyCPUPerformancePreference(void) {
     if (InsulationAggressiveFullPowerEnabled()) {
         [controller updateCPU];
         InsulationRestoreFullCPU(controller);
+        InsulationRestoreFullGPUAndPackage(controller);
         InsulationLastCPUPerformanceMode = mode;
         @synchronized (InsulationStateLock()) {
             InsulationPendingFullCPURestoreCount = 0;
