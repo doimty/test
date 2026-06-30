@@ -44,6 +44,7 @@ static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
 static void *InsulationLastObservedMitigationControllerPtr;
 static CFAbsoluteTime InsulationLastMitigationUpdateReapplyTime;
+static CFAbsoluteTime InsulationLastCommonProductApplyTime;
 
 
 static id Insulation_NSDictionary_dictionaryWithContentsOfFile(Class self, SEL _cmd, id path) {
@@ -88,11 +89,25 @@ static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacemen
 }
 
 
+static void InsulationExecuteCommonProductApplyIfDue(NSString *source) {
+    if (!InsulationThermalDimmingBypassActive()) {
+        return;
+    }
+    NSString *safeSource = ([source isKindOfClass:[NSString class]] && [source length] > 0) ? source : @"commonProduct";
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if ((now - InsulationLastCommonProductApplyTime) < 1.0) {
+        InsulationProbeEvent([@"apply.throttled." stringByAppendingString:safeSource]);
+        return;
+    }
+    InsulationLastCommonProductApplyTime = now;
+    InsulationExecutePuppetEventWithSource(safeSource);
+}
+
 static id Insulation_CommonProduct_initProduct(id self, SEL _cmd, id arg) {
     id result = Orig_CommonProduct_initProduct(self, _cmd, arg);
     InsulationSetCommonProductObject((CommonProduct *)self);
-    InsulationExecutePuppetEvent();
-    InsulationExecutePuppetEventSoon();
+    InsulationExecutePuppetEventWithSource(@"commonProduct.initProduct");
+    InsulationExecutePuppetEventSoonWithSource(@"commonProduct.initProductSoon");
     return result;
 }
 
@@ -104,28 +119,28 @@ static void Insulation_CommonProduct_tryTakeAction(id self, SEL _cmd) {
         [product putDeviceInLowTempSimulationMode:@"nominal"];
     }
     Orig_CommonProduct_tryTakeAction(self, _cmd);
-    InsulationExecutePuppetEvent();
+    InsulationExecuteCommonProductApplyIfDue(@"commonProduct.tryTakeAction");
 }
 
-static void Insulation_CommonProduct_suppressWhenDimmingActive(id self, SEL _cmd, void (*original)(id, SEL)) {
+static void Insulation_CommonProduct_suppressWhenDimmingActive(id self, SEL _cmd, void (*original)(id, SEL), NSString *source) {
     BOOL bypass = InsulationThermalDimmingBypassActive();
     if (bypass) {
-        InsulationExecutePuppetEvent();
+        InsulationExecuteCommonProductApplyIfDue(source);
         return;
     }
     original(self, _cmd);
 }
 
 static void Insulation_CommonProduct_handleMCSThermalPressure(id self, SEL _cmd) {
-    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_handleMCSThermalPressure);
+    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_handleMCSThermalPressure, @"commonProduct.handleMCSThermalPressure");
 }
 
 static void Insulation_CommonProduct_simulateLightThermalPressure(id self, SEL _cmd) {
-    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_simulateLightThermalPressure);
+    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_simulateLightThermalPressure, @"commonProduct.simulateLightThermalPressure");
 }
 
 static void Insulation_CommonProduct_updatePowerzoneTelemetry(id self, SEL _cmd) {
-    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_updatePowerzoneTelemetry);
+    Insulation_CommonProduct_suppressWhenDimmingActive(self, _cmd, Orig_CommonProduct_updatePowerzoneTelemetry, @"commonProduct.updatePowerzoneTelemetry");
 }
 
 // HidSensors hook: block temperature events to prevent throttling
@@ -295,11 +310,11 @@ static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
         // The daemon can continue applying late mitigation decisions after the first 0.5s,
         // so use a short bounded stabilization burst instead of a single delayed retry.
         InsulationProbeRecordSelfHeal(@"newObjectBurst");
-        InsulationExecutePuppetEvent();
+        InsulationExecutePuppetEventWithSource(@"mitigation.newObjectBurst");
         NSArray<NSNumber *> *delays = @[@0.25, @0.75, @1.5, @3.0];
         for (NSNumber *delay in delays) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([delay doubleValue] * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-                InsulationExecutePuppetEvent();
+                InsulationExecutePuppetEventWithSource(@"mitigation.newObjectBurstSoon");
             });
         }
         return;
@@ -318,7 +333,7 @@ static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
     InsulationLastMitigationUpdateReapplyTime = now;
     InsulationProbeRecordSelfHeal(@"sameObjectDebounced");
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-        InsulationExecutePuppetEvent();
+        InsulationExecutePuppetEventWithSource(@"mitigation.sameObjectDebounced");
     });
 }
 
