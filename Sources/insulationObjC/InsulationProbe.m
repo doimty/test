@@ -35,7 +35,7 @@ static NSMutableDictionary *InsulationProbeState(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"version"] = @"0.1.36.3-probe5";
+        state[@"version"] = @"0.1.36.3-probe6";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -92,15 +92,18 @@ void InsulationProbeEvent(NSString *event) {
     });
 }
 
-void InsulationProbeRecordApply(NSString *mode, BOOL bootGuardActive) {
+void InsulationProbeRecordApply(NSString *mode, BOOL bootGuardActive, NSString *source) {
     dispatch_async(InsulationProbeQueue(), ^{
         NSMutableDictionary *state = InsulationProbeState();
         NSMutableDictionary *events = state[@"events"];
+        NSString *safeSource = ([source isKindOfClass:[NSString class]] && [source length] > 0) ? source : @"unknown";
         InsulationProbeBump(events, @"apply");
+        InsulationProbeBump(events, [@"apply.source." stringByAppendingString:safeSource]);
         state[@"lastApply"] = @{
             @"time": @([[NSDate date] timeIntervalSince1970]),
             @"mode": mode ?: @"unknown",
             @"bootGuardActive": @(bootGuardActive),
+            @"source": safeSource,
         };
         InsulationProbeWrite(state);
     });
