@@ -96,7 +96,7 @@ static void InsulationRecordCommonProductBypass(NSString *source) {
         return;
     }
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if ((now - InsulationLastCommonProductMaintenanceApplyTime) < 5.0) {
+    if ((now - InsulationLastCommonProductMaintenanceApplyTime) < 2.0) {
         InsulationProbeEvent([@"commonProduct.maintenanceSkipped." stringByAppendingString:safeSource]);
         return;
     }
