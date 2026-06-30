@@ -134,6 +134,10 @@ BOOL InsulationCPURestoreActive(void) {
     }
 }
 
+BOOL InsulationApplyInProgress(void) {
+    return InsulationIsApplying;
+}
+
 BOOL InsulationCPULimitEnabled(void) {
     return InsulationLowPowerModeEnabled();
 }
