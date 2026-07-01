@@ -70,6 +70,8 @@ static void (*Orig_MitigationController_setGPUPowerFloorFromDecisionSource)(id s
 static void (*Orig_MitigationController_setGPUPowerZoneTarget)(id self, SEL _cmd, int power);
 static void (*Orig_MitigationController_setSGXLevel)(id self, SEL _cmd, int level);
 static void (*Orig_MitigationController_setMaxGraphicsDrivePowerTarget)(id self, SEL _cmd, int power);
+static void (*Orig_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty)(id self, SEL _cmd, int power, BOOL useLegacyPath, id property);
+static void (*Orig_MitigationController_setPackagePowerBudgetDirect_withDetails)(id self, SEL _cmd, int power, unsigned long long details);
 static void (*Orig_MitigationController_setPackagePowerCeilingFromDecisionSource)(id self, SEL _cmd, int power, int source);
 static void (*Orig_MitigationController_setPackagePowerFloorFromDecisionSource)(id self, SEL _cmd, int power, int source);
 static void (*Orig_MitigationController_setMaxPackagePower)(id self, SEL _cmd, int power);
@@ -300,6 +302,18 @@ static void Insulation_MitigationController_setMaxGraphicsDrivePowerTarget(id se
     Orig_MitigationController_setMaxGraphicsDrivePowerTarget(self, _cmd, patched);
 }
 
+static void Insulation_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty(id self, SEL _cmd, int power, BOOL useLegacyPath, id property) {
+    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
+    InsulationRecordMitigationSetter(self, @"setMaxCPUPowerTarget", power, patched);
+    Orig_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty(self, _cmd, patched, useLegacyPath, property);
+}
+
+static void Insulation_MitigationController_setPackagePowerBudgetDirect_withDetails(id self, SEL _cmd, int power, unsigned long long details) {
+    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
+    InsulationRecordMitigationSetter(self, @"setPackagePowerBudgetDirect", power, patched);
+    Orig_MitigationController_setPackagePowerBudgetDirect_withDetails(self, _cmd, patched, details);
+}
+
 static void Insulation_MitigationController_setPackagePowerCeilingFromDecisionSource(id self, SEL _cmd, int power, int source) {
     int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
     InsulationRecordMitigationSetter(self, @"setPackagePowerCeiling", power, patched);
@@ -466,6 +480,8 @@ static void InsulationInstallMitigationControllerSetterHooks(void) {
     InsulationHookInstanceMethod(mitigationClass, @selector(setGPUPowerZoneTarget:), (IMP)Insulation_MitigationController_setGPUPowerZoneTarget, (IMP *)&Orig_MitigationController_setGPUPowerZoneTarget);
     InsulationHookInstanceMethod(mitigationClass, @selector(setSGXLevel:), (IMP)Insulation_MitigationController_setSGXLevel, (IMP *)&Orig_MitigationController_setSGXLevel);
     InsulationHookInstanceMethod(mitigationClass, @selector(setMaxGraphicsDrivePowerTarget:), (IMP)Insulation_MitigationController_setMaxGraphicsDrivePowerTarget, (IMP *)&Orig_MitigationController_setMaxGraphicsDrivePowerTarget);
+    InsulationHookInstanceMethod(mitigationClass, @selector(setMaxCPUPowerTarget:useLegacyPath:setProperty:), (IMP)Insulation_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty, (IMP *)&Orig_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty);
+    InsulationHookInstanceMethod(mitigationClass, @selector(setPackagePowerBudgetDirect:withDetails:), (IMP)Insulation_MitigationController_setPackagePowerBudgetDirect_withDetails, (IMP *)&Orig_MitigationController_setPackagePowerBudgetDirect_withDetails);
     InsulationHookInstanceMethod(mitigationClass, @selector(setPackagePowerCeiling:fromDecisionSource:), (IMP)Insulation_MitigationController_setPackagePowerCeilingFromDecisionSource, (IMP *)&Orig_MitigationController_setPackagePowerCeilingFromDecisionSource);
     InsulationHookInstanceMethod(mitigationClass, @selector(setPackagePowerFloor:fromDecisionSource:), (IMP)Insulation_MitigationController_setPackagePowerFloorFromDecisionSource, (IMP *)&Orig_MitigationController_setPackagePowerFloorFromDecisionSource);
     InsulationHookInstanceMethod(mitigationClass, @selector(setMaxPackagePower:), (IMP)Insulation_MitigationController_setMaxPackagePower, (IMP *)&Orig_MitigationController_setMaxPackagePower);
