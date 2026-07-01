@@ -10,6 +10,42 @@
 #import "InsulationProbe.h"
 #import "../insulationC/include/Tweak.h"
 
+static NSString *InsulationFilterMethodName(NSString *name) {
+    if (![name isKindOfClass:[NSString class]] || [name length] == 0) {
+        return nil;
+    }
+    NSSet<NSString *> *tokens = [NSSet setWithArray:@[@"TargetPower", @"LowPower", @"Ceiling", @"Floor", @"Zone", @"PowerSave", @"Level", @"Mitigation", @"Package", @"GPU", @"CPU"]];
+    for (NSString *token in tokens) {
+        if ([name rangeOfString:token].location != NSNotFound) {
+            return name;
+        }
+    }
+    return nil;
+}
+
+static void InsulationDumpClassMethods(Class cls, NSString *className) {
+    if (!cls || !className) {
+        return;
+    }
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (unsigned int i = 0; i < count; i++) {
+        SEL sel = method_getName(methods[i]);
+        NSString *name = NSStringFromSelector(sel);
+        NSString *filtered = InsulationFilterMethodName(name);
+        if (filtered) {
+            [names addObject:filtered];
+        }
+    }
+    free(methods);
+    [names sortUsingSelector:@selector(compare:)];
+    InsulationProbeRecordMethodDump(className, names);
+}
+
+static BOOL InsulationCaptureMitigationControllerIfChanged(id self);
+static void InsulationApplyAfterMitigationControllerCapture(BOOL changed);
+
 static id (*Orig_NSDictionary_dictionaryWithContentsOfFile)(Class self, SEL _cmd, id path);
 
 
@@ -39,6 +75,7 @@ static void (*Orig_MitigationController_setPackagePowerFloorFromDecisionSource)(
 static void (*Orig_MitigationController_setMaxPackagePower)(id self, SEL _cmd, int power);
 static void (*Orig_MitigationController_setPackageLowPowerTarget)(id self, SEL _cmd);
 static void (*Orig_MitigationController_setPackagePowerZoneTarget)(id self, SEL _cmd);
+static id (*Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams)(id self, SEL _cmd, BOOL fastLoop, BOOL noDisplay, id powerSaveParams, id powerZoneParams);
 static void (*Orig_MitigationController_updateCPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
@@ -63,14 +100,17 @@ static BOOL InsulationHookClassMethod(Class cls, SEL selector, IMP replacement, 
         return NO;
     }
     Method method = class_getClassMethod(cls, selector);
-    if (!method) {
+    BOOL installed = NO;
+    if (method) {
+        *originalOut = method_getImplementation(method);
+        method_setImplementation(method, replacement);
+        installed = YES;
+        INSULATION_LOG(@"insulation objc-port: hooked class method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
+    } else {
         INSULATION_LOG(@"insulation objc-port: missing class method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
-        return NO;
     }
-    *originalOut = method_getImplementation(method);
-    method_setImplementation(method, replacement);
-    INSULATION_LOG(@"insulation objc-port: hooked class method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
-    return YES;
+    InsulationProbeRecordHookInstall(NSStringFromClass(cls), NSStringFromSelector(selector), installed);
+    return installed;
 }
 
 static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacement, IMP *originalOut) {
@@ -78,14 +118,17 @@ static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacemen
         return NO;
     }
     Method method = class_getInstanceMethod(cls, selector);
-    if (!method) {
+    BOOL installed = NO;
+    if (method) {
+        *originalOut = method_getImplementation(method);
+        method_setImplementation(method, replacement);
+        installed = YES;
+        INSULATION_LOG(@"insulation objc-port: hooked instance method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
+    } else {
         INSULATION_LOG(@"insulation objc-port: missing instance method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
-        return NO;
     }
-    *originalOut = method_getImplementation(method);
-    method_setImplementation(method, replacement);
-    INSULATION_LOG(@"insulation objc-port: hooked instance method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
-    return YES;
+    InsulationProbeRecordHookInstall(NSStringFromClass(cls), NSStringFromSelector(selector), installed);
+    return installed;
 }
 
 
@@ -293,6 +336,14 @@ static void Insulation_MitigationController_setPackagePowerZoneTarget(id self, S
     Orig_MitigationController_setPackagePowerZoneTarget(self, _cmd);
 }
 
+static id Insulation_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams(id self, SEL _cmd, BOOL fastLoop, BOOL noDisplay, id powerSaveParams, id powerZoneParams) {
+    id result = Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams ? ((id (*)(id, SEL, BOOL, BOOL, id, id))Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams)(self, _cmd, fastLoop, noDisplay, powerSaveParams, powerZoneParams) : self;
+    BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
+    InsulationProbeEvent(@"mitigation.initForFastLoop");
+    InsulationApplyAfterMitigationControllerCapture(changed);
+    return result;
+}
+
 // Update hooks capture the live MitigationController object. Low-power mode needs that
 // object for direct setPowerSaveActive:/setCPULevel: writes after a thermalmonitord restart.
 static BOOL InsulationCaptureMitigationControllerIfChanged(id self) {
@@ -400,6 +451,7 @@ static void InsulationInstallCommonProductHooks(void) {
 
 static void InsulationInstallMitigationControllerSetterHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
+    InsulationDumpClassMethods(mitigationClass, @"MitigationController");
     InsulationHookInstanceMethod(mitigationClass, @selector(setPowerSaveActive:), (IMP)Insulation_MitigationController_setPowerSaveActive, (IMP *)&Orig_MitigationController_setPowerSaveActive);
     InsulationHookInstanceMethod(mitigationClass, @selector(setCPMSMitigationsEnabled:), (IMP)Insulation_MitigationController_setCPMSMitigationsEnabled, (IMP *)&Orig_MitigationController_setCPMSMitigationsEnabled);
     InsulationHookInstanceMethod(mitigationClass, @selector(setCPULevel:), (IMP)Insulation_MitigationController_setCPULevel, (IMP *)&Orig_MitigationController_setCPULevel);
@@ -423,6 +475,8 @@ static void InsulationInstallMitigationControllerSetterHooks(void) {
 
 static void InsulationInstallMitigationControllerUpdateHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
+    InsulationDumpClassMethods(mitigationClass, @"MitigationController.update");
+    InsulationHookInstanceMethod(mitigationClass, @selector(initForFastLoop:noDisplay:powerSaveParams:powerZoneParams:), (IMP)Insulation_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams, (IMP *)&Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams);
     InsulationHookInstanceMethod(mitigationClass, @selector(updateCPU), (IMP)Insulation_MitigationController_updateCPU, (IMP *)&Orig_MitigationController_updateCPU);
     InsulationHookInstanceMethod(mitigationClass, @selector(updateGPU), (IMP)Insulation_MitigationController_updateGPU, (IMP *)&Orig_MitigationController_updateGPU);
     InsulationHookInstanceMethod(mitigationClass, @selector(updatePackage), (IMP)Insulation_MitigationController_updatePackage, (IMP *)&Orig_MitigationController_updatePackage);

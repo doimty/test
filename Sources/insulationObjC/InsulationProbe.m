@@ -35,7 +35,7 @@ static NSMutableDictionary *InsulationProbeState(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"version"] = @"0.1.36.4-probe10";
+        state[@"version"] = @"0.1.36.5-probe11";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -159,6 +159,47 @@ void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInte
             @"name": name,
             @"original": @(originalValue),
             @"patched": @(patchedValue),
+        };
+        InsulationProbeWrite(state);
+    });
+}
+
+void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed) {
+    if (![className isKindOfClass:[NSString class]] || ![selectorName isKindOfClass:[NSString class]] || [className length] == 0 || [selectorName length] == 0) {
+        return;
+    }
+    dispatch_async(InsulationProbeQueue(), ^{
+        NSMutableDictionary *state = InsulationProbeState();
+        NSMutableDictionary *events = state[@"events"];
+        NSString *key = [NSString stringWithFormat:@"%@.%@", className, selectorName];
+        InsulationProbeBump(events, installed ? @"hook.install.ok" : @"hook.install.missing");
+        InsulationProbeBump(events, [NSString stringWithFormat:@"hook.install.%@.%@", installed ? @"ok" : @"missing", key]);
+        state[@"lastHookInstall"] = @{
+            @"time": @([[NSDate date] timeIntervalSince1970]),
+            @"class": className,
+            @"selector": selectorName,
+            @"installed": @(installed),
+        };
+        InsulationProbeWrite(state);
+    });
+}
+
+void InsulationProbeRecordMethodDump(NSString *className, NSArray<NSString *> *methods) {
+    if (![className isKindOfClass:[NSString class]] || [className length] == 0 || ![methods isKindOfClass:[NSArray class]]) {
+        return;
+    }
+    dispatch_async(InsulationProbeQueue(), ^{
+        NSMutableDictionary *state = InsulationProbeState();
+        NSMutableDictionary *dumps = state[@"methodDumps"];
+        if (!dumps) {
+            dumps = [NSMutableDictionary dictionary];
+            state[@"methodDumps"] = dumps;
+        }
+        dumps[className] = methods;
+        state[@"lastMethodDump"] = @{
+            @"time": @([[NSDate date] timeIntervalSince1970]),
+            @"class": className,
+            @"count": @([methods count]),
         };
         InsulationProbeWrite(state);
     });
