@@ -415,33 +415,30 @@ static int hook_MitigationController_getPackagePowerZoneMetric(id self, SEL _cmd
 static IMP orig_MitigationController_getCPUTargetPower = NULL;
 static int hook_MitigationController_getCPUTargetPower(id self, SEL _cmd) {
     int original = orig_MitigationController_getCPUTargetPower ? ((int (*)(id, SEL))orig_MitigationController_getCPUTargetPower)(self, _cmd) : 0;
-    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
-    InsulationProbeRecordSetter(@"getCPUTargetPower", original, patched);
-    return patched;
+    // Probe-only: record target getters without changing the control-loop read value.
+    InsulationProbeRecordSetter(@"getCPUTargetPower", original, original);
+    return original;
 }
 
 static IMP orig_MitigationController_getGPUTargetPower = NULL;
 static int hook_MitigationController_getGPUTargetPower(id self, SEL _cmd) {
     int original = orig_MitigationController_getGPUTargetPower ? ((int (*)(id, SEL))orig_MitigationController_getGPUTargetPower)(self, _cmd) : 0;
-    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
-    InsulationProbeRecordSetter(@"getGPUTargetPower", original, patched);
-    return patched;
+    InsulationProbeRecordSetter(@"getGPUTargetPower", original, original);
+    return original;
 }
 
 static IMP orig_MitigationController_getPackageCPUPowerTarget = NULL;
 static int hook_MitigationController_getPackageCPUPowerTarget(id self, SEL _cmd) {
     int original = orig_MitigationController_getPackageCPUPowerTarget ? ((int (*)(id, SEL))orig_MitigationController_getPackageCPUPowerTarget)(self, _cmd) : 0;
-    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
-    InsulationProbeRecordSetter(@"getPackageCPUPowerTarget", original, patched);
-    return patched;
+    InsulationProbeRecordSetter(@"getPackageCPUPowerTarget", original, original);
+    return original;
 }
 
 static IMP orig_MitigationController_getPackageGPUPowerTarget = NULL;
 static int hook_MitigationController_getPackageGPUPowerTarget(id self, SEL _cmd) {
     int original = orig_MitigationController_getPackageGPUPowerTarget ? ((int (*)(id, SEL))orig_MitigationController_getPackageGPUPowerTarget)(self, _cmd) : 0;
-    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? InsulationUnrestrictedPowerTarget : original;
-    InsulationProbeRecordSetter(@"getPackageGPUPowerTarget", original, patched);
-    return patched;
+    InsulationProbeRecordSetter(@"getPackageGPUPowerTarget", original, original);
+    return original;
 }
 
 /* ── Installation ──────────────────────────────────── */

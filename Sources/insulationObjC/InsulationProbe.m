@@ -35,7 +35,7 @@ static NSMutableDictionary *InsulationProbeState(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"version"] = @"0.1.36.6-probe12";
+        state[@"version"] = @"0.1.36.7-probe13";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -143,7 +143,7 @@ void InsulationProbeRecordSelfHeal(NSString *reason) {
     });
 }
 
-void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInteger patchedValue) {
+void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue, NSInteger patchedValue, NSDictionary *details) {
     if (![name isKindOfClass:[NSString class]] || [name length] == 0) {
         return;
     }
@@ -154,14 +154,22 @@ void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInte
         if (originalValue != patchedValue) {
             InsulationProbeBump(setters, [name stringByAppendingString:@".patched"]);
         }
-        state[@"lastSetter"] = @{
+        NSMutableDictionary *record = [@{
             @"time": @([[NSDate date] timeIntervalSince1970]),
             @"name": name,
             @"original": @(originalValue),
             @"patched": @(patchedValue),
-        };
+        } mutableCopy];
+        if ([details isKindOfClass:[NSDictionary class]] && [details count] > 0) {
+            record[@"details"] = details;
+        }
+        state[@"lastSetter"] = record;
         InsulationProbeWrite(state);
     });
+}
+
+void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInteger patchedValue) {
+    InsulationProbeRecordSetterDetails(name, originalValue, patchedValue, nil);
 }
 
 void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed) {

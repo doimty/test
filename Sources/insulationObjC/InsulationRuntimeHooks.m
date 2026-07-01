@@ -255,13 +255,19 @@ static void Insulation_MitigationController_setCPUPowerCeilingForDVD1Contributor
 }
 
 static void Insulation_MitigationController_setCPUPowerFloorFromDecisionSource(id self, SEL _cmd, int power, int source) {
-    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : InsulationMitigationPowerFloor(power);
+    // Match original Swift semantics: CPU floor is cleared in fullPower.
+    int patched = InsulationMitigationPowerFloor(power);
     InsulationRecordMitigationSetter(self, @"setCPUPowerFloor", power, patched);
     Orig_MitigationController_setCPUPowerFloorFromDecisionSource(self, _cmd, patched, source);
 }
 
 static void Insulation_MitigationController_setCPUPowerZoneTarget(id self, SEL _cmd, int power) {
-    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : InsulationLimitedCPUPower(power);
+    // Match original Swift semantics: fullPower blocks CPU zone target writes.
+    if (InsulationPowerMitigationsDisabled()) {
+        InsulationRecordMitigationSetter(self, @"setCPUPowerZoneTarget", power, 0);
+        return;
+    }
+    int patched = InsulationLimitedCPUPower(power);
     InsulationRecordMitigationSetter(self, @"setCPUPowerZoneTarget", power, patched);
     Orig_MitigationController_setCPUPowerZoneTarget(self, _cmd, patched);
 }
@@ -285,9 +291,13 @@ static void Insulation_MitigationController_setGPUPowerFloorFromDecisionSource(i
 }
 
 static void Insulation_MitigationController_setGPUPowerZoneTarget(id self, SEL _cmd, int power) {
-    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
-    InsulationRecordMitigationSetter(self, @"setGPUPowerZoneTarget", power, patched);
-    Orig_MitigationController_setGPUPowerZoneTarget(self, _cmd, patched);
+    // Match original Swift semantics: fullPower blocks GPU zone target writes.
+    if (InsulationPowerMitigationsDisabled()) {
+        InsulationRecordMitigationSetter(self, @"setGPUPowerZoneTarget", power, 0);
+        return;
+    }
+    InsulationRecordMitigationSetter(self, @"setGPUPowerZoneTarget", power, power);
+    Orig_MitigationController_setGPUPowerZoneTarget(self, _cmd, power);
 }
 
 static void Insulation_MitigationController_setSGXLevel(id self, SEL _cmd, int level) {
@@ -304,13 +314,23 @@ static void Insulation_MitigationController_setMaxGraphicsDrivePowerTarget(id se
 
 static void Insulation_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty(id self, SEL _cmd, int power, BOOL useLegacyPath, id property) {
     int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
-    InsulationRecordMitigationSetter(self, @"setMaxCPUPowerTarget", power, patched);
+    InsulationSetMitigationControllerObject((MitigationController *)self);
+    InsulationProbeRecordSetterDetails(@"setMaxCPUPowerTarget", power, patched, @{
+        @"selector": @"setMaxCPUPowerTarget:useLegacyPath:setProperty:",
+        @"useLegacyPath": @(useLegacyPath),
+        @"propertyClass": property ? NSStringFromClass([property class]) : @"nil",
+        @"propertyDescription": property ? [property description] : @"nil",
+    });
     Orig_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty(self, _cmd, patched, useLegacyPath, property);
 }
 
 static void Insulation_MitigationController_setPackagePowerBudgetDirect_withDetails(id self, SEL _cmd, int power, unsigned long long details) {
     int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
-    InsulationRecordMitigationSetter(self, @"setPackagePowerBudgetDirect", power, patched);
+    InsulationSetMitigationControllerObject((MitigationController *)self);
+    InsulationProbeRecordSetterDetails(@"setPackagePowerBudgetDirect", power, patched, @{
+        @"selector": @"setPackagePowerBudgetDirect:withDetails:",
+        @"details": @(details),
+    });
     Orig_MitigationController_setPackagePowerBudgetDirect_withDetails(self, _cmd, patched, details);
 }
 
