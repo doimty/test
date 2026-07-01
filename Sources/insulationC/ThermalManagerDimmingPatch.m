@@ -391,18 +391,36 @@ static id hook_PackagePowerCC_initWithParams(id self, SEL _cmd, id params) {
 
 /* ── MitigationController ──────────────────────────── */
 
+static IMP orig_MitigationController_powerSaveActive = NULL;
+static BOOL hook_MitigationController_powerSaveActive(id self, SEL _cmd) {
+    BOOL original = orig_MitigationController_powerSaveActive ? ((BOOL (*)(id, SEL))orig_MitigationController_powerSaveActive)(self, _cmd) : NO;
+    BOOL patched = insulationThermalPatchAggressiveFullPowerEnabled() ? NO : original;
+    InsulationProbeRecordSetter(@"powerSaveActive", original ? 1 : 0, patched ? 1 : 0);
+    return patched;
+}
+
+static IMP orig_MitigationController_CPULevel = NULL;
+static int hook_MitigationController_CPULevel(id self, SEL _cmd) {
+    int original = orig_MitigationController_CPULevel ? ((int (*)(id, SEL))orig_MitigationController_CPULevel)(self, _cmd) : 0;
+    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? 0 : original;
+    InsulationProbeRecordSetter(@"CPULevel", original, patched);
+    return patched;
+}
+
 static IMP orig_MitigationController_DVD1Level = NULL;
 static int hook_MitigationController_DVD1Level(id self, SEL _cmd) {
-    if (insulationThermalPatchAggressiveFullPowerEnabled()) return 0;
-    if (!orig_MitigationController_DVD1Level) return 0;
-    return ((int (*)(id, SEL))orig_MitigationController_DVD1Level)(self, _cmd);
+    int original = orig_MitigationController_DVD1Level ? ((int (*)(id, SEL))orig_MitigationController_DVD1Level)(self, _cmd) : 0;
+    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? 0 : original;
+    InsulationProbeRecordSetter(@"DVD1Level", original, patched);
+    return patched;
 }
 
 static IMP orig_MitigationController_SGXLevel = NULL;
 static int hook_MitigationController_SGXLevel(id self, SEL _cmd) {
-    if (insulationThermalPatchAggressiveFullPowerEnabled()) return 0;
-    if (!orig_MitigationController_SGXLevel) return 0;
-    return ((int (*)(id, SEL))orig_MitigationController_SGXLevel)(self, _cmd);
+    int original = orig_MitigationController_SGXLevel ? ((int (*)(id, SEL))orig_MitigationController_SGXLevel)(self, _cmd) : 0;
+    int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? 0 : original;
+    InsulationProbeRecordSetter(@"SGXLevel", original, patched);
+    return patched;
 }
 
 static IMP orig_MitigationController_getPackagePowerZoneMetric = NULL;
@@ -499,7 +517,15 @@ static void insulationInstallThermalManagerPatch(void) {
 
     Class mitigationController = objc_getClass("MitigationController");
     if (mitigationController) {
-        Method m = class_getInstanceMethod(mitigationController, @selector(DVD1Level));
+        Method m = class_getInstanceMethod(mitigationController, @selector(powerSaveActive));
+        if (m) { orig_MitigationController_powerSaveActive = method_getImplementation(m);
+            method_setImplementation(m, (IMP)hook_MitigationController_powerSaveActive); }
+
+        m = class_getInstanceMethod(mitigationController, @selector(CPULevel));
+        if (m) { orig_MitigationController_CPULevel = method_getImplementation(m);
+            method_setImplementation(m, (IMP)hook_MitigationController_CPULevel); }
+
+        m = class_getInstanceMethod(mitigationController, @selector(DVD1Level));
         if (m) { orig_MitigationController_DVD1Level = method_getImplementation(m);
             method_setImplementation(m, (IMP)hook_MitigationController_DVD1Level); }
 
