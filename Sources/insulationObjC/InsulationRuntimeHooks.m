@@ -499,7 +499,10 @@ static void InsulationInstallMitigationControllerSetterHooks(void) {
 static void InsulationInstallMitigationControllerUpdateHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
     InsulationDumpClassMethods(mitigationClass, @"MitigationController.update");
-    InsulationHookInstanceMethod(mitigationClass, @selector(initForFastLoop:noDisplay:powerSaveParams:powerZoneParams:), (IMP)Insulation_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams, (IMP *)&Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams);
+    // Disabled for cold-start repair isolation: stablebase did not hook the initializer.
+    // Hooking initForFastLoop:noDisplay:powerSaveParams:powerZoneParams: captures the controller
+    // during startup and immediately applies fullPower; that path is the current suspect.
+    InsulationProbeRecordHookInstall(@"MitigationController", @"initForFastLoop:noDisplay:powerSaveParams:powerZoneParams:", NO);
     InsulationHookInstanceMethod(mitigationClass, @selector(updateCPU), (IMP)Insulation_MitigationController_updateCPU, (IMP *)&Orig_MitigationController_updateCPU);
     InsulationHookInstanceMethod(mitigationClass, @selector(updateGPU), (IMP)Insulation_MitigationController_updateGPU, (IMP *)&Orig_MitigationController_updateGPU);
     InsulationHookInstanceMethod(mitigationClass, @selector(updatePackage), (IMP)Insulation_MitigationController_updatePackage, (IMP *)&Orig_MitigationController_updatePackage);
