@@ -77,7 +77,6 @@ static void (*Orig_MitigationController_setPackagePowerFloorFromDecisionSource)(
 static void (*Orig_MitigationController_setMaxPackagePower)(id self, SEL _cmd, int power);
 static void (*Orig_MitigationController_setPackageLowPowerTarget)(id self, SEL _cmd);
 static void (*Orig_MitigationController_setPackagePowerZoneTarget)(id self, SEL _cmd);
-static id (*Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams)(id self, SEL _cmd, BOOL fastLoop, BOOL noDisplay, id powerSaveParams, id powerZoneParams);
 static void (*Orig_MitigationController_updateCPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
@@ -378,14 +377,6 @@ static void Insulation_MitigationController_setPackagePowerZoneTarget(id self, S
     }
     InsulationRecordMitigationSetter(self, @"setPackagePowerZoneTarget", 1, 1);
     Orig_MitigationController_setPackagePowerZoneTarget(self, _cmd);
-}
-
-static id Insulation_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams(id self, SEL _cmd, BOOL fastLoop, BOOL noDisplay, id powerSaveParams, id powerZoneParams) {
-    id result = Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams ? ((id (*)(id, SEL, BOOL, BOOL, id, id))Orig_MitigationController_initForFastLoop_noDisplay_powerSaveParams_powerZoneParams)(self, _cmd, fastLoop, noDisplay, powerSaveParams, powerZoneParams) : self;
-    BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
-    InsulationProbeEvent(@"mitigation.initForFastLoop");
-    InsulationApplyAfterMitigationControllerCapture(changed);
-    return result;
 }
 
 // Update hooks capture the live MitigationController object. Low-power mode needs that
