@@ -59,6 +59,9 @@ jobs:
       - name: Build package
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
+          if [[ "${GITHUB_REF_NAME}" == "insulation-reset-native-0362-clean" ]]; then
+            export RESET_NATIVE_ONLY=1
+          fi
           bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh
           scripts/check-objc-port.sh
           scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"

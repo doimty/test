@@ -22,8 +22,12 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = insulation
 insulation_USE_MODULES = 0
+ifeq ($(RESET_NATIVE_ONLY),1)
+insulation_FILES = Sources/insulationObjC/TweakInit.m
+else
 insulation_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \)) \
 $(shell find Sources/insulationC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \))
+endif
 
 insulation_CFLAGS = -fobjc-arc -ISources/insulationC/include -ISources/insulationObjC
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)

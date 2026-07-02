@@ -6,6 +6,26 @@ cd "$ROOT"
 
 fail=0
 section() { printf '\n== %s ==\n' "$1"; }
+
+if [[ "${RESET_NATIVE_ONLY:-0}" == "1" ]]; then
+  section "Reset-native-only source contract"
+  if grep -q 'InsulationResetNativeThermalState' Sources/insulationObjC/TweakInit.m; then
+    echo "OK: reset-native entrypoint present"
+  else
+    echo "FAIL: reset-native entrypoint missing" >&2
+    exit 1
+  fi
+  forbidden=$(grep -RInE 'InsulationRuntimeHooksInstall|InsulationExecutePuppetEvent|com\.be-huge\.insulation\.runtimeState|fullPower|commonProduct\.maintenance|InsulationProbe|setPackageLowPowerTarget\.stats' Sources/insulationObjC/TweakInit.m Makefile || true)
+  if [[ -z "$forbidden" ]]; then
+    echo "OK: reset-native build has no runtime/fullPower references"
+  else
+    echo "$forbidden" >&2
+    echo "FAIL: reset-native build contains forbidden runtime/fullPower references" >&2
+    exit 1
+  fi
+  echo "All reset-native checks passed."
+  exit 0
+fi
 check_zero() {
   local label="$1" count="$2"
   if [[ "$count" == "0" ]]; then
