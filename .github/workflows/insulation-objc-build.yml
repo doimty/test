@@ -6,6 +6,7 @@ on:
     branches:
       - insulation-objc-build
       - insulation-objc-build-probe9
+      - insulation-objc-build-probe15
 
 jobs:
   package:

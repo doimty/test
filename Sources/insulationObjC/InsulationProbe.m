@@ -35,7 +35,7 @@ static NSMutableDictionary *InsulationProbeState(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"version"] = @"0.1.36.8-probe14";
+        state[@"version"] = @"0.1.36.9-probe15";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -154,6 +154,22 @@ void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue,
         if (originalValue != patchedValue) {
             InsulationProbeBump(setters, [name stringByAppendingString:@".patched"]);
         }
+
+        NSString *detailKey = [name stringByAppendingString:@".stats"];
+        NSMutableDictionary *stats = [setters[detailKey] isKindOfClass:[NSDictionary class]] ? [setters[detailKey] mutableCopy] : [NSMutableDictionary dictionary];
+        NSNumber *oldOriginalMin = stats[@"originalMin"];
+        NSNumber *oldOriginalMax = stats[@"originalMax"];
+        NSNumber *oldPatchedMin = stats[@"patchedMin"];
+        NSNumber *oldPatchedMax = stats[@"patchedMax"];
+        stats[@"lastOriginal"] = @(originalValue);
+        stats[@"lastPatched"] = @(patchedValue);
+        stats[@"originalMin"] = @((oldOriginalMin && [oldOriginalMin integerValue] < originalValue) ? [oldOriginalMin integerValue] : originalValue);
+        stats[@"originalMax"] = @((oldOriginalMax && [oldOriginalMax integerValue] > originalValue) ? [oldOriginalMax integerValue] : originalValue);
+        stats[@"patchedMin"] = @((oldPatchedMin && [oldPatchedMin integerValue] < patchedValue) ? [oldPatchedMin integerValue] : patchedValue);
+        stats[@"patchedMax"] = @((oldPatchedMax && [oldPatchedMax integerValue] > patchedValue) ? [oldPatchedMax integerValue] : patchedValue);
+        stats[@"changedLast"] = @(originalValue != patchedValue);
+        setters[detailKey] = stats;
+
         NSMutableDictionary *record = [@{
             @"time": @([[NSDate date] timeIntervalSince1970]),
             @"name": name,

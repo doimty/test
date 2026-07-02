@@ -208,22 +208,37 @@ static void InsulationRecordMitigationSetter(id self, NSString *name, NSInteger 
 
 static void Insulation_MitigationController_setPowerSaveActive(id self, SEL _cmd, BOOL active) {
     if (InsulationPowerMitigationsDisabled() || InsulationCPURestoreActive()) {
-        InsulationRecordMitigationSetter(self, @"setPowerSaveActive", active ? 1 : 0, 0);
+        InsulationSetMitigationControllerObject((MitigationController *)self);
+        InsulationProbeRecordSetterDetails(@"setPowerSaveActive", active ? 1 : 0, 0, @{
+            @"selector": @"setPowerSaveActive:",
+            @"mode": @"fullPowerOrRestore",
+        });
         Orig_MitigationController_setPowerSaveActive(self, _cmd, NO);
         return;
     }
     if (InsulationCPULimitEnabled()) {
-        InsulationRecordMitigationSetter(self, @"setPowerSaveActive", active ? 1 : 0, 1);
+        InsulationSetMitigationControllerObject((MitigationController *)self);
+        InsulationProbeRecordSetterDetails(@"setPowerSaveActive", active ? 1 : 0, 1, @{
+            @"selector": @"setPowerSaveActive:",
+            @"mode": @"cpuLimit",
+        });
         Orig_MitigationController_setPowerSaveActive(self, _cmd, YES);
         return;
     }
-    InsulationRecordMitigationSetter(self, @"setPowerSaveActive", active ? 1 : 0, active ? 1 : 0);
+    InsulationSetMitigationControllerObject((MitigationController *)self);
+    InsulationProbeRecordSetterDetails(@"setPowerSaveActive", active ? 1 : 0, active ? 1 : 0, @{
+        @"selector": @"setPowerSaveActive:",
+        @"mode": @"passthrough",
+    });
     Orig_MitigationController_setPowerSaveActive(self, _cmd, active);
 }
 
 static void Insulation_MitigationController_setCPMSMitigationsEnabled(id self, SEL _cmd, BOOL enabled) {
     BOOL patched = InsulationPowerMitigationsDisabled() ? NO : enabled;
-    InsulationRecordMitigationSetter(self, @"setCPMSMitigationsEnabled", enabled ? 1 : 0, patched ? 1 : 0);
+    InsulationSetMitigationControllerObject((MitigationController *)self);
+    InsulationProbeRecordSetterDetails(@"setCPMSMitigationsEnabled", enabled ? 1 : 0, patched ? 1 : 0, @{
+        @"selector": @"setCPMSMitigationsEnabled:",
+    });
     Orig_MitigationController_setCPMSMitigationsEnabled(self, _cmd, patched);
 }
 
@@ -244,7 +259,11 @@ static void Insulation_MitigationController_setCPULowPowerTarget(id self, SEL _c
 
 static void Insulation_MitigationController_setCPUPowerCeilingFromDecisionSource(id self, SEL _cmd, int power, int source) {
     int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : InsulationLimitedCPUPower(power);
-    InsulationRecordMitigationSetter(self, @"setCPUPowerCeiling", power, patched);
+    InsulationSetMitigationControllerObject((MitigationController *)self);
+    InsulationProbeRecordSetterDetails(@"setCPUPowerCeiling", power, patched, @{
+        @"selector": @"setCPUPowerCeiling:fromDecisionSource:",
+        @"source": @(source),
+    });
     Orig_MitigationController_setCPUPowerCeilingFromDecisionSource(self, _cmd, patched, source);
 }
 
@@ -280,7 +299,11 @@ static void Insulation_MitigationController_setDVD1Level(id self, SEL _cmd, int 
 
 static void Insulation_MitigationController_setGPUPowerCeilingFromDecisionSource(id self, SEL _cmd, int power, int source) {
     int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
-    InsulationRecordMitigationSetter(self, @"setGPUPowerCeiling", power, patched);
+    InsulationSetMitigationControllerObject((MitigationController *)self);
+    InsulationProbeRecordSetterDetails(@"setGPUPowerCeiling", power, patched, @{
+        @"selector": @"setGPUPowerCeiling:fromDecisionSource:",
+        @"source": @(source),
+    });
     Orig_MitigationController_setGPUPowerCeilingFromDecisionSource(self, _cmd, patched, source);
 }
 
@@ -336,7 +359,11 @@ static void Insulation_MitigationController_setPackagePowerBudgetDirect_withDeta
 
 static void Insulation_MitigationController_setPackagePowerCeilingFromDecisionSource(id self, SEL _cmd, int power, int source) {
     int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
-    InsulationRecordMitigationSetter(self, @"setPackagePowerCeiling", power, patched);
+    InsulationSetMitigationControllerObject((MitigationController *)self);
+    InsulationProbeRecordSetterDetails(@"setPackagePowerCeiling", power, patched, @{
+        @"selector": @"setPackagePowerCeiling:fromDecisionSource:",
+        @"source": @(source),
+    });
     Orig_MitigationController_setPackagePowerCeilingFromDecisionSource(self, _cmd, patched, source);
 }
 
