@@ -409,7 +409,6 @@ static void InsulationInstallCommonProductHooks(void) {
 
 static void InsulationInstallMitigationControllerSetterHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
-    InsulationDumpClassMethods(mitigationClass, @"MitigationController");
     InsulationHookInstanceMethod(mitigationClass, @selector(setPowerSaveActive:), (IMP)Insulation_MitigationController_setPowerSaveActive, (IMP *)&Orig_MitigationController_setPowerSaveActive);
     InsulationHookInstanceMethod(mitigationClass, @selector(setCPMSMitigationsEnabled:), (IMP)Insulation_MitigationController_setCPMSMitigationsEnabled, (IMP *)&Orig_MitigationController_setCPMSMitigationsEnabled);
     InsulationHookInstanceMethod(mitigationClass, @selector(setCPULevel:), (IMP)Insulation_MitigationController_setCPULevel, (IMP *)&Orig_MitigationController_setCPULevel);
