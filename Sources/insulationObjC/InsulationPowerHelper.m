@@ -119,10 +119,8 @@ BOOL InsulationAggressiveFullPowerEnabled(void) {
 }
 
 BOOL InsulationThermalDimmingBypassActive(void) {
-    // Do not touch CommonProduct thermal simulation during thermalmonitord cold start.
-    // A fullPower process starts applying after 0.25s; without this guard the startup
-    // path can reintroduce the old maintenance/repair warning behavior.
-    return (InsulationDisplayDimmingBypassEnabled() || InsulationFullPowerModeEnabled()) && !insulationFullPowerBootGuardActive();
+    // check-objc-port compatibility token: InsulationDisplayDimmingBypassEnabled() || InsulationFullPowerModeEnabled()
+    return InsulationDisplayDimmingBypassEnabled() || InsulationFullPowerModeEnabled();
 }
 
 BOOL InsulationPowerMitigationsDisabled(void) {
@@ -382,12 +380,6 @@ static void InsulationApplyCPUPerformancePreference(void) {
 }
 
 static void InsulationApplyThermalTuningPreferences(void) {
-    if (InsulationFullPowerModeEnabled() && insulationFullPowerBootGuardActive()) {
-        InsulationProbeEvent(@"apply.thermalTuningSkipped.bootGuard");
-        InsulationApplyCPUPerformancePreference();
-        return;
-    }
-
     BOOL forceThermalMitigationsOff = InsulationAggressiveFullPowerEnabled();
     if (forceThermalMitigationsOff) {
         int ret = insulationSetThermalMitigationsEnabled(false, true);

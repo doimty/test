@@ -83,7 +83,6 @@ static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
 static void *InsulationLastObservedMitigationControllerPtr;
 static CFAbsoluteTime InsulationLastMitigationUpdateReapplyTime;
-static CFAbsoluteTime InsulationLastCommonProductMaintenanceApplyTime;
 
 
 static id Insulation_NSDictionary_dictionaryWithContentsOfFile(Class self, SEL _cmd, id path) {
@@ -137,23 +136,12 @@ static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacemen
 static void InsulationRecordCommonProductBypass(NSString *source) {
     NSString *safeSource = ([source isKindOfClass:[NSString class]] && [source length] > 0) ? source : @"commonProduct";
     InsulationProbeEvent([@"commonProduct.bypass." stringByAppendingString:safeSource]);
-    if (!InsulationPowerMitigationsDisabled()) {
-        return;
-    }
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if ((now - InsulationLastCommonProductMaintenanceApplyTime) < 2.0) {
-        InsulationProbeEvent([@"commonProduct.maintenanceSkipped." stringByAppendingString:safeSource]);
-        return;
-    }
-    InsulationLastCommonProductMaintenanceApplyTime = now;
-    InsulationExecutePuppetEventWithSource(@"commonProduct.maintenance");
 }
 
 static id Insulation_CommonProduct_initProduct(id self, SEL _cmd, id arg) {
     id result = Orig_CommonProduct_initProduct(self, _cmd, arg);
     InsulationSetCommonProductObject((CommonProduct *)self);
     InsulationExecutePuppetEventWithSource(@"commonProduct.initProduct");
-    InsulationExecutePuppetEventSoonWithSource(@"commonProduct.initProductSoon");
     return result;
 }
 
