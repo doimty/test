@@ -89,8 +89,8 @@ static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacemen
 static id Insulation_CommonProduct_initProduct(id self, SEL _cmd, id arg) {
     id result = Orig_CommonProduct_initProduct(self, _cmd, arg);
     InsulationSetCommonProductObject((CommonProduct *)self);
-    InsulationExecutePuppetEvent();
-    InsulationExecutePuppetEventSoon();
+    // Probe27: isolate probe-line CommonProduct behavior. Direct apply only, no delayed soon replay.
+    InsulationExecutePuppetEventWithSource(@"commonProduct.initProduct");
     return result;
 }
 
@@ -102,13 +102,13 @@ static void Insulation_CommonProduct_tryTakeAction(id self, SEL _cmd) {
         [product putDeviceInLowTempSimulationMode:@"nominal"];
     }
     Orig_CommonProduct_tryTakeAction(self, _cmd);
-    InsulationExecutePuppetEvent();
+    // Probe27: no post-tryTakeAction apply. Tests whether removing stablebase replay causes repair.
 }
 
 static void Insulation_CommonProduct_suppressWhenDimmingActive(id self, SEL _cmd, void (*original)(id, SEL)) {
     BOOL bypass = InsulationThermalDimmingBypassActive();
     if (bypass) {
-        InsulationExecutePuppetEvent();
+        // Probe27: bypass without apply. Tests CommonProduct replay removal independently from setter changes.
         return;
     }
     original(self, _cmd);
