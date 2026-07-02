@@ -1,0 +1,62 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  🎉 实验分支推送成功 & GitHub Actions 构建中
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+※ 本文件为阶段性历史快照；当前长期参考请优先看 `docs/experiments/EXPERIMENT_SUMMARY.txt`。
+
+✅ 已推送的实验分支:
+  - exp-a-no-boot-guard (0.1.36-expA) - 禁用 Boot Guard
+  - exp-b-reduce-calls (0.1.36-expB) - 减少后台调用 8→4
+  - exp-c-aggressive-pressure (0.1.36-expC) - 激进 pressure 归零
+
+🔄 GitHub Actions 构建状态:
+  - exp-c-aggressive-pressure: 构建中 (run 1)
+  - exp-a-no-boot-guard: 构建中 (run 2)
+  - exp-b-reduce-calls: 排队中 (run 3)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 监控构建进度:
+
+方式 1 (网页):
+  访问: https://github.com/express-filth-rift/test/actions
+
+方式 2 (脚本):
+  cd /root/.openclaw/workspace/repos/insulation
+  GITHUB_TOKEN=<你的 GitHub Token> ./monitor-builds.sh express-filth-rift/test
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 下载构建产物:
+
+1. 访问 Actions 页面
+2. 点击对应的 workflow run (绿色勾表示成功)
+3. 滚动到页面底部 "Artifacts" 部分
+4. 下载对应的包:
+   - insulation-experiment-exp-a-no-boot-guard-rootless-packages
+   - insulation-experiment-exp-a-no-boot-guard-roothide-packages
+   - (同理 exp-b, exp-c)
+
+每个 artifact 包含:
+  - rootless: com.be-huge.insulation_0.1.36-expX_iphoneos-arm64.deb
+  - roothide: com.be-huge.insulation_0.1.36-expX_iphoneos-arm64e.deb
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔬 测试建议:
+
+1. 下载所有 6 个包 (3 个实验 × 2 个架构)
+2. 分别测试每个实验版本
+3. 对比 0.0.13 和 0.1.35
+4. 记录哪个版本最接近 0.0.13 的流畅度
+
+测试场景:
+  - 冷启动性能 (开机后立即测试)
+  - 长时间使用流畅度 (1小时+)
+  - 模式切换响应 (fullPower ↔ off)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏱️ 预计构建时间: ~15-20 分钟
+
+🦐 构建完成后告诉我结果喵~

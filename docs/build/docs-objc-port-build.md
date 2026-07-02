@@ -1,0 +1,155 @@
+# ObjC Build Notes
+
+Insulation now builds on the Objective-C/C runtime mainline.
+
+## Safety Model
+
+- Default package builds use the current ObjC/C source layout.
+- Packaging still relies on temporary PreferenceBundle plist swaps during `scripts/build-objc-package.sh`:
+  - `scripts/objc-packaging/Info.plist` changes `NSPrincipalClass` to `RootListController`.
+  - `scripts/objc-packaging/InsulationPrefs.plist` changes PreferenceLoader `detail` to `RootListController`.
+- `scripts/build-objc-package.sh` restores the original plist files on exit.
+
+## Static Gate
+
+Run before package validation:
+
+```sh
+scripts/check-objc-port.sh
+```
+
+The gate checks:
+
+- active source trees have no Swift/Orion references
+- the legacy Orion tweak entry file is absent
+- key runtime hook selectors are present
+- local `Preferences` headers exist for Linux/Theos builds
+- prefs key/notification semantic tokens are preserved
+- ObjC packaging shadow plists stay consistent for package-time swaps
+
+## Linux/Theos Setup
+
+Host tools needed:
+
+- `git`
+- `make`
+- `clang` / LLVM
+- `dpkg-deb`
+- `fakeroot`
+- `ldid`
+- `rsync`
+- `plistutil` with `libplist-2.0.so.4` available at runtime
+- `curl` / `tar` / `xz`
+- Theos
+- iPhoneOS SDK in `$THEOS/sdks`
+
+Bootstrap helper:
+
+```sh
+scripts/setup-linux-theos-env.sh
+```
+
+The setup helper stops early if required host tools are missing. Install those first, then re-run it. If GitHub is unreachable after host tools are present, the script may fail while cloning Theos. That is an environment/network blocker, not an Insulation source failure.
+
+## Build Probe
+
+```sh
+export THEOS=/root/.openclaw/workspace/toolchains/theos
+export PATH=/root/.openclaw/workspace/toolchains/bin:$THEOS/bin:$PATH
+scripts/check-objc-port.sh
+make -n
+scripts/build-objc-package.sh rootless
+```
+
+## Current Local Build Result
+
+The current OpenClaw host has a working local Linux/Theos environment under `/root/.openclaw/workspace/toolchains/theos`, with `iPhoneOS16.5.sdk` installed. The ObjC rootless package build has completed successfully:
+
+```sh
+export THEOS=/root/.openclaw/workspace/toolchains/theos
+export PATH=/root/.openclaw/workspace/toolchains/bin:$THEOS/bin:$THEOS/toolchain/linux/iphone/bin:$PATH
+scripts/check-objc-port.sh
+scripts/build-objc-package.sh rootless
+```
+
+Result:
+
+```text
+packages/com.be-huge.insulation_0.1.22-objc-port_iphoneos-arm64.deb
+```
+
+The package includes the rootless paths for the main tweak dylib, PreferenceBundle, PreferenceLoader plist, and Control Center bundle under `/var/jb`.
+
+## Current Build Status
+
+The repository is on the ObjC/C runtime mainline.
+
+### Active Runtime Areas
+
+- Main tweak runtime init:
+  - `Sources/insulationObjC/TweakInit.m`
+  - Installs runtime hooks with a constructor.
+  - Registers Darwin notifications for apply/runtime state/restart.
+- Main tweak runtime hooks:
+  - `Sources/insulationObjC/InsulationRuntimeHooks.m`
+  - Uses Objective-C runtime hook replacement and stores original IMPs.
+  - Covers `NSDictionary`, `ComponentControl`, `CPMSHelper`, `CommonProduct`, and `MitigationController` hook families.
+- Power helper parity:
+  - `Sources/insulationObjC/InsulationPowerHelper.m`
+  - Preserves key Swift behavior for `thermalPowerMode`, `lowPower`, `fullPower`, prevent-dimming, notification suppression, pocket sunlight, sunlight override, and fullPower restore paths.
+- Thermal dictionary patching:
+  - `Sources/insulationObjC/InsulationDictHelper.m`
+  - Recursively patches thermal dictionaries and keeps strict Swift-like integer parsing for strings.
+- PreferenceBundle ObjC implementation:
+  - `InsulationPrefs/Sources/InsulationPrefsObjC/*`
+  - Keeps the CPU mode menu, preference keys, runtime state notification, execute notification, and restart notification behavior.
+- Packaging swap inputs:
+  - `scripts/objc-packaging/Info.plist`
+  - `scripts/objc-packaging/InsulationPrefs.plist`
+
+### Protected Behavior
+
+`fullPower` remains the only mode that forces the CPU/package power restore hooks. Prevent-dimming and `lowPower` do not inherit the fullPower setter interception behavior.
+
+`lowPower` remains CPU level `2`, matching the established runtime design.
+
+PreferenceBundle packaging still swaps plist metadata only during `scripts/build-objc-package.sh`, then restores the workspace files.
+
+### Validation Performed
+
+These checks pass on the current host:
+
+```sh
+scripts/check-objc-port.sh
+bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh
+scripts/build-objc-package.sh rootless
+```
+
+`scripts/build-objc-package.sh` checks required host tools (`make`, `clang`, `dpkg-deb`, `fakeroot`, `ldid`, `rsync`, `plistutil`) before mutating packaging files.
+
+A failure-injection test was also performed with a fake `THEOS`, fake required host tools, and fake `make` returning exit code `42`. `scripts/build-objc-package.sh` restored all temporarily swapped files after failure:
+
+- `control`
+- `InsulationPrefs/Resources/Info.plist`
+- `InsulationPrefs/layout/Library/PreferenceLoader/Preferences/InsulationPrefs.plist`
+
+### Static Gate Coverage
+
+`scripts/check-objc-port.sh` now guards:
+
+- active source trees have no Swift/Orion references
+- the legacy Orion tweak entry file is absent
+- local Linux/Theos Preferences private headers exist
+- all required hook selectors are present
+- ObjC runtime risk patterns stay out of the active code (`__weak`, `objc_msgSend`, `performSelector`, `NSClassFromString`, `dlsym`, `unsafe_unretained`)
+- only the known `_specifiers` KVC access remains in the PreferenceBundle implementation
+- exported ObjC helper declarations have implementations
+- private ObjC helper functions remain `static`
+- DictHelper, PowerHelper, fullPower hotfix, tweak init, prefs UI/notification, Makefile source discovery, and prefs packaging swap semantics remain consistent
+
+### Remaining Notes
+
+- Rootless ObjC packaging is locally validated.
+- `arm64e` link steps emit toolchain compatibility warnings from the Linux iOS clang, but the merged/sign/stage/package flow completes and produces the `.deb`.
+- `THEOS_PACKAGE_SCHEME=roothide` has not been validated in this pass.
+- Do not treat GitHub Actions failures as Swift/ObjC source failures unless runner quota/toolchain problems have been ruled out.

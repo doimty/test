@@ -1,0 +1,74 @@
+name: Insulation Experiment Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - exp-a-no-boot-guard
+      - exp-b-reduce-calls
+      - exp-c-aggressive-pressure
+
+jobs:
+  package:
+    name: Package Experiment ${{ matrix.scheme }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme:
+          - rootless
+          - roothide
+    env:
+      THEOS: ${{ github.workspace }}/theos
+      THEOS_PACKAGE_SCHEME: ${{ matrix.scheme }}
+      FINALPACKAGE: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Install packaging tools
+        run: |
+          brew update
+          brew install dpkg ldid make libplist
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
+
+      - name: Install Theos SDK with private frameworks
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
+          git -C /tmp/theos-sdks sparse-checkout set iPhoneOS16.5.sdk
+          mkdir -p "$THEOS/sdks"
+          cp -R /tmp/theos-sdks/iPhoneOS16.5.sdk "$THEOS/sdks/"
+
+      - name: Build ObjC ${{ matrix.scheme }} package
+        run: |
+          export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
+          bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh
+          scripts/check-objc-port.sh
+          scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"
+
+      - name: Inspect package slices
+        run: |
+          export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
+          rm -rf /tmp/insulation-pkg
+          mkdir -p /tmp/insulation-pkg
+          ls -l packages
+          deb="$(ls packages/*.deb | head -n 1)"
+          dpkg-deb -x "$deb" /tmp/insulation-pkg
+          prefs_bin="$(find /tmp/insulation-pkg -path '*/Library/PreferenceBundles/InsulationPrefs.bundle/InsulationPrefs' -type f | head -n 1)"
+          test -n "$prefs_bin"
+          xcrun otool -hv "$prefs_bin"
+          xcrun otool -L "$prefs_bin"
+
+      - name: Upload deb packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: insulation-experiment-${{ github.ref_name }}-${{ matrix.scheme }}-packages
+          path: packages/*
+          if-no-files-found: error

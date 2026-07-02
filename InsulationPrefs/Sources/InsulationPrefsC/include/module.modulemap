@@ -1,0 +1,4 @@
+module InsulationPrefsC {
+    header "InsulationPrefs.h"
+    export *
+}
