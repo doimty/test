@@ -6,7 +6,6 @@
 #import <unistd.h>
 
 #import "InsulationPowerHelper.h"
-#import "InsulationProbe.h"
 #import "InsulationRuntimeHooks.h"
 #import "../insulationC/include/Tweak.h"
 
@@ -15,8 +14,8 @@ static void InsulationApplyNotificationCallback(CFNotificationCenterRef center,
                                                 CFStringRef name,
                                                 const void *object,
                                                 CFDictionaryRef userInfo) {
-    InsulationExecutePuppetEventWithSource(@"notification.apply");
-    InsulationExecutePuppetEventSoonWithSource(@"notification.applySoon");
+    InsulationExecutePuppetEvent();
+    InsulationExecutePuppetEventSoon();
 }
 
 static void InsulationRestartNotificationCallback(CFNotificationCenterRef center,
@@ -29,10 +28,8 @@ static void InsulationRestartNotificationCallback(CFNotificationCenterRef center
 }
 
 __attribute__((constructor)) static void InsulationObjCPortInit(void) {
-    InsulationProbeMarkLoaded(@"init.begin");
     insulationMarkProcessStart();
     InsulationRuntimeHooksInstall();
-    InsulationProbeMarkLoaded(@"hooks.installed");
 
     CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenter();
     CFNotificationCenterAddObserver(center,
@@ -56,5 +53,5 @@ __attribute__((constructor)) static void InsulationObjCPortInit(void) {
 
     // A power-mode switch restarts thermalmonitord. The new process will not receive the
     // pre-restart apply notification, so replay prefs after startup.
-    InsulationExecutePuppetEventSoonWithSource(@"constructor.startupSoon");
+    InsulationExecutePuppetEventSoon();
 }
