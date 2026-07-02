@@ -238,9 +238,10 @@ static void Insulation_MitigationController_setCPULevel(id self, SEL _cmd, int l
 }
 
 static void Insulation_MitigationController_setCPULowPowerTarget(id self, SEL _cmd, int power) {
-    // Match the original Swift fullPower semantics: clear CPU low-power target
-    // instead of replacing it with a high ceiling value.
-    int patched = InsulationPowerMitigationsDisabled() ? 0 : InsulationLimitedCPUPower(power);
+    // Cold-start repair guard: do not clear target/floor/zone to 0 in fullPower.
+    // Stablebase used high unrestricted target semantics here; probe17's zeroing path
+    // is correlated with startup repair state.
+    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : InsulationLimitedCPUPower(power);
     InsulationRecordMitigationSetter(self, @"setCPULowPowerTarget", power, patched);
     Orig_MitigationController_setCPULowPowerTarget(self, _cmd, patched);
 }
@@ -262,19 +263,13 @@ static void Insulation_MitigationController_setCPUPowerCeilingForDVD1Contributor
 }
 
 static void Insulation_MitigationController_setCPUPowerFloorFromDecisionSource(id self, SEL _cmd, int power, int source) {
-    // Match original Swift semantics: CPU floor is cleared in fullPower.
-    int patched = InsulationMitigationPowerFloor(power);
+    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : InsulationMitigationPowerFloor(power);
     InsulationRecordMitigationSetter(self, @"setCPUPowerFloor", power, patched);
     Orig_MitigationController_setCPUPowerFloorFromDecisionSource(self, _cmd, patched, source);
 }
 
 static void Insulation_MitigationController_setCPUPowerZoneTarget(id self, SEL _cmd, int power) {
-    // Match original Swift semantics: fullPower blocks CPU zone target writes.
-    if (InsulationPowerMitigationsDisabled()) {
-        InsulationRecordMitigationSetter(self, @"setCPUPowerZoneTarget", power, 0);
-        return;
-    }
-    int patched = InsulationLimitedCPUPower(power);
+    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : InsulationLimitedCPUPower(power);
     InsulationRecordMitigationSetter(self, @"setCPUPowerZoneTarget", power, patched);
     Orig_MitigationController_setCPUPowerZoneTarget(self, _cmd, patched);
 }
@@ -302,9 +297,8 @@ static void Insulation_MitigationController_setGPUPowerFloorFromDecisionSource(i
 }
 
 static void Insulation_MitigationController_setGPUPowerZoneTarget(id self, SEL _cmd, int power) {
-    // Match original Swift semantics: fullPower blocks GPU zone target writes.
     if (InsulationPowerMitigationsDisabled()) {
-        InsulationRecordMitigationSetter(self, @"setGPUPowerZoneTarget", power, 0);
+        InsulationRecordMitigationSetter(self, @"setGPUPowerZoneTarget", power, power);
         return;
     }
     InsulationRecordMitigationSetter(self, @"setGPUPowerZoneTarget", power, power);
