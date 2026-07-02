@@ -400,39 +400,16 @@ static BOOL InsulationCaptureMitigationControllerIfChanged(id self) {
 }
 
 static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
-    if (InsulationApplyInProgress()) {
+    if (!changed) {
         return;
     }
-
-    if (changed) {
-        // A new MitigationController usually appears during thermalmonitord startup/restart.
-        // The daemon can continue applying late mitigation decisions after the first 0.5s,
-        // so use a short bounded stabilization burst instead of a single delayed retry.
-        InsulationProbeRecordSelfHeal(@"newObjectBurst");
-        InsulationExecutePuppetEventWithSource(@"mitigation.newObjectBurst");
-        NSArray<NSNumber *> *delays = @[@0.25, @0.75, @1.5, @3.0];
-        for (NSNumber *delay in delays) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([delay doubleValue] * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-                InsulationExecutePuppetEventWithSource(@"mitigation.newObjectBurstSoon");
-            });
-        }
-        return;
-    }
-
-    if (!InsulationPowerMitigationsDisabled()) {
-        return;
-    }
-
-    // Same-object update paths can still re-apply throttle decisions. Self-heal them,
-    // but throttle the repair to avoid turning every thermal update into a burst.
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if ((now - InsulationLastMitigationUpdateReapplyTime) < 0.75) {
-        return;
-    }
-    InsulationLastMitigationUpdateReapplyTime = now;
-    InsulationProbeRecordSelfHeal(@"sameObjectDebounced");
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-        InsulationExecutePuppetEventWithSource(@"mitigation.sameObjectDebounced");
+    // Cold-start repair guard: restore stablebase cadence for new MitigationController.
+    // Probe17's 0.25/0.75/1.5/3.0s burst repeatedly applied fullPower during startup
+    // and is correlated with repair state.
+    InsulationProbeRecordSelfHeal(@"newObjectStablebaseCadence");
+    InsulationExecutePuppetEventWithSource(@"mitigation.newObject");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        InsulationExecutePuppetEventWithSource(@"mitigation.newObjectSoon");
     });
 }
 
