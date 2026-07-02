@@ -6,4 +6,4 @@ Author: be-huge & doimty
 Section: Tweaks
 Depends: firmware (>= 15.0)
 Architecture: iphoneos-arm64e
-Version: 0.1.36.24-probe22-keep-maxcpu
+Version: 0.1.36.25-probe23-commonproduct-apply

@@ -140,7 +140,9 @@ static void InsulationRecordCommonProductBypass(NSString *source) {
 static id Insulation_CommonProduct_initProduct(id self, SEL _cmd, id arg) {
     id result = Orig_CommonProduct_initProduct(self, _cmd, arg);
     InsulationSetCommonProductObject((CommonProduct *)self);
+    // Restore stablebase CommonProduct cadence: init gets direct apply plus soon replay.
     InsulationExecutePuppetEventWithSource(@"commonProduct.initProduct");
+    InsulationExecutePuppetEventSoonWithSource(@"commonProduct.initProductSoon");
     return result;
 }
 
@@ -155,12 +157,15 @@ static void Insulation_CommonProduct_tryTakeAction(id self, SEL _cmd) {
     if (bypass) {
         InsulationRecordCommonProductBypass(@"tryTakeAction");
     }
+    InsulationExecutePuppetEventWithSource(@"commonProduct.tryTakeAction");
 }
 
 static void Insulation_CommonProduct_suppressWhenDimmingActive(id self, SEL _cmd, void (*original)(id, SEL), NSString *source) {
     BOOL bypass = InsulationThermalDimmingBypassActive();
     if (bypass) {
         InsulationRecordCommonProductBypass(source);
+        // Stablebase applied immediately after suppressing thermal/dimming actions.
+        InsulationExecutePuppetEventWithSource([@"commonProduct.suppress." stringByAppendingString:source ?: @"unknown"]);
         return;
     }
     original(self, _cmd);
