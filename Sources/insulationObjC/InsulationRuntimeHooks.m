@@ -347,27 +347,33 @@ static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
     if (!changed) {
         return;
     }
-    // Immediate apply + single delayed retry at 0.5s (reduced from 5 applications to 2)
-    InsulationExecutePuppetEvent();
+    // Cold-start repair guard: restore stablebase cadence for new MitigationController.
+    // Probe17's 0.25/0.75/1.5/3.0s burst repeatedly applied fullPower during startup
+    // and is correlated with repair state.
+    InsulationProbeRecordSelfHeal(@"newObjectStablebaseCadence");
+    InsulationExecutePuppetEventWithSource(@"mitigation.newObject");
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-        InsulationExecutePuppetEvent();
+        InsulationExecutePuppetEventWithSource(@"mitigation.newObjectSoon");
     });
 }
 
 static void Insulation_MitigationController_updateCPU(id self, SEL _cmd) {
     BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
+    InsulationProbeRecordMitigationUpdate(@"updateCPU", changed);
     Orig_MitigationController_updateCPU(self, _cmd);
     InsulationApplyAfterMitigationControllerCapture(changed);
 }
 
 static void Insulation_MitigationController_updateGPU(id self, SEL _cmd) {
     BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
+    InsulationProbeRecordMitigationUpdate(@"updateGPU", changed);
     Orig_MitigationController_updateGPU(self, _cmd);
     InsulationApplyAfterMitigationControllerCapture(changed);
 }
 
 static void Insulation_MitigationController_updatePackage(id self, SEL _cmd) {
     BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
+    InsulationProbeRecordMitigationUpdate(@"updatePackage", changed);
     Orig_MitigationController_updatePackage(self, _cmd);
     InsulationApplyAfterMitigationControllerCapture(changed);
 }
@@ -434,6 +440,10 @@ static void InsulationInstallMitigationControllerSetterHooks(void) {
 
 static void InsulationInstallMitigationControllerUpdateHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
+    // Disabled for cold-start repair isolation: stablebase did not hook the initializer.
+    // Hooking initForFastLoop:noDisplay:powerSaveParams:powerZoneParams: captures the controller
+    // during startup and immediately applies fullPower; that path is the current suspect.
+    InsulationProbeRecordHookInstall(@"MitigationController", @"initForFastLoop:noDisplay:powerSaveParams:powerZoneParams:", NO);
     InsulationHookInstanceMethod(mitigationClass, @selector(updateCPU), (IMP)Insulation_MitigationController_updateCPU, (IMP *)&Orig_MitigationController_updateCPU);
     InsulationHookInstanceMethod(mitigationClass, @selector(updateGPU), (IMP)Insulation_MitigationController_updateGPU, (IMP *)&Orig_MitigationController_updateGPU);
     InsulationHookInstanceMethod(mitigationClass, @selector(updatePackage), (IMP)Insulation_MitigationController_updatePackage, (IMP *)&Orig_MitigationController_updatePackage);
