@@ -141,7 +141,13 @@ static void InsulationRecordMitigationSetter(id self, NSString *name, NSInteger 
     if (self) {
         InsulationSetMitigationControllerObject((MitigationController *)self);
     }
+#if INSULATION_PROBE_ENABLED
     InsulationProbeRecordSetter(name, originalValue, patchedValue);
+#else
+    (void)name;
+    (void)originalValue;
+    (void)patchedValue;
+#endif
 }
 
 static void Insulation_MitigationController_setPowerSaveActive(id self, SEL _cmd, BOOL active) {

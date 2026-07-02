@@ -401,6 +401,9 @@ static void InsulationApplyThermalTuningPreferences(void) {
 }
 
 static void InsulationExecutePuppetEventLocked(NSString *source) {
+#if !INSULATION_PROBE_ENABLED
+    (void)source;
+#endif
     if (InsulationIsApplying) {
         InsulationProbeEvent(@"apply.reentrySkipped");
         return;

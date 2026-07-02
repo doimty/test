@@ -1,4 +1,7 @@
+#define INSULATION_PROBE_IMPLEMENTATION 1
 #import "InsulationProbe.h"
+
+#if INSULATION_PROBE_ENABLED
 
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
@@ -228,3 +231,17 @@ void InsulationProbeRecordMethodDump(NSString *className, NSArray<NSString *> *m
         InsulationProbeWrite(state);
     });
 }
+
+#else
+
+void InsulationProbeMarkLoaded(NSString *stage) { (void)stage; }
+void InsulationProbeEvent(NSString *event) { (void)event; }
+void InsulationProbeRecordApply(NSString *mode, BOOL bootGuardActive, NSString *source) { (void)mode; (void)bootGuardActive; (void)source; }
+void InsulationProbeRecordMitigationUpdate(NSString *name, BOOL changed) { (void)name; (void)changed; }
+void InsulationProbeRecordSelfHeal(NSString *reason) { (void)reason; }
+void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInteger patchedValue) { (void)name; (void)originalValue; (void)patchedValue; }
+void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue, NSInteger patchedValue, NSDictionary *details) { (void)name; (void)originalValue; (void)patchedValue; (void)details; }
+void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed) { (void)className; (void)selectorName; (void)installed; }
+void InsulationProbeRecordMethodDump(NSString *className, NSArray<NSString *> *methods) { (void)className; (void)methods; }
+
+#endif
