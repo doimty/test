@@ -258,11 +258,8 @@ static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
     if (!changed) {
         return;
     }
-    // Immediate apply + single delayed retry at 0.5s (reduced from 5 applications to 2)
     InsulationExecutePuppetEvent();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-        InsulationExecutePuppetEvent();
-    });
+    InsulationExecutePuppetEventSoon();
 }
 
 static void Insulation_MitigationController_updateCPU(id self, SEL _cmd) {
