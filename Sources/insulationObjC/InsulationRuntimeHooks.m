@@ -317,7 +317,9 @@ static void Insulation_MitigationController_setMaxGraphicsDrivePowerTarget(id se
 }
 
 static void Insulation_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty(id self, SEL _cmd, int power, BOOL useLegacyPath, id property) {
-    int patched = InsulationPowerMitigationsDisabled() ? InsulationUnrestrictedPowerLimit() : power;
+    // Cold-start repair guard: never lower the system-provided max CPU target.
+    // Probe telemetry showed thermalmonitord requesting 65000 while probe17 clamped it to 50000.
+    int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationSetMitigationControllerObject((MitigationController *)self);
     InsulationProbeRecordSetterDetails(@"setMaxCPUPowerTarget", power, patched, @{
         @"selector": @"setMaxCPUPowerTarget:useLegacyPath:setProperty:",
