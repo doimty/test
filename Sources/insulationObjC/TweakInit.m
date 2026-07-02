@@ -8,8 +8,27 @@
 
 __attribute__((weak_import)) extern const char *const kOSThermalNotificationPressureLevelName;
 
+typedef SCPreferencesRef (*InsulationSCPreferencesCreateFn)(CFAllocatorRef allocator, CFStringRef name, CFStringRef prefsID);
+typedef Boolean (*InsulationSCPreferencesCommitChangesFn)(SCPreferencesRef prefs);
+typedef Boolean (*InsulationSCPreferencesApplyChangesFn)(SCPreferencesRef prefs);
+typedef Boolean (*InsulationSCPreferencesRemoveValueFn)(SCPreferencesRef prefs, CFStringRef key);
+typedef int (*InsulationSCErrorFn)(void);
+
+static void *InsulationResetSCSymbol(const char *name) {
+    return dlsym(RTLD_DEFAULT, name);
+}
+
 static SCPreferencesRef InsulationResetThermalPrefs(void) {
-    return SCPreferencesCreate(kCFAllocatorDefault, CFSTR("insulation-reset-native"), CFSTR("OSThermalStatus.plist"));
+    InsulationSCPreferencesCreateFn create = (InsulationSCPreferencesCreateFn)InsulationResetSCSymbol("SCPreferencesCreate");
+    if (create == NULL) {
+        return NULL;
+    }
+    return create(kCFAllocatorDefault, CFSTR("insulation-reset-native"), CFSTR("OSThermalStatus.plist"));
+}
+
+static int InsulationResetSCError(void) {
+    InsulationSCErrorFn errorFn = (InsulationSCErrorFn)InsulationResetSCSymbol("SCError");
+    return errorFn != NULL ? errorFn() : kSCStatusFailed;
 }
 
 static int InsulationResetRemoveThermalKey(CFStringRef key) {
@@ -18,12 +37,20 @@ static int InsulationResetRemoveThermalKey(CFStringRef key) {
         return kSCStatusFailed;
     }
 
-    (void)SCPreferencesRemoveValue(prefs, key);
-    Boolean committed = SCPreferencesCommitChanges(prefs);
-    if (committed) {
-        (void)SCPreferencesApplyChanges(prefs);
+    InsulationSCPreferencesRemoveValueFn removeValue = (InsulationSCPreferencesRemoveValueFn)InsulationResetSCSymbol("SCPreferencesRemoveValue");
+    InsulationSCPreferencesCommitChangesFn commit = (InsulationSCPreferencesCommitChangesFn)InsulationResetSCSymbol("SCPreferencesCommitChanges");
+    InsulationSCPreferencesApplyChangesFn apply = (InsulationSCPreferencesApplyChangesFn)InsulationResetSCSymbol("SCPreferencesApplyChanges");
+    if (removeValue == NULL || commit == NULL || apply == NULL) {
+        CFRelease(prefs);
+        return kSCStatusFailed;
     }
-    int status = committed ? kSCStatusOK : SCError();
+
+    (void)removeValue(prefs, key);
+    Boolean committed = commit(prefs);
+    if (committed) {
+        (void)apply(prefs);
+    }
+    int status = committed ? kSCStatusOK : InsulationResetSCError();
     CFRelease(prefs);
     return status;
 }
