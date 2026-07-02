@@ -12,7 +12,7 @@ static const char *InsulationRuntimeStateName = "com.be-huge.insulation.runtimeS
 static const uint64_t InsulationRuntimeStateMagic = 0x494E535500000000ULL;
 
 static CFAbsoluteTime InsulationProcessStartTime = 0;
-static const double InsulationFullPowerBootGuardDuration = 0.08;
+static const double InsulationFullPowerBootGuardDuration = 1.5;
 
 void insulationMarkProcessStart(void) {
     if (InsulationProcessStartTime <= 0) {

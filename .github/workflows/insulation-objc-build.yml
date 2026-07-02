@@ -7,6 +7,7 @@ on:
       - insulation-objc-build
       - insulation-objc-build-probe9
       - insulation-objc-build-probe15
+      - insulation-objc-build-probe16
 
 jobs:
   package:
