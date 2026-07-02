@@ -82,7 +82,6 @@ static void (*Orig_MitigationController_updateCPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
 static void *InsulationLastObservedMitigationControllerPtr;
-static CFAbsoluteTime InsulationLastMitigationUpdateReapplyTime;
 
 
 static id Insulation_NSDictionary_dictionaryWithContentsOfFile(Class self, SEL _cmd, id path) {
