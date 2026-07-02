@@ -7,6 +7,7 @@ on:
       - main
       - thermal-tunes
       - insulation-stable-baseline-0362-clean
+      - insulation-reset-native-0362-clean
     paths:
       - '.github/workflows/build.yml'
       - 'InsulationPrefs/**'
