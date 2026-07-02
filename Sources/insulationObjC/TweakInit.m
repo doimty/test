@@ -27,11 +27,40 @@ static void InsulationResetNativeThermalState(void) {
     (void)retPressure;
 }
 
+
+static void InsulationApplyNotificationCallback(CFNotificationCenterRef center,
+                                                void *observer,
+                                                CFStringRef name,
+                                                const void *object,
+                                                CFDictionaryRef userInfo) {
+    (void)center;
+    (void)observer;
+    (void)name;
+    (void)object;
+    (void)userInfo;
+    InsulationResetNativeThermalState();
+}
+
+static void InsulationRestartNotificationCallback(CFNotificationCenterRef center,
+                                                  void *observer,
+                                                  CFStringRef name,
+                                                  const void *object,
+                                                  CFDictionaryRef userInfo) {
+    (void)center;
+    (void)observer;
+    (void)name;
+    (void)object;
+    (void)userInfo;
+    InsulationResetNativeThermalState();
+}
+
 __attribute__((constructor)) static void InsulationObjCPortInit(void) {
     // Reset-only recovery build. Do not install runtime hooks and do not replay user prefs.
     // This clears persistent thermal state that earlier diagnostic/fullPower builds may
     // have left behind, then stays inert so it cannot immediately re-disable thermal policy.
     insulationMarkProcessStart();
+    (void)InsulationApplyNotificationCallback;
+    (void)InsulationRestartNotificationCallback;
     InsulationResetNativeThermalState();
     NSArray<NSNumber *> *delays = @[@0.25, @1.0, @2.0, @4.0];
     for (NSNumber *delay in delays) {
