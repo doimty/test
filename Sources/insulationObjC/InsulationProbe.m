@@ -38,7 +38,7 @@ static NSMutableDictionary *InsulationProbeState(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"version"] = @"0.1.36.11-probe17";
+        state[@"version"] = @"0.1.36.34-extremeprobe1";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -171,6 +171,23 @@ void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue,
         stats[@"patchedMin"] = @((oldPatchedMin && [oldPatchedMin integerValue] < patchedValue) ? [oldPatchedMin integerValue] : patchedValue);
         stats[@"patchedMax"] = @((oldPatchedMax && [oldPatchedMax integerValue] > patchedValue) ? [oldPatchedMax integerValue] : patchedValue);
         stats[@"changedLast"] = @(originalValue != patchedValue);
+        NSInteger extremeTarget = 65000;
+        if (originalValue > patchedValue) {
+            InsulationProbeBump(stats, @"cappedBelowOriginalCount");
+            NSInteger delta = originalValue - patchedValue;
+            NSNumber *oldDelta = stats[@"cappedBelowOriginalMaxDelta"];
+            stats[@"cappedBelowOriginalMaxDelta"] = @((oldDelta && [oldDelta integerValue] > delta) ? [oldDelta integerValue] : delta);
+        }
+        if (patchedValue > originalValue) {
+            InsulationProbeBump(stats, @"raisedAboveOriginalCount");
+            NSInteger delta = patchedValue - originalValue;
+            NSNumber *oldDelta = stats[@"raisedAboveOriginalMaxDelta"];
+            stats[@"raisedAboveOriginalMaxDelta"] = @((oldDelta && [oldDelta integerValue] > delta) ? [oldDelta integerValue] : delta);
+        }
+        if (patchedValue > 0 && patchedValue < extremeTarget) {
+            InsulationProbeBump(stats, @"belowExtremeTargetCount");
+            stats[@"lastBelowExtremeTarget"] = @(patchedValue);
+        }
         setters[detailKey] = stats;
 
         NSMutableDictionary *record = [@{

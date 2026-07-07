@@ -14,7 +14,7 @@ static BOOL InsulationHasNormalizedThermalMitigationsState;
 static BOOL InsulationLastForcedCommonProductThermal;
 static int InsulationPendingFullCPURestoreCount;
 static int InsulationObservedCPUPowerMax;
-static const int InsulationUnrestrictedPowerTarget = 50000;
+static const int InsulationUnrestrictedPowerTarget = 65000;
 static int InsulationObservedComponentPowerGlobalMax;
 static NSMutableDictionary<NSNumber *, NSNumber *> *InsulationObservedComponentPowerMax;
 static CommonProduct *InsulationCommonProductObject;

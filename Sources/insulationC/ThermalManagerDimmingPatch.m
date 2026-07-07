@@ -11,7 +11,7 @@ extern char ***_NSGetArgv(void);
 static NSString *const InsulationPrefsPath = @"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
 static NSString *const InsulationPreventDimmingKey = @"thermalPreventDimmingEnabled";
 static NSString *const InsulationPowerModeKey = @"thermalPowerMode";
-static const int InsulationUnrestrictedPowerTarget = 50000;
+static const int InsulationUnrestrictedPowerTarget = 65000;
 
 static BOOL insulationThermalPatchIsThermalmonitord(void) {
     char *argv0 = **_NSGetArgv();
