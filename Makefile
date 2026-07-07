@@ -22,7 +22,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = insulation
 insulation_USE_MODULES = 0
-insulation_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \)) \
+insulation_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) ! -name 'InsulationProbe.m') \
 $(shell find Sources/insulationC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) ! -name 'Tweak.m')
 
 insulation_CFLAGS = -fobjc-arc -ISources/insulationC/include -ISources/insulationObjC
