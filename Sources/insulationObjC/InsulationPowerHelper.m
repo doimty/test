@@ -294,6 +294,10 @@ static void InsulationRestoreFullCPU(MitigationController *controller) {
     [controller setCPUPowerCeiling:power fromDecisionSource:0];
     [controller setCPUPowerFloor:power fromDecisionSource:0];
     [controller setCPUPowerZoneTarget:power];
+    [controller setGPUPowerCeiling:power fromDecisionSource:0];
+    [controller setGPUPowerFloor:power fromDecisionSource:0];
+    [controller setGPUPowerZoneTarget:power];
+    [controller setMaxGraphicsDrivePowerTarget:power];
     [controller setMaxPackagePower:power];
     [controller setPackagePowerCeiling:power fromDecisionSource:0];
     [controller setPackagePowerFloor:power fromDecisionSource:0];
