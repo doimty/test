@@ -6,4 +6,4 @@ Author: be-huge & doimty
 Section: Tweaks
 Depends: firmware (>= 15.0)
 Architecture: iphoneos-arm64e
-Version: 0.1.36.35-extremeprobe2
+Version: 0.1.36.39-probe2timingclean

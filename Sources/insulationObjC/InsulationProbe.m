@@ -38,7 +38,7 @@ static NSMutableDictionary *InsulationProbeState(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"version"] = @"0.1.36.35-extremeprobe2";
+        state[@"version"] = @"0.1.36.39-probe2timingclean";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -49,18 +49,15 @@ static NSMutableDictionary *InsulationProbeState(void) {
 }
 
 static void InsulationProbeWrite(NSMutableDictionary *state) {
-    state[@"lastWrite"] = @([[NSDate date] timeIntervalSince1970]);
+    // Timing-clean build: preserve probe call overhead, state mutation, queueing,
+    // path calculation, and snapshot allocation from extremeprobe2, but do not
+    // write telemetry plists during boot. This isolates whether clean regressions
+    // came from removing probe timing rather than from the fullPower logic itself.
+    state[@"lastWriteSuppressed"] = @([[NSDate date] timeIntervalSince1970]);
     state[@"primaryPath"] = InsulationProbePath();
     state[@"writePaths"] = InsulationProbePaths();
     NSDictionary *snapshot = [state copy];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *path in InsulationProbePaths()) {
-        [fm createDirectoryAtPath:[path stringByDeletingLastPathComponent]
-      withIntermediateDirectories:YES
-                       attributes:nil
-                            error:nil];
-        [snapshot writeToFile:path atomically:YES];
-    }
+    (void)snapshot;
 }
 
 static void InsulationProbeBump(NSMutableDictionary *dict, NSString *key) {
