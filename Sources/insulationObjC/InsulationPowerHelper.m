@@ -119,8 +119,13 @@ BOOL InsulationAggressiveFullPowerEnabled(void) {
 }
 
 BOOL InsulationThermalDimmingBypassActive(void) {
-    // check-objc-port compatibility token: InsulationDisplayDimmingBypassEnabled() || InsulationFullPowerModeEnabled()
-    return InsulationDisplayDimmingBypassEnabled() || InsulationFullPowerModeEnabled();
+    // During cold boot, avoid CommonProduct thermal simulation and Darwin thermal
+    // pressure writes entirely. Boot stability wins; fullPower and dimming bypass
+    // are applied by the delayed post-guard replay.
+    if (insulationFullPowerBootGuardActive()) {
+        return NO;
+    }
+    return InsulationDisplayDimmingBypassEnabled() || InsulationAggressiveFullPowerEnabled();
 }
 
 BOOL InsulationPowerMitigationsDisabled(void) {

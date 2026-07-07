@@ -55,6 +55,15 @@ __attribute__((constructor)) static void InsulationObjCPortInit(void) {
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 
     // A power-mode switch restarts thermalmonitord. The new process will not receive the
-    // pre-restart apply notification, so replay prefs after startup.
+    // pre-restart apply notification, so replay prefs after startup. The short retries
+    // intentionally stay under boot guard and should not perform fullPower writes.
     InsulationExecutePuppetEventSoonWithSource(@"constructor.startupSoon");
+
+    // Full-power writes are risky while iOS and jailbreak services are still starting.
+    // Apply once after the boot guard expires so fullPower still becomes active without
+    // blocking the boot path.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(65.0 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        InsulationExecutePuppetEventWithSource(@"constructor.bootGuardExpired");
+    });
 }
