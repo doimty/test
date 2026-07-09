@@ -47,8 +47,9 @@ jobs:
       - name: Build ObjC ${{ matrix.scheme }} package
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
-          bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh
+          bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh scripts/test-insulationctl-args.sh scripts/verify-insulationctl-package.sh
           scripts/check-objc-port.sh
+          scripts/test-insulationctl-args.sh
           scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"
 
       - name: Inspect package slices
@@ -63,6 +64,7 @@ jobs:
           test -n "$prefs_bin"
           xcrun otool -hv "$prefs_bin"
           xcrun otool -L "$prefs_bin"
+          scripts/verify-insulationctl-package.sh "$deb"
 
       - name: Upload deb packages
         uses: actions/upload-artifact@v4

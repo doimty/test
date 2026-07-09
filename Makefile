@@ -33,5 +33,16 @@ insulation_FRAMEWORKS = SystemConfiguration
 insulation_PRIVATE_FRAMEWORKS = IOKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+TOOL_NAME = insulationctl
+insulationctl_FILES = Sources/insulationctl/main.m \
+Sources/insulationctl/InsulationCtlArgs.c
+insulationctl_CFLAGS = -fobjc-arc -ISources/insulationctl
+ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
+insulationctl_LDFLAGS += -lroothide
+endif
+insulationctl_FRAMEWORKS = Foundation
+include $(THEOS_MAKE_PATH)/tool.mk
+
 SUBPROJECTS += InsulationPrefs InsulationCC
 include $(THEOS_MAKE_PATH)/aggregate.mk

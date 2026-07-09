@@ -37,6 +37,7 @@ if [[ ! -d "$THEOS/makefiles" ]]; then
 fi
 
 scripts/check-objc-port.sh
+scripts/test-insulationctl-args.sh
 
 info_backup="$(mktemp)"
 loader_backup="$(mktemp)"
