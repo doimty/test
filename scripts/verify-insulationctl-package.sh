@@ -7,6 +7,7 @@ cd "$ROOT"
 scripts/test-insulationctl-args.sh
 
 fail=0
+expected_version="$(awk -F': ' 'tolower($1) == "version" { print $2; exit }' control)"
 section() { printf '\n== %s ==\n' "$1"; }
 check_file() {
   local label="$1" path="$2"
@@ -41,11 +42,11 @@ else
   echo "OK: Makefile declares insulationctl tool"
 fi
 
-if ! grep -q '^Version: 0\.1\.36\.40-cli1$' control; then
-  echo "FAIL: control version is not 0.1.36.40-cli1" >&2
+if [[ -z "$expected_version" ]]; then
+  echo "FAIL: could not read control version" >&2
   fail=1
 else
-  echo "OK: control version 0.1.36.40-cli1"
+  echo "OK: control version $expected_version"
 fi
 
 if grep -Eq '(<plist|touch .*insulation-prefs|cat >.*insulation-prefs|plutil .*thermalPowerMode)' layout/DEBIAN/postinst; then
@@ -59,6 +60,30 @@ if [[ "$#" -gt 0 ]]; then
   section "Package contents"
 fi
 
+detect_otool() {
+  if [[ -n "${OTOOL:-}" ]]; then
+    printf '%s\n' "$OTOOL"
+    return 0
+  fi
+  if command -v xcrun >/dev/null 2>&1 && xcrun -f otool >/dev/null 2>&1; then
+    printf '%s\n' "xcrun otool"
+    return 0
+  fi
+  if command -v otool >/dev/null 2>&1; then
+    command -v otool
+    return 0
+  fi
+  if [[ -n "${THEOS:-}" && -x "$THEOS/toolchain/linux/iphone/bin/otool" ]]; then
+    printf '%s\n' "$THEOS/toolchain/linux/iphone/bin/otool"
+    return 0
+  fi
+  if [[ -x "/root/.openclaw/workspace/toolchains/theos/toolchain/linux/iphone/bin/otool" ]]; then
+    printf '%s\n' "/root/.openclaw/workspace/toolchains/theos/toolchain/linux/iphone/bin/otool"
+    return 0
+  fi
+  return 1
+}
+
 for deb in "$@"; do
   if [[ ! -f "$deb" ]]; then
     echo "FAIL: package not found: $deb" >&2
@@ -67,7 +92,7 @@ for deb in "$@"; do
   fi
 
   version="$(dpkg-deb -f "$deb" Version)"
-  if [[ "$version" != "0.1.36.40-cli1" ]]; then
+  if [[ "$version" != "$expected_version" ]]; then
     echo "FAIL: $deb version is $version" >&2
     fail=1
   else
@@ -103,6 +128,24 @@ for deb in "$@"; do
   else
     echo "FAIL: package postinst missing or writes prefs" >&2
     fail=1
+  fi
+
+  if [[ -n "$ctl_path" ]]; then
+    if otool_cmd="$(detect_otool)"; then
+      libs="$tmp/insulationctl-libs.txt"
+      # shellcheck disable=SC2086
+      $otool_cmd -L "$ctl_path" > "$libs"
+      if grep -q 'libroothide\.dylib' "$libs"; then
+        echo "FAIL: insulationctl links libroothide.dylib" >&2
+        cat "$libs" >&2
+        fail=1
+      else
+        echo "OK: insulationctl has no libroothide.dylib dependency"
+      fi
+    else
+      echo "FAIL: no otool available to inspect insulationctl dependencies" >&2
+      fail=1
+    fi
   fi
 
   rm -rf "$tmp"

@@ -1,15 +1,14 @@
 #import <Foundation/Foundation.h>
-#if __has_include(<roothide.h>)
-#import <roothide.h>
-#else
-#define jbroot(path) (path)
-#endif
 
 #import <grp.h>
+#import <limits.h>
+#import <mach-o/dyld.h>
 #import <notify.h>
 #import <pwd.h>
 #import <stdbool.h>
 #import <stdio.h>
+#import <stdlib.h>
+#import <string.h>
 #import <sys/types.h>
 #import <unistd.h>
 
@@ -22,8 +21,53 @@ static const char *InsulationCtlApplyNotificationName = "com.be-huge.insulation-
 static const char *InsulationCtlRestartNotificationName = "com.be-huge.insulation-restartThermalMonitor";
 static const uint64_t InsulationCtlRuntimeStateMagic = 0x494E535500000000ULL;
 
+static NSString *InsulationCtlExecutablePath(void) {
+    char probe[1];
+    uint32_t size = sizeof(probe);
+    if (_NSGetExecutablePath(probe, &size) == 0 || size == 0) {
+        return nil;
+    }
+
+    char *buffer = calloc(size, sizeof(char));
+    if (!buffer) {
+        return nil;
+    }
+
+    NSString *path = nil;
+    if (_NSGetExecutablePath(buffer, &size) == 0) {
+        char resolved[PATH_MAX];
+        const char *pathBytes = realpath(buffer, resolved) ? resolved : buffer;
+        path = [[NSFileManager defaultManager] stringWithFileSystemRepresentation:pathBytes length:strlen(pathBytes)];
+    }
+    free(buffer);
+    return path;
+}
+
+static NSString *InsulationCtlRoothidePrefix(void) {
+    NSString *executablePath = InsulationCtlExecutablePath();
+    if (executablePath.length == 0) {
+        return nil;
+    }
+
+    NSArray<NSString *> *suffixes = @[@"/usr/bin/insulationctl", @"/usr/bin/ins"];
+    for (NSString *suffix in suffixes) {
+        if (![executablePath hasSuffix:suffix]) {
+            continue;
+        }
+        NSString *prefix = [executablePath substringToIndex:executablePath.length - suffix.length];
+        if ([[prefix lastPathComponent] hasPrefix:@".jbroot-"]) {
+            return prefix;
+        }
+    }
+    return nil;
+}
+
 static NSString *InsulationCtlPrefsPath(void) {
-    return jbroot(InsulationCtlPrefsBasePath);
+    NSString *roothidePrefix = InsulationCtlRoothidePrefix();
+    if (roothidePrefix.length > 0) {
+        return [roothidePrefix stringByAppendingString:InsulationCtlPrefsBasePath];
+    }
+    return InsulationCtlPrefsBasePath;
 }
 
 static void InsulationCtlPrintUsage(FILE *stream) {
