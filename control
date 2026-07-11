@@ -1,6 +1,6 @@
 Package: com.be-huge.insulation
 Name: insulation
-Description: 解除温控，一切从简即可。代码来自开源项目：https://github.com/be-huge/insulation 进行简单维护
+Description: 解除温控，一切从简即可。支持命令行切换模式：ins off（原生温控）/ ins low（低功耗）/ ins max（全性能）/ ins status（查看当前模式）
 Maintainer: doimty
 Author: be-huge & doimty
 Section: Tweaks
