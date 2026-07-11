@@ -111,14 +111,8 @@ static CAFrameRateRange PMForce120Range(void) {
     return range;
 }
 
-static CAFrameRateRange PMGlobal120RangeFromRange(CAFrameRateRange range) {
-    CAFrameRateRange newRange;
-    // Strict lock: minimum/preferred/maximum all 120Hz.
-    newRange.minimum = TARGET_FPS;
-    newRange.preferred = TARGET_FPS;
-    newRange.maximum = TARGET_FPS;
-    return newRange;
-}
+// PMGlobal120RangeFromRange removed: identical to PMForce120Range(),
+// ignored its input parameter.
 
 typedef void (*PMRangeSetterDyn)(id, SEL, CAFrameRateRange);
 typedef void (*PMUIntSetterDyn)(id, SEL, unsigned int);
@@ -1291,9 +1285,7 @@ static BOOL PMFloatProbeShouldRecord(void) {
     NSString *bundleID = PMBundleID();
     // Allow: SpringBoard, floating-view plugin, WeChat, Filza/common menu app bundles.
     return [bundleID isEqualToString:@"com.apple.springboard"]
-        || [bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE]
-
-        || [bundleID isEqualToString:@"com.apple.UIKit"];
+        || [bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE];
 }
 
 static NSString *PMFloatProbeLogPath(void) {
@@ -1772,40 +1764,9 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 
 %end
 
-@interface SBLowPowerModeController : NSObject
-+ (instancetype)sharedInstance;
-- (BOOL)isInLowPowerMode;
-@end
-
-@interface _CDBatterySaver : NSObject
-+ (id)batterySaver;
-- (NSInteger)getPowerMode;
-@end
-
-%hook SBLowPowerModeController
-
-- (BOOL)isInLowPowerMode {
-    return NO;
-}
-
-%end
-
-%hook _CDBatterySaver
-
-- (NSInteger)getPowerMode {
-    return 0;
-}
-
-%end
-
-%hook NSProcessInfo
-
-- (BOOL)isLowPowerModeEnabled {
-    // Bypass low power mode restriction in all processes (SB + Apps)
-    return NO;
-}
-
-%end
+// Low power mode hooks removed: they globally disable iOS power saving
+// across all processes, which is undesirable. SBProMotionPolicy hooks
+// are sufficient to unlock 120Hz without breaking battery management.
 
 %hook SBDisplayRefreshRateController
 
@@ -1893,7 +1854,7 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
             appliedRange = PMForce120Range();
         } else {
             // Fallback
-            appliedRange = PMGlobal120RangeFromRange(range);
+            appliedRange = PMForce120Range();
         }
         %orig(appliedRange);
     } else {
@@ -2000,7 +1961,7 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
             appliedRange = PMForce120Range();
         } else {
             // Fallback: should rarely reach here
-            appliedRange = PMGlobal120RangeFromRange(range);
+            appliedRange = PMForce120Range();
         }
         %orig(appliedRange);
     } else {
@@ -2154,6 +2115,24 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
         PMFloatLastBounds = bounds;
         PMFloatWriteState(@"UIWindow.setBounds", PMFloatLastWindowClass ?: @"", NO);
         PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds");
+    }
+    %orig;
+}
+
+- (void)makeKeyAndVisible {
+    if (!PMIsTargetProcess()) {
+        NSString *winClass = PMClassName(self);
+        PMFloatWriteState(@"window.makeKeyAndVisible", winClass ?: @"", YES);
+        PMFloatArmForWindow((UIWindow *)self, @"window.makeKeyAndVisible");
+    }
+    %orig;
+}
+
+- (void)setWindowLevel:(UIWindowLevel)level {
+    if (level >= 1000 && level < 2000 && !PMIsTargetProcess()) {
+        NSString *winClass = PMClassName(self);
+        PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
+        PMFloatArm(@"windowLevel.menu");
     }
     %orig;
 }
@@ -2381,44 +2360,12 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 // Strategy: detect menus/modals via UIWindow lifecycle + view hierarchy clues
 // without relying on specific class names.
 
-// Hook all UIWindows: record every window activation with its class name
-%hook UIWindow
-- (void)makeKeyAndVisible {
-    NSString *winClass = PMClassName(self);
-    if (!PMIsTargetProcess()) {
-        // Record ALL window activations for diagnosis
-        PMFloatWriteState(@"window.makeKeyAndVisible", winClass ?: @"", YES);
-        // Try to apply 120Hz to ALL windows (low risk, SpringBoard only)
-        if (!PMIsTargetProcess()) {
-            PMFloatArm(@"window.any");
-        }
-    }
-    %orig;
-}
-%end
-
-// Detect menu/presentation windows via windowLevel
-%hook UIWindow
-- (void)setWindowLevel:(UIWindowLevel)level {
-    if (level > 0 && !PMIsTargetProcess()) {
-        NSString *winClass = PMClassName(self);
-        // Menu-level windows (above normal but below critical)
-        if (level >= 1000 && level < 2000) {
-            PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
-            PMFloatArm(@"windowLevel.menu");
-        }
-    }
-    %orig;
-}
-%end
+// makeKeyAndVisible and setWindowLevel merged into main %hook UIWindow block above
 
 // Catch view controller presentation lifecycle
 %hook UIViewController
 - (void)viewWillAppear:(BOOL)animated {
-    if (!PMIsTargetProcess()) {
-        NSString *vcClass = PMClassName(self);
-        // Record modal/popover/sheet presentations
-        PMFloatWriteState(@"vc.viewWillAppear", vcClass ?: @"", YES);
+    if (!PMIsTargetProcess() && PMFloatAnyFloatingWindowVisible()) {
         PMFloatArm(@"vc.presentation");
     }
     %orig;
