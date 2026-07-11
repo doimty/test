@@ -49,7 +49,9 @@ static NSString *PMBundleID(void) {
 }
 
 static BOOL PMIsTargetProcess(void) {
-    return [PMBundleID() isEqualToString:@"com.apple.springboard"];
+    static int cached = -1;
+    if (cached < 0) cached = [PMBundleID() isEqualToString:@"com.apple.springboard"] ? 1 : 0;
+    return cached == 1;
 }
 
 static BOOL PMIsArmed(void) {
@@ -156,12 +158,17 @@ static void PMApplyToCAObject(id obj, BOOL isDisplayLink, BOOL isDynamicSource) 
 static void PMSetHighFrameRateReasonDirect(id obj) {
     if (!obj) return;
     @try {
-        SEL singleSel = NSSelectorFromString(@"setHighFrameRateReason:");
+        static SEL singleSel = nil;
+        static SEL multiSel = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            singleSel = NSSelectorFromString(@"setHighFrameRateReason:");
+            multiSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
+        });
         if ([obj respondsToSelector:singleSel]) {
             PMUIntSetterDyn fn = (PMUIntSetterDyn)objc_msgSend;
             fn(obj, singleSel, 1U);
         }
-        SEL multiSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
         if ([obj respondsToSelector:multiSel]) {
             unsigned int reasons[1] = { 1U };
             PMReasonsSetterDyn fn = (PMReasonsSetterDyn)objc_msgSend;
@@ -174,7 +181,11 @@ static void PMSetHighFrameRateReasonDirect(id obj) {
 static void PMSetFrameRateRangeDirect(id obj) {
     if (!obj) return;
     @try {
-        SEL sel = NSSelectorFromString(@"setPreferredFrameRateRange:");
+        static SEL sel = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            sel = NSSelectorFromString(@"setPreferredFrameRateRange:");
+        });
         if ([obj respondsToSelector:sel]) {
             PMRangeSetterDyn fn = (PMRangeSetterDyn)objc_msgSend;
             fn(obj, sel, PMForce120Range());
@@ -1279,13 +1290,14 @@ static CFAbsoluteTime PMFloatLastSourceApplyAt = 0;
 static const void *PMFloatDisplayLinkTargetClassKey = &PMFloatDisplayLinkTargetClassKey;
 
 static BOOL PMFloatProbeShouldRecord(void) {
-    // Runtime gate for the floating/split-screen high-refresh path.
-    // Do not tie this to PM_ENABLE_DIAGNOSTIC_PROBES: the PMFloat* path is functional,
-    // while PMFloatWriteState() below keeps plist telemetry disabled.
-    NSString *bundleID = PMBundleID();
-    // Allow: SpringBoard, floating-view plugin, WeChat, Filza/common menu app bundles.
-    return [bundleID isEqualToString:@"com.apple.springboard"]
-        || [bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE];
+    // Cached: bundle ID never changes within a process.
+    static int cachedResult = -1;
+    if (cachedResult < 0) {
+        NSString *bundleID = PMBundleID();
+        cachedResult = ([bundleID isEqualToString:@"com.apple.springboard"]
+            || [bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE]) ? 1 : 0;
+    }
+    return cachedResult == 1;
 }
 
 static NSString *PMFloatProbeLogPath(void) {
@@ -1687,8 +1699,15 @@ static void PMAppEnsurePersistentSource(void) {
 }
 
 // Re-apply 120Hz to the persistent source (e.g. after system may have reset it)
+// Throttled to avoid per-frame overhead during scrolling.
+static CFAbsoluteTime PMAppLastRefreshAt = 0;
+static const CFTimeInterval PMAppRefreshMinInterval = 0.20;
+
 static void PMAppRefreshPersistentSource(void) {
     if (PMIsTargetProcess() || !PMAppPersistentFrameRateSource) return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (PMAppLastRefreshAt > 0 && (now - PMAppLastRefreshAt) < PMAppRefreshMinInterval) return;
+    PMAppLastRefreshAt = now;
     @try {
         PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
         PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
