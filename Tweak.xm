@@ -2177,20 +2177,27 @@ static void PMAppScrollArm(__unused NSString *event) {
 
 - (void)setContentOffset:(CGPoint)contentOffset {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMIsTargetProcess()) {
+        PMGlobalSBApply(@"UIScrollView.setContentOffset");
+    } else {
         @try { PMAppScrollArm(@"UIScrollView.setContentOffset"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
-    if (PMIsTargetProcess()) PMJankRecordScrollView((UIScrollView *)self, contentOffset);
+    if (PMIsTargetProcess()) {
+        PMJankRecordScrollView((UIScrollView *)self, contentOffset);
+        PMGlobalSBApply(@"UIScrollView.setContentOffset");
+    }
     if (!PMIsTargetProcess()) PMAppScrollArm(@"UIScrollView.setContentOffset");
     %orig;
 }
 
 - (void)setContentOffset:(CGPoint)contentOffset animated:(BOOL)animated {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMIsTargetProcess()) {
+        PMGlobalSBApply(@"UIScrollView.setContentOffsetAnimated");
+    } else {
         @try { PMAppScrollArm(@"UIScrollView.setContentOffsetAnimated"); } @catch (__unused NSException *e) {}
     }
     %orig;
@@ -2524,7 +2531,10 @@ static void PMFPSRecordRange(NSString *event, NSString *reason, CAFrameRateRange
 
 static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SEL _cmd, CAFrameRateRange range) {
     CAFrameRateRange appliedRange = range;
-    if (PMIsEligibleNow() || PMFloatIsEligibleNow()) {
+    // Always force 120Hz on our persistent sources
+    if (self == PMGlobalSBDisplaySource || self == PMAppPersistentFrameRateSource) {
+        appliedRange = PMForce120Range();
+    } else if (PMIsEligibleNow() || PMFloatIsEligibleNow()) {
         if (PMIsEligibleNow()) PMSetHighFrameRateReasonIfPossible(self, NO, YES);
         if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) PMSetHighFrameRateReasonDirect(self);
         appliedRange = PMForce120Range();
@@ -2536,10 +2546,16 @@ static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SE
 static void repl_CADynamicFrameRateSource_setHighFrameRateReasons_count(id self, SEL _cmd, const unsigned int *reasons, NSUInteger count) {
     if (!orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) return;
 
-    // Preserve Apple's clear/release path. UIKit/QuartzCore can pass NULL/0
-    // while removing in-process animation entries; forcing {1} there may
-    // corrupt CADynamicFrameRateSource internal reason lifetime.
+    // Preserve Apple's clear/release path for non-persistent sources.
+    // But protect our persistent sources (SB global + App persistent) from
+    // being cleared by system animation cleanup.
     if (!reasons || count == 0) {
+        if (self == PMGlobalSBDisplaySource || self == PMAppPersistentFrameRateSource) {
+            // Don't clear our persistent sources — re-apply instead
+            unsigned int persistReasons[1] = { 1U };
+            orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, persistReasons, (NSUInteger)1);
+            return;
+        }
         orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, reasons, count);
         return;
     }
