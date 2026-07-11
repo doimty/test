@@ -38,6 +38,7 @@ TOOL_NAME = insulationctl
 insulationctl_FILES = Sources/insulationctl/main.m \
 Sources/insulationctl/InsulationCtlArgs.c
 insulationctl_CFLAGS = -fobjc-arc -ISources/insulationctl
+insulationctl_LDFLAGS = -Wl,-dead_strip_dylibs
 insulationctl_FRAMEWORKS = Foundation
 include $(THEOS_MAKE_PATH)/tool.mk
 
