@@ -2119,8 +2119,9 @@ static void PMAppScrollArm(__unused NSString *event) {
 
 - (void)makeKeyAndVisible {
     if (!PMIsTargetProcess()) {
-        NSString *winClass = PMClassName(self);
-        PMFloatWriteState(@"window.makeKeyAndVisible", winClass ?: @"", YES);
+        // In app processes: refresh persistent source on window activation
+        PMAppRefreshPersistentSource();
+        // In SpringBoard: arm Float for floating windows
         PMFloatArmForWindow((UIWindow *)self, @"window.makeKeyAndVisible");
     }
     %orig;
@@ -2371,8 +2372,13 @@ static void PMAppScrollArm(__unused NSString *event) {
 // Catch view controller presentation lifecycle
 %hook UIViewController
 - (void)viewWillAppear:(BOOL)animated {
-    if (!PMIsTargetProcess() && PMFloatAnyFloatingWindowVisible()) {
-        PMFloatArm(@"vc.presentation");
+    if (!PMIsTargetProcess()) {
+        // App processes: refresh persistent source on VC transitions
+        PMAppRefreshPersistentSource();
+        // SpringBoard: arm Float if floating window visible
+        if (PMFloatAnyFloatingWindowVisible()) {
+            PMFloatArm(@"vc.presentation");
+        }
     }
     %orig;
 }
@@ -2382,7 +2388,7 @@ static void PMAppScrollArm(__unused NSString *event) {
 %hook UIAlertController
 - (void)viewDidAppear:(BOOL)animated {
     if (!PMIsTargetProcess()) {
-        PMFloatWriteState(@"alert.viewDidAppear", PMClassName(self), YES);
+        PMAppRefreshPersistentSource();
         PMFloatArm(@"alert.viewDidAppear");
     }
     %orig;
