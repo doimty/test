@@ -1655,22 +1655,49 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     PMFloatWriteState(@"floatSource.release", @"expired", YES);
 }
 
-// App-process scroll source: keep a high refresh dynamic source alive while
-// UIScrollView is actively moving. This targets slight scroll jank in apps
-// without broadening Apple's CADynamicFrameRateSource cleanup hook surface.
-static const CFTimeInterval PMAppScrollArmTailSeconds = 2.50;
-static const CFTimeInterval PMAppScrollApplyMinIntervalSeconds = 0.10;
-static const CFTimeInterval PMAppScrollReleaseRescheduleSeconds = 0.50;
-static id PMAppScrollDynamicFrameRateSource = nil;
-static CFAbsoluteTime PMAppScrollArmUntil = 0;
-static CFAbsoluteTime PMAppScrollLastApplyAt = 0;
-static CFAbsoluteTime PMAppScrollLastReleaseScheduleAt = 0;
-static NSUInteger PMAppScrollSession = 0;
+// App-process persistent 120Hz source: created once per app launch.
+// Unlike the old scroll-only source that was created/destroyed on each scroll,
+// this keeps a persistent CADynamicFrameRateSource alive for the entire process
+// lifetime. This prevents 120Hz drops during VC transitions, tab switches,
+// animations, and other non-scroll scenarios.
+static id PMAppPersistentFrameRateSource = nil;
+static BOOL PMAppPersistentSourceApplied = NO;
 
-static BOOL PMAppScrollIsArmed(void) {
-    return CFAbsoluteTimeGetCurrent() < PMAppScrollArmUntil;
+static void PMAppEnsurePersistentSource(void) {
+    if (PMIsTargetProcess() || PMAppPersistentSourceApplied) return;
+    @try {
+        Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
+        id display = PMMainCADisplay();
+        if (SourceClass && display) {
+            id allocated = [SourceClass alloc];
+            SEL initSel = NSSelectorFromString(@"initWithDisplay:");
+            if ([allocated respondsToSelector:initSel]) {
+                typedef id (*PMInitWithDisplayFn)(id, SEL, id);
+                PMInitWithDisplayFn fn = (PMInitWithDisplayFn)objc_msgSend;
+                PMAppPersistentFrameRateSource = fn(allocated, initSel, display);
+                if (PMAppPersistentFrameRateSource) {
+                    PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
+                    PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
+                    PMAppPersistentSourceApplied = YES;
+                }
+            }
+        }
+    } @catch (__unused NSException *e) {
+    }
 }
 
+// Re-apply 120Hz to the persistent source (e.g. after system may have reset it)
+static void PMAppRefreshPersistentSource(void) {
+    if (PMIsTargetProcess() || !PMAppPersistentFrameRateSource) return;
+    @try {
+        PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
+        PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
+    } @catch (__unused NSException *e) {
+    }
+}
+
+// Scroll arm: still used to re-affirm 120Hz during active scrolling,
+// but no longer creates/destroys its own source.
 static BOOL PMAppScrollViewIsMoving(UIScrollView *scrollView) {
     if (!scrollView) return NO;
     @try {
@@ -1680,61 +1707,9 @@ static BOOL PMAppScrollViewIsMoving(UIScrollView *scrollView) {
     }
 }
 
-static void PMAppScrollReleaseIfExpired(NSUInteger session);
-
-static void PMAppScrollApplyDisplayFrameRateSource(NSString *event) {
-    if (PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
-    @try {
-        if (!PMAppScrollDynamicFrameRateSource) {
-            Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
-            id display = PMMainCADisplay();
-            if (SourceClass && display) {
-                id allocated = [SourceClass alloc];
-                SEL initSel = NSSelectorFromString(@"initWithDisplay:");
-                if ([allocated respondsToSelector:initSel]) {
-                    typedef id (*PMInitWithDisplayFn)(id, SEL, id);
-                    PMInitWithDisplayFn fn = (PMInitWithDisplayFn)objc_msgSend;
-                    PMAppScrollDynamicFrameRateSource = fn(allocated, initSel, display);
-                }
-            }
-        }
-        if (PMAppScrollDynamicFrameRateSource) {
-            CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-            if (PMAppScrollLastApplyAt <= 0 || (now - PMAppScrollLastApplyAt) >= PMAppScrollApplyMinIntervalSeconds) {
-                PMSetHighFrameRateReasonDirect(PMAppScrollDynamicFrameRateSource);
-                PMSetFrameRateRangeDirect(PMAppScrollDynamicFrameRateSource);
-                PMAppScrollLastApplyAt = now;
-            }
-        }
-    } @catch (__unused NSException *e) {
-    }
-}
-
-static void PMAppScrollArm(NSString *event) {
-    if (PMIsTargetProcess() || !PMIsAppEligibleNow()) return;
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    PMAppScrollArmUntil = now + PMAppScrollArmTailSeconds;
-    PMAppScrollApplyDisplayFrameRateSource(event ?: @"scroll");
-    if (PMAppScrollLastReleaseScheduleAt <= 0 || (now - PMAppScrollLastReleaseScheduleAt) >= PMAppScrollReleaseRescheduleSeconds) {
-        PMAppScrollSession += 1;
-        NSUInteger session = PMAppScrollSession;
-        PMAppScrollLastReleaseScheduleAt = now;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((PMAppScrollArmTailSeconds + 0.10) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            PMAppScrollReleaseIfExpired(session);
-        });
-    }
-}
-
-static void PMAppScrollReleaseIfExpired(NSUInteger session) {
-    if (session != PMAppScrollSession) return;
-    if (PMAppScrollIsArmed()) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            PMAppScrollReleaseIfExpired(session);
-        });
-        return;
-    }
-    PMAppScrollDynamicFrameRateSource = nil;
-    PMAppScrollLastApplyAt = 0;
+static void PMAppScrollArm(__unused NSString *event) {
+    if (PMIsTargetProcess()) return;
+    PMAppRefreshPersistentSource();
 }
 
 // ============================================================
@@ -2014,10 +1989,13 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
+    // Re-affirm 120Hz after VC transitions in app processes
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
 }
 
 - (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
     %orig;
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
 }
 
 %end
@@ -2026,6 +2004,7 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 
 - (void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
     %orig;
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
 }
 
 %end
@@ -2243,6 +2222,7 @@ static void PMAppScrollReleaseIfExpired(NSUInteger session) {
 
 - (void)startAnimation {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
     %orig;
     return;
 #endif
@@ -2605,6 +2585,14 @@ static void PMInstallHooks(void) {
             }
             if (!PMIsTargetProcess()) {
                 PMFloatProbeInjectedCount += 1;
+                // Initialize persistent 120Hz source after main display is ready
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    PMAppEnsurePersistentSource();
+                });
+                // Re-apply when app returns from background
+                [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(__unused NSNotification *note) {
+                    PMAppRefreshPersistentSource();
+                }];
             }
         }
     }
