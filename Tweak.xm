@@ -123,12 +123,17 @@ typedef void (*PMReasonsSetterDyn)(id, SEL, const unsigned int *, NSUInteger);
 static void PMSetHighFrameRateReasonIfPossible(id obj, BOOL isDisplayLink, BOOL isDynamicSource) {
     if (!obj || !PMIsEligibleNow()) return;
     @try {
-        SEL singleSel = NSSelectorFromString(@"setHighFrameRateReason:");
+        static SEL singleSel = nil;
+        static SEL multiSel = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            singleSel = NSSelectorFromString(@"setHighFrameRateReason:");
+            multiSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
+        });
         if ([obj respondsToSelector:singleSel]) {
             PMUIntSetterDyn fn = (PMUIntSetterDyn)objc_msgSend;
             fn(obj, singleSel, 1U);
         }
-        SEL multiSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
         if ([obj respondsToSelector:multiSel]) {
             unsigned int reasons[1] = { 1U };
             PMReasonsSetterDyn fn = (PMReasonsSetterDyn)objc_msgSend;
@@ -141,7 +146,11 @@ static void PMSetHighFrameRateReasonIfPossible(id obj, BOOL isDisplayLink, BOOL 
 static void PMSetFrameRateRangeIfPossible(id obj, BOOL isDisplayLink, BOOL isDynamicSource) {
     if (!obj || !PMIsEligibleNow()) return;
     @try {
-        SEL sel = NSSelectorFromString(@"setPreferredFrameRateRange:");
+        static SEL sel = nil;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            sel = NSSelectorFromString(@"setPreferredFrameRateRange:");
+        });
         if ([obj respondsToSelector:sel]) {
             PMRangeSetterDyn fn = (PMRangeSetterDyn)objc_msgSend;
             fn(obj, sel, PMForce120Range());
@@ -1651,6 +1660,10 @@ static BOOL PMFloatTargetIsInProcessAnimationManager(NSString *targetClass) {
     return targetClass && [targetClass containsString:@"UIViewInProcessAnimationManager"];
 }
 
+// Forward declaration: original IMP for CADynamicFrameRateSource setHighFrameRateReasons:count:
+// (fully defined later with PMInstallHooks typedefs; needed here for clean Float source release)
+static void (*orig_CADynamicFrameRateSource_setHighFrameRateReasons_count)(id, SEL, const unsigned int *, NSUInteger);
+
 static void PMFloatReleaseIfExpired(NSUInteger session) {
     if (session != PMFloatSession) return;
     if (PMFloatIsArmed()) {
@@ -1660,6 +1673,18 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         return;
     }
     if (PMFloatDynamicFrameRateSource) {
+        // Formally clear the source's reason before releasing, so the system
+        // knows this source no longer requests 120Hz.  Call the original IMP
+        // directly (bypassing our PMIsManagedSource guard) so the clear
+        // actually reaches CoreAnimation.
+        @try {
+            if (orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) {
+                orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(
+                    PMFloatDynamicFrameRateSource,
+                    NSSelectorFromString(@"setHighFrameRateReasons:count:"),
+                    NULL, (NSUInteger)0);
+            }
+        } @catch (__unused NSException *e) {}
         PMFloatDynamicFrameRateSource = nil;
         PMFloatSourceReleaseCount += 1;
     }
@@ -2014,6 +2039,18 @@ static void PMAppScrollArm(__unused NSString *event) {
 
 %hook UIViewController
 
+- (void)viewWillAppear:(BOOL)animated {
+    if (!PMIsTargetProcess()) {
+        // App processes: refresh persistent source on VC transitions
+        PMAppRefreshPersistentSource();
+        // SpringBoard: arm Float if floating window visible
+        if (PMFloatAnyFloatingWindowVisible()) {
+            PMFloatArm(@"vc.presentation");
+        }
+    }
+    %orig;
+}
+
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     // Re-affirm 120Hz after VC transitions in app processes
@@ -2231,7 +2268,10 @@ static void PMAppScrollArm(__unused NSString *event) {
     %orig;
     return;
 #endif
-    if (PMIsTargetProcess()) PMJankRecordScrollView((UIScrollView *)self, contentOffset);
+    if (PMIsTargetProcess()) {
+        PMJankRecordScrollView((UIScrollView *)self, contentOffset);
+        PMGlobalSBApply(@"UIScrollView.setContentOffsetAnimated");
+    }
     if (!PMIsTargetProcess()) PMAppScrollArm(@"UIScrollView.setContentOffsetAnimated");
     %orig;
 }
@@ -2377,21 +2417,6 @@ static void PMAppScrollArm(__unused NSString *event) {
 
 // makeKeyAndVisible and setWindowLevel merged into main %hook UIWindow block above
 
-// Catch view controller presentation lifecycle
-%hook UIViewController
-- (void)viewWillAppear:(BOOL)animated {
-    if (!PMIsTargetProcess()) {
-        // App processes: refresh persistent source on VC transitions
-        PMAppRefreshPersistentSource();
-        // SpringBoard: arm Float if floating window visible
-        if (PMFloatAnyFloatingWindowVisible()) {
-            PMFloatArm(@"vc.presentation");
-        }
-    }
-    %orig;
-}
-%end
-
 // Catch alert/modal presentations
 %hook UIAlertController
 - (void)viewDidAppear:(BOOL)animated {
@@ -2493,7 +2518,7 @@ static PMObjIntIMP orig_NCNotificationPresentableViewController_presentableDidDi
 static PMObjIntIMP orig_NCNotificationPresentableViewController_presentableWillNotAppearAsBanner = NULL;
 static PMVoidIMP orig_NCNotificationShortLookView_didMoveToWindow = NULL;
 static PMRangeSetterIMP orig_CADynamicFrameRateSource_setPreferredFrameRateRange = NULL;
-static PMReasonsSetterIMP orig_CADynamicFrameRateSource_setHighFrameRateReasons_count = NULL;
+// orig_CADynamicFrameRateSource_setHighFrameRateReasons_count: forward-declared earlier (line ~1665)
 
 static BOOL PMInstallHookIfExists(const char *className, SEL selector, IMP replacement, IMP *original) {
     Class cls = objc_getClass(className);

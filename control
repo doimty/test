@@ -6,5 +6,5 @@ Depends: mobilesubstrate
 Maintainer: doimty
 Architecture: iphoneos-arm64
 Section: Tweaks
-Version: 1.0.7
+Version: 1.0.8
 Tag: supports::roothide
