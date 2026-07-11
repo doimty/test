@@ -1675,6 +1675,14 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 static id PMAppPersistentFrameRateSource = nil;
 static BOOL PMAppPersistentSourceApplied = NO;
 
+// Helper: is this one of our managed sources that should never be cleared by system?
+static inline BOOL PMIsManagedSource(id source) {
+    return source == PMGlobalSBDisplaySource
+        || source == PMAppPersistentFrameRateSource
+        || source == PMFloatDynamicFrameRateSource
+        || source == PMBannerDynamicFrameRateSource;
+}
+
 static void PMAppEnsurePersistentSource(void) {
     if (PMIsTargetProcess() || PMAppPersistentSourceApplied) return;
     @try {
@@ -2557,7 +2565,7 @@ static void PMFPSRecordRange(NSString *event, NSString *reason, CAFrameRateRange
 static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SEL _cmd, CAFrameRateRange range) {
     CAFrameRateRange appliedRange = range;
     // Always force 120Hz on our persistent sources
-    if (self == PMGlobalSBDisplaySource || self == PMAppPersistentFrameRateSource) {
+    if (PMIsManagedSource(self)) {
         appliedRange = PMForce120Range();
     } else if (PMIsEligibleNow() || PMFloatIsEligibleNow()) {
         if (PMIsEligibleNow()) PMSetHighFrameRateReasonIfPossible(self, NO, YES);
@@ -2575,7 +2583,7 @@ static void repl_CADynamicFrameRateSource_setHighFrameRateReasons_count(id self,
     // But protect our persistent sources (SB global + App persistent) from
     // being cleared by system animation cleanup.
     if (!reasons || count == 0) {
-        if (self == PMGlobalSBDisplaySource || self == PMAppPersistentFrameRateSource) {
+        if (PMIsManagedSource(self)) {
             // Don't clear our persistent sources — re-apply instead
             unsigned int persistReasons[1] = { 1U };
             orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, persistReasons, (NSUInteger)1);
