@@ -2616,6 +2616,11 @@ static void PMInstallHooks(void) {
     PMInstallHookIfExists("NCNotificationPresentableViewController", @selector(presentableWillNotAppearAsBanner:withReason:), (IMP)repl_NCNotificationPresentableViewController_presentableWillNotAppearAsBanner, (IMP *)&orig_NCNotificationPresentableViewController_presentableWillNotAppearAsBanner);
     PMInstallHookIfExists("NCNotificationShortLookView", @selector(didMoveToWindow), (IMP)repl_NCNotificationShortLookView_didMoveToWindow, (IMP *)&orig_NCNotificationShortLookView_didMoveToWindow);
 
+}
+
+// Install CADynamicFrameRateSource hooks in ALL UIKit processes (not just SpringBoard).
+// Protects managed sources from system clearing in both SB and app processes.
+static void PMInstallDynamicSourceHooks(void) {
     PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setPreferredFrameRateRange:"), (IMP)repl_CADynamicFrameRateSource_setPreferredFrameRateRange, (IMP *)&orig_CADynamicFrameRateSource_setPreferredFrameRateRange);
     PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setHighFrameRateReasons:count:"), (IMP)repl_CADynamicFrameRateSource_setHighFrameRateReasons_count, (IMP *)&orig_CADynamicFrameRateSource_setHighFrameRateReasons_count);
 }
@@ -2624,6 +2629,8 @@ static void PMInstallHooks(void) {
     @autoreleasepool {
         if (PMDeviceSupports120Hz()) {
             %init;
+            // Dynamic source protection for ALL processes
+            PMInstallDynamicSourceHooks();
             if (PMIsTargetProcess()) {
                 PMInstallHooks();
                 PMHookContextMenuInteractionIfAvailable();
