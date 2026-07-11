@@ -9,6 +9,7 @@
 #import <stdio.h>
 #import <stdlib.h>
 #import <string.h>
+#import <sys/stat.h>
 #import <sys/types.h>
 #import <unistd.h>
 
@@ -19,28 +20,20 @@ static NSString *const InsulationCtlPrefsBasePath = @"/var/mobile/Library/Prefer
 static const char *InsulationCtlRuntimeStateName = "com.be-huge.insulation.runtimeState";
 static const char *InsulationCtlApplyNotificationName = "com.be-huge.insulation-executePuppetEvent";
 static const char *InsulationCtlRestartNotificationName = "com.be-huge.insulation-restartThermalMonitor";
+/* ASCII 'INSU' in high 32 bits; daemon checks this magic to confirm the
+   notify_set_state sender is a genuine insulationctl instance. */
 static const uint64_t InsulationCtlRuntimeStateMagic = 0x494E535500000000ULL;
 
 static NSString *InsulationCtlExecutablePath(void) {
-    char probe[1];
-    uint32_t size = sizeof(probe);
-    if (_NSGetExecutablePath(probe, &size) == 0 || size == 0) {
+    char buffer[PATH_MAX];
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) != 0) {
         return nil;
     }
 
-    char *buffer = calloc(size, sizeof(char));
-    if (!buffer) {
-        return nil;
-    }
-
-    NSString *path = nil;
-    if (_NSGetExecutablePath(buffer, &size) == 0) {
-        char resolved[PATH_MAX];
-        const char *pathBytes = realpath(buffer, resolved) ? resolved : buffer;
-        path = [[NSFileManager defaultManager] stringWithFileSystemRepresentation:pathBytes length:strlen(pathBytes)];
-    }
-    free(buffer);
-    return path;
+    char resolved[PATH_MAX];
+    const char *pathBytes = realpath(buffer, resolved) ? resolved : buffer;
+    return [[NSFileManager defaultManager] stringWithFileSystemRepresentation:pathBytes length:strlen(pathBytes)];
 }
 
 static NSString *InsulationCtlRoothidePrefix(void) {
@@ -158,6 +151,8 @@ static bool InsulationCtlRepairPrefsOwnerIfRoot(NSString *path, NSString **error
         }
         return false;
     }
+    /* Ensure daemon and Settings panel can read the prefs file. */
+    chmod([path fileSystemRepresentation], 0644);
     return true;
 }
 
