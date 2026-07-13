@@ -225,6 +225,8 @@ static void PMFPSRecordSourceApply(NSString *event, NSString *reason);
 static void PMFPSRecordGlobalApply(NSString *event, NSString *reason);
 // Global SB source (defined later in keepalive section)
 static void PMGlobalSBApply(NSString *reason);
+static void PMGlobalSBApplyForced(NSString *reason);
+static void PMSBKeepAliveApplyLinkRange(void);
 // App persistent source (defined later)
 static void PMAppEnsurePersistentSource(void);
 static void PMAppRefreshPersistentSource(void);
@@ -1324,9 +1326,11 @@ static CGColorRef PMSBDirtyColorA = NULL;
 static CGColorRef PMSBDirtyColorB = NULL;
 
 // --- Tick: only runs when link is unpaused ---
-// v1.0.19: dual dirty (position + color) + periodic Global re-apply.
-// 1x1 / level-1 / opacity 0.004 was too weak; DPPMS compromised at 80Hz
-// when blocked-app content cadence is ~60.
+// v1.0.20: full-width strip dirty + per-frame Global re-apply + activate hysteresis.
+// 1.0.19 (8x8) fixed idle/slow a lot; blocked-app scroll still fell to 60 because
+// dense 60Hz app content overpowered a tiny corner dirty + 0.2s Global throttle.
+
+static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
@@ -1334,20 +1338,17 @@ static CGColorRef PMSBDirtyColorB = NULL;
 - (void)pm_sbTick:(__unused CADisplayLink *)link {
     if (!PMSBDirtyLayer) return;
     static BOOL toggle = NO;
-    static NSUInteger tick = 0;
     toggle = !toggle;
-    tick += 1;
 
-    // Position toggle was the v1.0.11 path users said "好多了".
-    // Keep both color + position so culling one path still dirties the other.
-    PMSBDirtyLayer.position = toggle ? CGPointMake(4.0, 4.0) : CGPointMake(4.0, 5.0);
+    // Full-width strip: alternate 1pt vertical shift so the whole scanline dirties.
+    CGFloat y = toggle ? 0.0 : 1.0;
+    PMSBDirtyLayer.position = CGPointMake(CGRectGetMidX(PMSBDirtyLayer.bounds), y + CGRectGetMidY(PMSBDirtyLayer.bounds));
     PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
 
-    // Continuous vote: re-apply single SB Global owner ~every 0.25s at 120Hz.
-    // System can ignore a stale DynamicSource; refresh keeps the vote alive.
-    if ((tick % 30) == 0) {
-        PMGlobalSBApply(@"keepalive.tick");
-    }
+    // Per-frame vote + range re-assert while active. Scroll floods 60Hz content;
+    // a 0.25s Global refresh is too sparse to fight that cadence.
+    PMSBKeepAliveApplyLinkRange();
+    PMGlobalSBApplyForced(@"keepalive.tick");
 }
 @end
 
@@ -1362,28 +1363,39 @@ static void PMSBKeepAliveApplyLinkRange(void) {
     }
 }
 
-// --- Evaluate: pause/unpause link; re-assert range + window when active ---
+// --- Evaluate: pause/unpause with hysteresis; re-assert range + window when active ---
 
 static void PMSBKeepAliveEvaluate(void) {
     if (!PMSBKeepAliveLink) return;
     NSString *front = PMSBFrontmostBundleID();
-    BOOL needed = (front != nil) && !PMSBIsAppHooked(front);
+    BOOL positive = (front != nil) && !PMSBIsAppHooked(front);
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (positive) {
+        // Hold 2s past last positive so frontmost nil / brief transitions don't pause mid-scroll.
+        PMSBKeepAliveHoldUntil = now + 2.0;
+    }
+    BOOL needed = positive || (now < PMSBKeepAliveHoldUntil);
     BOOL changed = (needed != PMSBKeepAliveNeeded);
     PMSBKeepAliveNeeded = needed;
     PMSBKeepAliveLink.paused = !needed;
 
     if (needed) {
-        // Keep window in hierarchy and visible; never steal key.
         if (PMSBKeepAliveWindow) {
             PMSBKeepAliveWindow.hidden = NO;
-            // Re-attach dirty layer if compositor dropped it (keyWindow/scene churn).
+            // Keep strip geometry aligned to current screen width (rotation / multitask).
+            CGRect screen = [UIScreen mainScreen].bounds;
+            CGFloat w = MAX(screen.size.width, screen.size.height); // landscape-safe strip width
+            if (fabs(PMSBKeepAliveWindow.bounds.size.width - w) > 0.5) {
+                PMSBKeepAliveWindow.frame = CGRectMake(0, 0, w, 2.0);
+                PMSBDirtyLayer.frame = CGRectMake(0, 0, w, 2.0);
+            }
             if (PMSBDirtyLayer && PMSBDirtyLayer.superlayer == nil) {
                 [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
             }
         }
         if (changed) {
             PMSBKeepAliveApplyLinkRange();
-            PMGlobalSBApply(@"keepalive.activate");
+            PMGlobalSBApplyForced(@"keepalive.activate");
         }
     }
 }
@@ -1394,17 +1406,18 @@ static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        // Slightly stronger delta than 0 vs 0.01 so raster path notices.
         CGFloat cA[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-        CGFloat cB[4] = {0.04f, 0.04f, 0.04f, 1.0f};
+        CGFloat cB[4] = {0.06f, 0.06f, 0.06f, 1.0f};
         PMSBDirtyColorA = CGColorCreate(cs, cA);
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // 8x8 on-screen, windowLevel 0 (not -1). level -1 is easy to cull when
-        // the front app is full-screen updating at 60. Still tiny / non-interactive.
-        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 8, 8)];
-        PMSBKeepAliveWindow.windowLevel              = 0.0;
+        // Full-width 2pt strip at top of screen. Tiny corner was too easy for
+        // DPPMS to ignore against a full-screen 60Hz scroll stream.
+        CGRect screen = [UIScreen mainScreen].bounds;
+        CGFloat w = MAX(screen.size.width, screen.size.height);
+        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, 2.0)];
+        PMSBKeepAliveWindow.windowLevel              = 0.1; // above most app content z, still non-interactive
         PMSBKeepAliveWindow.hidden                   = NO;
         PMSBKeepAliveWindow.userInteractionEnabled    = NO;
         PMSBKeepAliveWindow.opaque                    = NO;
@@ -1413,8 +1426,8 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveWindow.layer.masksToBounds       = YES;
 
         PMSBDirtyLayer = [CALayer layer];
-        PMSBDirtyLayer.frame             = CGRectMake(0, 0, 8, 8);
-        PMSBDirtyLayer.opacity           = 0.03f; // was 0.004; still near-invisible
+        PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, 2.0);
+        PMSBDirtyLayer.opacity           = 0.02f; // near-invisible full-width band
         PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
         PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
@@ -1423,12 +1436,11 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
         PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
                                                         selector:@selector(pm_sbTick:)];
-        PMSBKeepAliveLink.paused = YES; // zero cost until blocked app is front
+        PMSBKeepAliveLink.paused = YES;
         PMSBKeepAliveApplyLinkRange();
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-        // 0.25s: 1s left a long dead window after app switch / frontmost churn.
-        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:0.25 repeats:YES block:^(__unused NSTimer *t) {
+        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:0.20 repeats:YES block:^(__unused NSTimer *t) {
             PMSBKeepAliveEvaluate();
         }];
         [[NSRunLoop mainRunLoop] addTimer:PMSBKeepAliveEvalTimer forMode:NSRunLoopCommonModes];
@@ -1437,12 +1449,10 @@ static void PMSBInstallKeepAliveLink(void) {
 }
 
 
-static void PMGlobalSBApply(NSString *reason) {
-    // Single SB owner: create-or-reapply Global only. Banner/Float must not
-    // allocate additional DynamicSource instances.
+static void PMGlobalSBApplyForced(NSString *reason) {
+    // Single SB owner, no throttle. Used by keepalive tick (scroll fight).
     if (!PMIsTargetProcess() || !PMDeviceSupports120Hz()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (PMGlobalLastApply > 0 && (now - PMGlobalLastApply) < 0.20) return;
     @try {
         if (!PMGlobalSBDisplaySource) {
             Class SC = NSClassFromString(@"CADynamicFrameRateSource");
@@ -1466,6 +1476,14 @@ static void PMGlobalSBApply(NSString *reason) {
             PMFPSRecordGlobalApply(@"globalSBApply", reason ?: @"unknown");
         }
     } @catch (NSException *exc) { }
+}
+
+static void PMGlobalSBApply(NSString *reason) {
+    // Throttled path for banner/float/scroll hooks. Keepalive uses Forced.
+    if (!PMIsTargetProcess() || !PMDeviceSupports120Hz()) return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (PMGlobalLastApply > 0 && (now - PMGlobalLastApply) < 0.20) return;
+    PMGlobalSBApplyForced(reason);
 }
 
 static void PMGlobalSBSetup(void) {
@@ -1967,8 +1985,22 @@ static void PMAppScrollArm(__unused NSString *event) {
 
 %hook SBDisplayRefreshRateController
 
+// Broaden refresh-rate controller surface. maximum alone is not enough when
+// DPPMS negotiates active rate against blocked-app scroll cadence.
 - (long long)maximumRefreshRate {
     return TARGET_FPS;
+}
+
+- (long long)defaultRefreshRate {
+    return TARGET_FPS;
+}
+
+- (long long)activeRefreshRate {
+    return TARGET_FPS;
+}
+
+- (void)setActiveRefreshRate:(long long)rate {
+    %orig((long long)TARGET_FPS);
 }
 
 %end
