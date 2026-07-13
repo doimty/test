@@ -1259,6 +1259,29 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
 // DPPMS treats active display links as proof of demand; a mere
 // CADynamicFrameRateSource vote can be overridden when the foreground
 // app (injection-blocked) only produces 60fps content.
+// === Smart keepalive: only burn render-dirty when an app is in foreground ===
+// On the home screen, SpringBoard's own hooks handle 120Hz directly.
+// The keepalive is only needed when a (potentially injection-blocked) app is frontmost.
+static BOOL PMSBIsAppInForeground(void) {
+    @try {
+        Class cls = NSClassFromString(@"SBApplicationController");
+        if (!cls) return YES;
+        SEL sharedSel = NSSelectorFromString(@"sharedInstance");
+        if (![cls respondsToSelector:sharedSel]) return YES;
+        typedef id (*PMIdGetter)(id, SEL);
+        PMIdGetter getter = (PMIdGetter)objc_msgSend;
+        id controller = getter((id)cls, sharedSel);
+        if (!controller) return YES;
+        SEL frontSel = NSSelectorFromString(@"frontmostApplication");
+        if (![controller respondsToSelector:frontSel]) {
+            frontSel = NSSelectorFromString(@"frontApp");
+            if (![controller respondsToSelector:frontSel]) return YES;
+        }
+        return getter(controller, frontSel) != nil;
+    } @catch (__unused NSException *e) {}
+    return YES;
+}
+
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
@@ -1269,6 +1292,16 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
     static CALayer *dirtyLayer = nil;
     static UIWindow *keepAliveWindow = nil;
     static BOOL toggle = NO;
+    static NSUInteger frameCount = 0;
+    static BOOL needsKeepAlive = YES;
+
+    frameCount++;
+    // Re-evaluate once per second (~120 frames at 120Hz)
+    if (frameCount % 120 == 0) {
+        needsKeepAlive = PMSBIsAppInForeground();
+    }
+    if (!needsKeepAlive) return;
+
     if (!keepAliveWindow) {
         @try {
             keepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-10, -10, 1, 1)];
