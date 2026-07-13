@@ -1319,13 +1319,15 @@ static BOOL PMSBIsAppHooked(NSString *bundleID) {
 static CADisplayLink *PMSBKeepAliveLink   = nil;
 static UIWindow      *PMSBKeepAliveWindow = nil;
 static CALayer       *PMSBDirtyLayer      = nil;
+static BOOL           PMSBKeepAliveNeeded = NO;
 
-// --- Tick: minimal — only toggles the dirty layer ---
+// --- Tick: toggle dirty layer only when needed ---
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
 - (void)pm_sbTick:(__unused CADisplayLink *)link {
+    if (!PMSBKeepAliveNeeded) return;
     static BOOL toggle = NO;
     toggle = !toggle;
     PMSBDirtyLayer.position = CGPointMake(toggle ? 0.0f : 0.5f, 0.0f);
@@ -1334,38 +1336,33 @@ static CALayer       *PMSBDirtyLayer      = nil;
 
 static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
 
-// --- Evaluate: decide whether keepalive should be active ---
+// --- Evaluate: 1-second timer sets the flag ---
 
 static void PMSBKeepAliveEvaluate(void) {
-    if (!PMSBKeepAliveLink) return;
     NSString *front = PMSBFrontmostBundleID();
-    BOOL needed = (front != nil) && !PMSBIsAppHooked(front);
-    if (needed == !PMSBKeepAliveLink.paused) return; // no change
-    PMSBKeepAliveLink.paused  = !needed;
-    PMSBKeepAliveWindow.hidden = !needed;
+    PMSBKeepAliveNeeded = (front != nil) && !PMSBIsAppHooked(front);
 }
 
-// --- Install: create everything once, start paused ---
+// --- Install: create everything once, always visible, always running ---
 
 static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
-        // Window + dirty layer (offscreen, invisible)
+        // Window + dirty layer (offscreen, always composited)
         PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-10, -10, 1, 1)];
-        PMSBKeepAliveWindow.windowLevel        = -9999;
-        PMSBKeepAliveWindow.hidden              = YES;
-        PMSBKeepAliveWindow.userInteractionEnabled = NO;
-        PMSBKeepAliveWindow.backgroundColor     = [UIColor clearColor];
+        PMSBKeepAliveWindow.windowLevel            = -9999;
+        PMSBKeepAliveWindow.hidden                  = NO;
+        PMSBKeepAliveWindow.userInteractionEnabled   = NO;
+        PMSBKeepAliveWindow.backgroundColor         = [UIColor clearColor];
         PMSBDirtyLayer = [CALayer layer];
         PMSBDirtyLayer.frame   = CGRectMake(0, 0, 1, 1);
         PMSBDirtyLayer.opacity = 0.01f;
         [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
 
-        // DisplayLink (starts paused)
+        // DisplayLink (always running, tick decides whether to toggle)
         PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
         PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
                                                         selector:@selector(pm_sbTick:)];
-        PMSBKeepAliveLink.paused = YES;
         if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
             CAFrameRateRange range;
             range.minimum   = 80;
@@ -1377,7 +1374,7 @@ static void PMSBInstallKeepAliveLink(void) {
         }
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-        // 1-second evaluation timer (separate from DisplayLink)
+        // Evaluation timer (separate concern)
         [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *t) {
             PMSBKeepAliveEvaluate();
         }];
