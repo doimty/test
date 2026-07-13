@@ -1267,22 +1267,24 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
     // a real render-dirty commit each frame.  DPPMS checks actual
     // content production, not just DisplayLink existence.
     static CALayer *dirtyLayer = nil;
+    static UIWindow *keepAliveWindow = nil;
     static BOOL toggle = NO;
-    if (!dirtyLayer) {
-        dirtyLayer = [CALayer layer];
-        dirtyLayer.frame = CGRectMake(-2, -2, 1, 1);
-        dirtyLayer.opacity = 0.01f;
+    if (!keepAliveWindow) {
         @try {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-            UIWindow *win = [[UIApplication sharedApplication] keyWindow];
-#pragma clang diagnostic pop
-            if (win) [win.layer addSublayer:dirtyLayer];
+            keepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-10, -10, 1, 1)];
+            keepAliveWindow.windowLevel = -9999;
+            keepAliveWindow.hidden = NO;
+            keepAliveWindow.userInteractionEnabled = NO;
+            keepAliveWindow.backgroundColor = [UIColor clearColor];
+            dirtyLayer = [CALayer layer];
+            dirtyLayer.frame = CGRectMake(0, 0, 1, 1);
+            dirtyLayer.opacity = 0.01f;
+            [keepAliveWindow.layer addSublayer:dirtyLayer];
         } @catch (__unused NSException *e) {}
     }
     if (dirtyLayer.superlayer) {
         toggle = !toggle;
-        dirtyLayer.position = CGPointMake(toggle ? -1.5f : -2.0f, -2.0f);
+        dirtyLayer.position = CGPointMake(toggle ? 0.0f : 0.5f, 0.0f);
     }
 }
 @end
