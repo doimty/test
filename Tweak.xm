@@ -37,6 +37,7 @@ static uintptr_t PMCurrentBannerPresentablePtr = 0;
 static __weak UIWindow *PMCurrentBannerWindow = nil;
 static __weak id PMCurrentBannerScene = nil;
 static id PMBannerDynamicFrameRateSource = nil;
+static id PMPersistentFrameRateSource = nil;
 
 static NSString *PMBundleID(void) {
     static NSString *bundleID = nil;
@@ -100,10 +101,9 @@ static CAFrameRateRange PMForce120Range(void) {
 
 static CAFrameRateRange PMGlobal120RangeFromRange(CAFrameRateRange range) {
     CAFrameRateRange newRange;
-    newRange.minimum = (range.minimum > 0 && range.minimum <= TARGET_FPS) ? range.minimum : 10;
+    newRange.minimum = 80;
     newRange.preferred = TARGET_FPS;
     newRange.maximum = TARGET_FPS;
-    if (newRange.minimum > TARGET_FPS) newRange.minimum = 10;
     return newRange;
 }
 
@@ -441,40 +441,6 @@ static void PMEndBannerSession(NSString *event, NSString *note, id presentable) 
 
 %end
 
-@interface SBLowPowerModeController : NSObject
-+ (instancetype)sharedInstance;
-- (BOOL)isInLowPowerMode;
-@end
-
-@interface _CDBatterySaver : NSObject
-+ (id)batterySaver;
-- (NSInteger)getPowerMode;
-@end
-
-%hook SBLowPowerModeController
-
-- (BOOL)isInLowPowerMode {
-    return NO;
-}
-
-%end
-
-%hook _CDBatterySaver
-
-- (NSInteger)getPowerMode {
-    return 0;
-}
-
-%end
-
-%hook NSProcessInfo
-
-- (BOOL)isLowPowerModeEnabled {
-    return NO;
-}
-
-%end
-
 %hook SBDisplayRefreshRateController
 
 - (long long)maximumRefreshRate {
@@ -694,7 +660,7 @@ static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SE
         PMSetHighFrameRateReasonIfPossible(self, NO, YES);
         if (orig_CADynamicFrameRateSource_setPreferredFrameRateRange) orig_CADynamicFrameRateSource_setPreferredFrameRateRange(self, _cmd, PMForce120Range());
     } else if (orig_CADynamicFrameRateSource_setPreferredFrameRateRange) {
-        orig_CADynamicFrameRateSource_setPreferredFrameRateRange(self, _cmd, range);
+        orig_CADynamicFrameRateSource_setPreferredFrameRateRange(self, _cmd, PMGlobal120RangeFromRange(range));
     }
 }
 
@@ -744,12 +710,42 @@ static void PMInstallHooks(void) {
     PMInstallHookIfExists("CALayer", @selector(addAnimation:forKey:), (IMP)repl_CALayer_addAnimation_forKey, (IMP *)&orig_CALayer_addAnimation_forKey);
 }
 
+static void PMInstallPersistentDisplayLock(void) {
+    @try {
+        Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
+        id display = PMMainCADisplay();
+        if (!SourceClass || !display) return;
+        id allocated = [SourceClass alloc];
+        SEL initSel = NSSelectorFromString(@"initWithDisplay:");
+        if (![allocated respondsToSelector:initSel]) return;
+        typedef id (*PMInitFn)(id, SEL, id);
+        PMInitFn initFn = (PMInitFn)objc_msgSend;
+        PMPersistentFrameRateSource = initFn(allocated, initSel, display);
+        if (!PMPersistentFrameRateSource) return;
+        SEL rangeSel = NSSelectorFromString(@"setPreferredFrameRateRange:");
+        if ([PMPersistentFrameRateSource respondsToSelector:rangeSel]) {
+            PMRangeSetterDyn rangeFn = (PMRangeSetterDyn)objc_msgSend;
+            rangeFn(PMPersistentFrameRateSource, rangeSel, PMForce120Range());
+        }
+        SEL reasonsSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
+        if ([PMPersistentFrameRateSource respondsToSelector:reasonsSel]) {
+            unsigned int reasons[1] = { 1U };
+            PMReasonsSetterDyn reasonsFn = (PMReasonsSetterDyn)objc_msgSend;
+            reasonsFn(PMPersistentFrameRateSource, reasonsSel, reasons, (NSUInteger)1);
+        }
+    } @catch (__unused NSException *e) {
+    }
+}
+
 %ctor {
     @autoreleasepool {
         if (PMDeviceSupports120Hz()) {
             %init;
             if (PMIsTargetProcess()) {
                 PMInstallHooks();
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    PMInstallPersistentDisplayLock();
+                });
             }
         }
     }
