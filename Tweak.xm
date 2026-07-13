@@ -1324,30 +1324,68 @@ static CGColorRef PMSBDirtyColorA = NULL;
 static CGColorRef PMSBDirtyColorB = NULL;
 
 // --- Tick: only runs when link is unpaused ---
+// v1.0.19: dual dirty (position + color) + periodic Global re-apply.
+// 1x1 / level-1 / opacity 0.004 was too weak; DPPMS compromised at 80Hz
+// when blocked-app content cadence is ~60.
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
 - (void)pm_sbTick:(__unused CADisplayLink *)link {
+    if (!PMSBDirtyLayer) return;
     static BOOL toggle = NO;
+    static NSUInteger tick = 0;
     toggle = !toggle;
+    tick += 1;
+
+    // Position toggle was the v1.0.11 path users said "好多了".
+    // Keep both color + position so culling one path still dirties the other.
+    PMSBDirtyLayer.position = toggle ? CGPointMake(4.0, 4.0) : CGPointMake(4.0, 5.0);
     PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
+
+    // Continuous vote: re-apply single SB Global owner ~every 0.25s at 120Hz.
+    // System can ignore a stale DynamicSource; refresh keeps the vote alive.
+    if ((tick % 30) == 0) {
+        PMGlobalSBApply(@"keepalive.tick");
+    }
 }
 @end
 
 static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
 
-// --- Evaluate: pause/unpause link; no empty 120Hz callbacks ---
+static void PMSBKeepAliveApplyLinkRange(void) {
+    if (!PMSBKeepAliveLink) return;
+    if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+        [PMSBKeepAliveLink setPreferredFrameRateRange:PMForce120Range()];
+    } else if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
+        [PMSBKeepAliveLink setPreferredFramesPerSecond:TARGET_FPS];
+    }
+}
+
+// --- Evaluate: pause/unpause link; re-assert range + window when active ---
 
 static void PMSBKeepAliveEvaluate(void) {
     if (!PMSBKeepAliveLink) return;
     NSString *front = PMSBFrontmostBundleID();
     BOOL needed = (front != nil) && !PMSBIsAppHooked(front);
-    if (needed == PMSBKeepAliveNeeded) return;
+    BOOL changed = (needed != PMSBKeepAliveNeeded);
     PMSBKeepAliveNeeded = needed;
     PMSBKeepAliveLink.paused = !needed;
-    // Keep window in tree always; only dirty when unpaused.
-    // Hidden flip on every app switch can reintroduce compositor transition delay.
+
+    if (needed) {
+        // Keep window in hierarchy and visible; never steal key.
+        if (PMSBKeepAliveWindow) {
+            PMSBKeepAliveWindow.hidden = NO;
+            // Re-attach dirty layer if compositor dropped it (keyWindow/scene churn).
+            if (PMSBDirtyLayer && PMSBDirtyLayer.superlayer == nil) {
+                [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
+            }
+        }
+        if (changed) {
+            PMSBKeepAliveApplyLinkRange();
+            PMGlobalSBApply(@"keepalive.activate");
+        }
+    }
 }
 
 // --- Install: starts paused; only burns frames for injection-blocked front apps ---
@@ -1356,45 +1394,44 @@ static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        // Slightly stronger delta than 0 vs 0.01 so raster path notices.
         CGFloat cA[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-        CGFloat cB[4] = {0.01f, 0.01f, 0.01f, 1.0f};
+        CGFloat cB[4] = {0.04f, 0.04f, 0.04f, 1.0f};
         PMSBDirtyColorA = CGColorCreate(cs, cA);
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // On-screen 1x1 under normal windows. Not a strong DPPMS proof by itself;
-        // paired with pause/unpause so we only pay when blocked apps are front.
-        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
-        PMSBKeepAliveWindow.windowLevel            = -1;
-        PMSBKeepAliveWindow.hidden                  = NO;
-        PMSBKeepAliveWindow.userInteractionEnabled   = NO;
-        PMSBKeepAliveWindow.opaque                   = NO;
-        PMSBKeepAliveWindow.backgroundColor         = [UIColor clearColor];
+        // 8x8 on-screen, windowLevel 0 (not -1). level -1 is easy to cull when
+        // the front app is full-screen updating at 60. Still tiny / non-interactive.
+        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 8, 8)];
+        PMSBKeepAliveWindow.windowLevel              = 0.0;
+        PMSBKeepAliveWindow.hidden                   = NO;
+        PMSBKeepAliveWindow.userInteractionEnabled    = NO;
+        PMSBKeepAliveWindow.opaque                    = NO;
+        PMSBKeepAliveWindow.backgroundColor           = [UIColor clearColor];
+        PMSBKeepAliveWindow.clipsToBounds             = YES;
+        PMSBKeepAliveWindow.layer.masksToBounds       = YES;
 
         PMSBDirtyLayer = [CALayer layer];
-        PMSBDirtyLayer.frame           = CGRectMake(0, 0, 1, 1);
-        PMSBDirtyLayer.opacity         = 0.004f;
-        PMSBDirtyLayer.backgroundColor = PMSBDirtyColorA;
+        PMSBDirtyLayer.frame             = CGRectMake(0, 0, 8, 8);
+        PMSBDirtyLayer.opacity           = 0.03f; // was 0.004; still near-invisible
+        PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
+        PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
         [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
 
         PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
         PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
                                                         selector:@selector(pm_sbTick:)];
-        PMSBKeepAliveLink.paused = YES; // true zero cost until needed
-        if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
-            CAFrameRateRange range = PMForce120Range();
-            [PMSBKeepAliveLink setPreferredFrameRateRange:range];
-        } else if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
-            [PMSBKeepAliveLink setPreferredFramesPerSecond:TARGET_FPS];
-        }
+        PMSBKeepAliveLink.paused = YES; // zero cost until blocked app is front
+        PMSBKeepAliveApplyLinkRange();
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *t) {
+        // 0.25s: 1s left a long dead window after app switch / frontmost churn.
+        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:0.25 repeats:YES block:^(__unused NSTimer *t) {
             PMSBKeepAliveEvaluate();
         }];
         [[NSRunLoop mainRunLoop] addTimer:PMSBKeepAliveEvalTimer forMode:NSRunLoopCommonModes];
-        // Immediate first evaluation so first blocked app doesn't wait 1s
         PMSBKeepAliveEvaluate();
     } @catch (__unused NSException *e) {}
 }
