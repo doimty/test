@@ -7,6 +7,7 @@
 #import <substrate.h>
 #import <rootless.h>
 #import <Metal/Metal.h>
+#include <notify.h>
 
 #define TWEAK_NAME @"ProMotion120"
 #define TARGET_FPS 120
@@ -1259,27 +1260,54 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
 // DPPMS treats active display links as proof of demand; a mere
 // CADynamicFrameRateSource vote can be overridden when the foreground
 // app (injection-blocked) only produces 60fps content.
-// === Smart keepalive: only burn render-dirty when an app is in foreground ===
-// On the home screen, SpringBoard's own hooks handle 120Hz directly.
-// The keepalive is only needed when a (potentially injection-blocked) app is frontmost.
-static BOOL PMSBIsAppInForeground(void) {
+// === Smart keepalive: only burn render-dirty for injection-blocked apps ===
+// Apps with our hooks injected handle 120Hz themselves; keepalive is redundant.
+// Use Darwin notification state as IPC: app-side sets state=1 on load,
+// SpringBoard reads state to skip keepalive for hooked apps.
+static NSString *PMSBFrontmostBundleID(void) {
     @try {
         Class cls = NSClassFromString(@"SBApplicationController");
-        if (!cls) return YES;
+        if (!cls) return nil;
         SEL sharedSel = NSSelectorFromString(@"sharedInstance");
-        if (![cls respondsToSelector:sharedSel]) return YES;
+        if (![cls respondsToSelector:sharedSel]) return nil;
         typedef id (*PMIdGetter)(id, SEL);
         PMIdGetter getter = (PMIdGetter)objc_msgSend;
         id controller = getter((id)cls, sharedSel);
-        if (!controller) return YES;
+        if (!controller) return nil;
         SEL frontSel = NSSelectorFromString(@"frontmostApplication");
         if (![controller respondsToSelector:frontSel]) {
             frontSel = NSSelectorFromString(@"frontApp");
-            if (![controller respondsToSelector:frontSel]) return YES;
+            if (![controller respondsToSelector:frontSel]) return nil;
         }
-        return getter(controller, frontSel) != nil;
+        id app = getter(controller, frontSel);
+        if (!app) return nil;
+        SEL bundleSel = NSSelectorFromString(@"bundleIdentifier");
+        if ([app respondsToSelector:bundleSel]) {
+            return getter(app, bundleSel);
+        }
     } @catch (__unused NSException *e) {}
-    return YES;
+    return nil;
+}
+
+// Cache Darwin notification tokens per bundle ID to avoid repeated register/cancel
+static NSMutableDictionary<NSString *, NSNumber *> *PMHookedTokenCache = nil;
+
+static BOOL PMSBIsAppHooked(NSString *bundleID) {
+    if (!bundleID) return NO;
+    if (!PMHookedTokenCache) PMHookedTokenCache = [NSMutableDictionary new];
+    int token;
+    NSNumber *cached = PMHookedTokenCache[bundleID];
+    if (cached) {
+        token = [cached intValue];
+    } else {
+        char name[256];
+        snprintf(name, sizeof(name), "com.doimty.pm120.hooked.%s", [bundleID UTF8String]);
+        notify_register_check(name, &token);
+        PMHookedTokenCache[bundleID] = @(token);
+    }
+    uint64_t state = 0;
+    notify_get_state(token, &state);
+    return state == 1;
 }
 
 @interface PMSBKeepAliveTarget : NSObject
@@ -1298,7 +1326,12 @@ static BOOL PMSBIsAppInForeground(void) {
     frameCount++;
     // Re-evaluate once per second (~120 frames at 120Hz)
     if (frameCount % 120 == 0) {
-        needsKeepAlive = PMSBIsAppInForeground();
+        NSString *front = PMSBFrontmostBundleID();
+        if (!front) {
+            needsKeepAlive = NO; // home screen / lock screen
+        } else {
+            needsKeepAlive = !PMSBIsAppHooked(front); // only for unhooked apps
+        }
     }
     if (!needsKeepAlive) return;
 
@@ -2755,6 +2788,19 @@ static void PMInstallDynamicSourceHooks(void) {
                 });
             }
             if (!PMIsTargetProcess()) {
+                // Register Darwin notification state so SpringBoard knows
+                // this app has our hooks injected (skip keepalive)
+                @try {
+                    NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
+                    if (bundleID) {
+                        char name[256];
+                        snprintf(name, sizeof(name), "com.doimty.pm120.hooked.%s", [bundleID UTF8String]);
+                        int regToken;
+                        notify_register_check(name, &regToken);
+                        notify_set_state(regToken, 1);
+                        // Do NOT cancel — token must stay alive for state to persist
+                    }
+                } @catch (__unused NSException *e) {}
                 PMFloatProbeInjectedCount += 1;
                 // Initialize persistent 120Hz source after main display is ready
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
