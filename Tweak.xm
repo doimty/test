@@ -1317,11 +1317,90 @@ static CGColorRef PMSBDirtyColorA = NULL;
 static CGColorRef PMSBDirtyColorB = NULL;
 
 // --- Tick: only runs when link is unpaused ---
-// v1.0.20: full-width strip dirty + per-frame Global re-apply + activate hysteresis.
-// 1.0.19 (8x8) fixed idle/slow a lot; blocked-app scroll still fell to 60 because
-// dense 60Hz app content overpowered a tiny corner dirty + 0.2s Global throttle.
+// v1.0.22: attach UIWindowScene + stronger dirty + CADisplay mode pin.
+// 1.0.20/21 full-width 2pt/opacity 0.02 still lost to DPPMS 80Hz compromise
+// when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
 
 static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
+static const CGFloat PMSBKeepAliveStripH = 4.0;
+
+static void PMSBKeepAliveAttachScene(void) {
+    if (!PMSBKeepAliveWindow) return;
+    @try {
+        // iOS 13+: unattached UIWindow may never commit; pin to any live SB scene.
+        if (![PMSBKeepAliveWindow respondsToSelector:@selector(setWindowScene:)]) return;
+        id currentScene = nil;
+        if ([PMSBKeepAliveWindow respondsToSelector:@selector(windowScene)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            currentScene = [PMSBKeepAliveWindow performSelector:@selector(windowScene)];
+#pragma clang diagnostic pop
+        }
+        if (currentScene) return;
+
+        Class UIApplicationClass = NSClassFromString(@"UIApplication");
+        if (!UIApplicationClass || ![UIApplicationClass respondsToSelector:@selector(sharedApplication)]) return;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        UIApplication *app = [UIApplicationClass performSelector:@selector(sharedApplication)];
+#pragma clang diagnostic pop
+        if (!app) return;
+
+        id scene = nil;
+        if ([app respondsToSelector:@selector(connectedScenes)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            NSSet *scenes = [app performSelector:@selector(connectedScenes)];
+#pragma clang diagnostic pop
+            for (id s in scenes) {
+                NSString *cls = PMClassName(s);
+                if ([cls containsString:@"UIWindowScene"]) { scene = s; break; }
+            }
+        }
+        if (!scene && [app respondsToSelector:@selector(windows)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            NSArray *windows = [app performSelector:@selector(windows)];
+#pragma clang diagnostic pop
+            for (UIWindow *w in windows) {
+                if (w == PMSBKeepAliveWindow) continue;
+                if ([w respondsToSelector:@selector(windowScene)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                    scene = [w performSelector:@selector(windowScene)];
+#pragma clang diagnostic pop
+                    if (scene) break;
+                }
+            }
+        }
+        if (scene) {
+            typedef void (*PMSetSceneFn)(id, SEL, id);
+            PMSetSceneFn setScene = (PMSetSceneFn)objc_msgSend;
+            setScene(PMSBKeepAliveWindow, @selector(setWindowScene:), scene);
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+static void PMSBForceMainDisplayHighMode(void) {
+    // Best-effort pin preferredMode to highest refreshRate (>=119). Silent no-op if private API differs.
+    @try {
+        id display = PMMainCADisplay();
+        if (!display) return;
+        NSArray *modes = [display valueForKey:@"availableModes"];
+        if (![modes isKindOfClass:[NSArray class]] || modes.count == 0) return;
+        id best = nil;
+        double bestRate = 0;
+        for (id mode in modes) {
+            double rate = [[mode valueForKey:@"refreshRate"] doubleValue];
+            if (rate > bestRate) { bestRate = rate; best = mode; }
+        }
+        if (!best || bestRate < 119.0) return;
+        id current = nil;
+        @try { current = [display valueForKey:@"preferredMode"]; } @catch (__unused NSException *e) {}
+        if (current == best) return;
+        @try { [display setValue:best forKey:@"preferredMode"]; } @catch (__unused NSException *e) {}
+    } @catch (__unused NSException *e) {}
+}
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
@@ -1329,17 +1408,21 @@ static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive n
 - (void)pm_sbTick:(__unused CADisplayLink *)link {
     if (!PMSBDirtyLayer) return;
     static BOOL toggle = NO;
+    static NSUInteger tick = 0;
     toggle = !toggle;
+    tick += 1;
 
-    // Full-width strip: alternate 1pt vertical shift so the whole scanline dirties.
+    // Dual dirty: position + color. Stronger alpha so DPPMS cannot settle at 80.
     CGFloat y = toggle ? 0.0 : 1.0;
     PMSBDirtyLayer.position = CGPointMake(CGRectGetMidX(PMSBDirtyLayer.bounds), y + CGRectGetMidY(PMSBDirtyLayer.bounds));
     PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
+    // Force a real content commit (not just geometry) every frame.
+    PMSBDirtyLayer.opacity = toggle ? 0.12f : 0.10f;
 
-    // Per-frame vote + range re-assert while active. Scroll floods 60Hz content;
-    // a 0.25s Global refresh is too sparse to fight that cadence.
     PMSBKeepAliveApplyLinkRange();
     PMGlobalSBApplyForced(@"keepalive.tick");
+    // Mode pin is heavier; ~4Hz is enough alongside per-frame vote.
+    if ((tick % 30) == 0) PMSBForceMainDisplayHighMode();
 }
 @end
 
@@ -1372,13 +1455,14 @@ static void PMSBKeepAliveEvaluate(void) {
 
     if (needed) {
         if (PMSBKeepAliveWindow) {
+            PMSBKeepAliveAttachScene();
             PMSBKeepAliveWindow.hidden = NO;
-            // Keep strip geometry aligned to current screen width (rotation / multitask).
             CGRect screen = [UIScreen mainScreen].bounds;
-            CGFloat w = MAX(screen.size.width, screen.size.height); // landscape-safe strip width
-            if (fabs(PMSBKeepAliveWindow.bounds.size.width - w) > 0.5) {
-                PMSBKeepAliveWindow.frame = CGRectMake(0, 0, w, 2.0);
-                PMSBDirtyLayer.frame = CGRectMake(0, 0, w, 2.0);
+            CGFloat w = MAX(screen.size.width, screen.size.height);
+            if (fabs(PMSBKeepAliveWindow.bounds.size.width - w) > 0.5 ||
+                fabs(PMSBKeepAliveWindow.bounds.size.height - PMSBKeepAliveStripH) > 0.5) {
+                PMSBKeepAliveWindow.frame = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
+                PMSBDirtyLayer.frame = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
             }
             if (PMSBDirtyLayer && PMSBDirtyLayer.superlayer == nil) {
                 [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
@@ -1386,6 +1470,7 @@ static void PMSBKeepAliveEvaluate(void) {
         }
         if (changed) {
             PMSBKeepAliveApplyLinkRange();
+            PMSBForceMainDisplayHighMode();
             PMGlobalSBApplyForced(@"keepalive.activate");
         }
     }
@@ -1398,17 +1483,18 @@ static void PMSBInstallKeepAliveLink(void) {
     @try {
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
         CGFloat cA[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-        CGFloat cB[4] = {0.06f, 0.06f, 0.06f, 1.0f};
+        CGFloat cB[4] = {0.10f, 0.10f, 0.10f, 1.0f};
         PMSBDirtyColorA = CGColorCreate(cs, cA);
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // Full-width 2pt strip at top of screen. Tiny corner was too easy for
-        // DPPMS to ignore against a full-screen 60Hz scroll stream.
+        // Full-width strip. Higher opacity than 1.0.20 (0.02) so DPPMS cannot
+        // settle the classic 80Hz compromise against dense 60Hz app content.
         CGRect screen = [UIScreen mainScreen].bounds;
         CGFloat w = MAX(screen.size.width, screen.size.height);
-        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, 2.0)];
-        PMSBKeepAliveWindow.windowLevel              = 0.1; // above most app content z, still non-interactive
+        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, PMSBKeepAliveStripH)];
+        PMSBKeepAliveAttachScene();
+        PMSBKeepAliveWindow.windowLevel              = 1000.0; // status-bar band: stays in composition
         PMSBKeepAliveWindow.hidden                   = NO;
         PMSBKeepAliveWindow.userInteractionEnabled    = NO;
         PMSBKeepAliveWindow.opaque                    = NO;
@@ -1417,8 +1503,8 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveWindow.layer.masksToBounds       = YES;
 
         PMSBDirtyLayer = [CALayer layer];
-        PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, 2.0);
-        PMSBDirtyLayer.opacity           = 0.02f; // near-invisible full-width band
+        PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
+        PMSBDirtyLayer.opacity           = 0.12f;
         PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
         PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
@@ -1431,7 +1517,7 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveApplyLinkRange();
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:0.20 repeats:YES block:^(__unused NSTimer *t) {
+        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:0.15 repeats:YES block:^(__unused NSTimer *t) {
             PMSBKeepAliveEvaluate();
         }];
         [[NSRunLoop mainRunLoop] addTimer:PMSBKeepAliveEvalTimer forMode:NSRunLoopCommonModes];
