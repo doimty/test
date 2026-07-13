@@ -1259,19 +1259,20 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
 // DPPMS treats active display links as proof of demand; a mere
 // CADynamicFrameRateSource vote can be overridden when the foreground
 // app (injection-blocked) only produces 60fps content.
-static CADisplayLink *PMSBKeepAliveLink = nil;
-
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
 - (void)pm_sbTick:(__unused CADisplayLink *)link {}
 @end
 
+static CADisplayLink *PMSBKeepAliveLink = nil;
+static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
+
 static void PMSBInstallKeepAliveLink(void) {
-    if (PMSBKeepAliveLink) return;
+    if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
-        PMSBKeepAliveTarget *target = [[PMSBKeepAliveTarget alloc] init];
-        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:target selector:@selector(pm_sbTick:)];
+        PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
+        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance selector:@selector(pm_sbTick:)];
         if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
             CAFrameRateRange range;
             range.minimum = 80;
