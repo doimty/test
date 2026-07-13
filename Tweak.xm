@@ -37,7 +37,6 @@ static __weak id PMCurrentBannerPresentable = nil;
 static uintptr_t PMCurrentBannerPresentablePtr = 0;
 static __weak UIWindow *PMCurrentBannerWindow = nil;
 static __weak id PMCurrentBannerScene = nil;
-static id PMBannerDynamicFrameRateSource = nil;
 static CFAbsoluteTime PMBannerLastSourceApplyAt = 0;
 
 static NSString *PMBundleID(void) {
@@ -68,10 +67,6 @@ static BOOL PMIsAppProcessEligible(void) {
 
 static BOOL PMIsEligibleNow(void) {
     return PMIsTargetProcess() && PMBannerWindowConfirmed && PMIsArmed();
-}
-
-static BOOL PMIsAppEligibleNow(void) {
-    return PMIsAppProcessEligible();
 }
 
 static NSString *PMClassName(id obj) {
@@ -242,8 +237,6 @@ static void PMApplyDisplayFrameRateSource(NSString *source) {
         PMGlobalSBApply(source ?: @"banner.reapply");
         PMBannerLastSourceApplyAt = now;
         PMFPSRecordSourceApply(@"bannerDisplaySource", source ?: @"unknown");
-        // Keep legacy pointer nil so old release paths are no-ops.
-        PMBannerDynamicFrameRateSource = nil;
     } @catch (__unused NSException *e) {
     }
 }
@@ -252,7 +245,6 @@ static void PMReleaseDisplayFrameRateSource(NSString *source) {
     // Single-owner model: never tear down Global on banner exit.
     // Banner session end only clears banner state; Global stays for SB.
     (void)source;
-    PMBannerDynamicFrameRateSource = nil;
 }
 
 static BOOL PMLayerBelongsToBannerWindow(CALayer *layer) {
@@ -1223,7 +1215,6 @@ static NSUInteger PMFloatPreArmLowFPSCount = 0;
 static NSUInteger PMFloatPreArmInProcessManagerCount = 0;
 static NSUInteger PMFloatSmallStatusBarArmCount = 0;
 // Create counter retained for probe schema only (Float no longer owns a DynamicSource).
-__attribute__((unused)) static NSUInteger PMFloatSourceCreateCount = 0;
 static NSUInteger PMFloatSourceApplyCount = 0;
 static NSUInteger PMFloatSourceReleaseCount = 0;
 static NSString *PMFloatLastEvent = nil;
@@ -1495,13 +1486,12 @@ static void PMGlobalSBSetup(void) {
 
 static CFAbsoluteTime PMFloatArmUntil = 0;
 static NSUInteger PMFloatSession = 0;
-static id PMFloatDynamicFrameRateSource = nil;
 static BOOL PMFloatVisibleCache = NO;
 static CFAbsoluteTime PMFloatVisibleCacheAt = 0;
 static CFAbsoluteTime PMFloatLastSourceApplyAt = 0;
 static const void *PMFloatDisplayLinkTargetClassKey = &PMFloatDisplayLinkTargetClassKey;
 
-static BOOL PMFloatProbeShouldRecord(void) {
+static BOOL PMFloatFeatureEnabled(void) {
     // Cached: bundle ID never changes within a process.
     static int cachedResult = -1;
     if (cachedResult < 0) {
@@ -1537,7 +1527,7 @@ __attribute__((unused)) static NSDictionary *PMFloatPointDict(CGPoint point) {
 }
 
 __attribute__((unused)) static NSArray *PMFloatWindowSummary(void) {
-    if (!PMFloatProbeShouldRecord()) return @[];
+    if (!PMFloatFeatureEnabled()) return @[];
     NSMutableArray *summary = [NSMutableArray array];
     @try {
         Class UIApplicationClass = NSClassFromString(@"UIApplication");
@@ -1595,7 +1585,7 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
     // DISABLED in 45+nologall: prevents SIGSEGV crashes from inProcessAnimationManager
     // Re-enable for menu/edit-menu diagnosis in WeChat/Filza (limited writes only)
     // Skip if not in a target bundle
-    if (!PMFloatProbeShouldRecord()) return;
+    if (!PMFloatFeatureEnabled()) return;
     // Only write for menu/edit events to keep telemetry minimal
     if (!force && ![event containsString:@"editMenu"]
         && ![event containsString:@"menu"]
@@ -1632,7 +1622,7 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
             },
             @"lastPreferredFPS": @(PMFloatLastPreferredFPS),
             @"lastFrameInterval": @(PMFloatLastFrameInterval),
-            @"sourceActive": @(PMFloatDynamicFrameRateSource != nil),
+            @"sourceActive": @NO,
             @"windowConfirmed": @(PMFloatWindowConfirmed),
             @"armUntil": @(PMFloatArmUntil),
             @"counts": @{
@@ -1653,7 +1643,7 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
                 @"preArmLowFPS": @(PMFloatPreArmLowFPSCount),
                 @"preArmInProcessManager": @(PMFloatPreArmInProcessManagerCount),
                 @"smallStatusBarArm": @(PMFloatSmallStatusBarArmCount),
-                @"sourceCreate": @(PMFloatSourceCreateCount),
+                @"sourceCreate": @0,
                 @"sourceApply": @(PMFloatSourceApplyCount),
                 @"sourceRelease": @(PMFloatSourceReleaseCount)
             },
@@ -1665,7 +1655,7 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
 }
 
 static void PMFloatCaptureWindowInfoForView(UIView *view) {
-    if (!PMFloatProbeShouldRecord() || !view) return;
+    if (!PMFloatFeatureEnabled() || !view) return;
     @try {
         UIWindow *window = view.window;
         if (window) {
@@ -1677,7 +1667,7 @@ static void PMFloatCaptureWindowInfoForView(UIView *view) {
 }
 
 static void PMFloatRecordRange(NSString *event, CAFrameRateRange range) {
-    if (!PMFloatProbeShouldRecord()) return;
+    if (!PMFloatFeatureEnabled()) return;
     PMFloatLastRangeMinimum = range.minimum;
     PMFloatLastRangePreferred = range.preferred;
     PMFloatLastRangeMaximum = range.maximum;
@@ -1706,7 +1696,7 @@ static BOOL PMFloatIsFloatingWindow(UIWindow *window) {
 }
 
 static BOOL PMFloatAnyFloatingWindowVisible(void) {
-    if (!PMFloatProbeShouldRecord()) return NO;
+    if (!PMFloatFeatureEnabled()) return NO;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMFloatVisibleCacheAt > 0 && (now - PMFloatVisibleCacheAt) < 0.25) return PMFloatVisibleCache;
     BOOL visible = NO;
@@ -1741,7 +1731,7 @@ static BOOL PMFloatAnyFloatingWindowVisible(void) {
 }
 
 static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
-    if (!PMFloatProbeShouldRecord()) return NO;
+    if (!PMFloatFeatureEnabled()) return NO;
     if (PMFloatIsFloatingWindow(window)) return YES;
     if (!PMFloatAnyFloatingWindowVisible()) return NO;
     NSString *windowClass = PMClassName(window);
@@ -1758,15 +1748,14 @@ static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.10) return;
     @try {
-        // Single-owner: never allocate PMFloatDynamicFrameRateSource.
-        // SB re-applies Global; injected apps re-apply App persistent source.
+        // Single-owner: no Float DynamicSource. SB re-applies Global;
+        // injected apps re-apply App persistent source.
         if (PMIsTargetProcess()) {
             PMGlobalSBApply(event ?: @"float.reapply");
         } else {
             PMAppEnsurePersistentSource();
             PMAppRefreshPersistentSource();
         }
-        PMFloatDynamicFrameRateSource = nil; // legacy slot stays empty
         PMFloatSourceApplyCount += 1;
         PMFloatLastSourceApplyAt = now;
         PMFloatWriteState(@"floatSource.apply", event ?: @"", NO);
@@ -1778,7 +1767,7 @@ static void PMFloatArm(NSString *event) {
     // Gate: only floating-view package / floating windows may create Float source.
     // Menu/alert hooks in ordinary apps must not stack a second DynamicSource on
     // top of PMAppPersistentFrameRateSource.
-    if (!PMFloatProbeShouldRecord() || !PMFloatAnyFloatingWindowVisible()) return;
+    if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
@@ -1799,14 +1788,14 @@ static void PMFloatArmForWindow(UIWindow *window, NSString *event) {
 }
 
 static void PMFloatArmForView(UIView *view, NSString *event) {
-    if (!view || !PMFloatProbeShouldRecord()) return;
+    if (!view || !PMFloatFeatureEnabled()) return;
     UIWindow *window = nil;
     @try { window = view.window; } @catch (__unused NSException *e) {}
     PMFloatArmForWindow(window, event);
 }
 
 static void PMFloatArmForLayer(CALayer *layer, NSString *event) {
-    if (!layer || !PMFloatProbeShouldRecord()) return;
+    if (!layer || !PMFloatFeatureEnabled()) return;
     @try {
         id delegate = layer.delegate;
         if ([delegate isKindOfClass:[UIView class]]) {
@@ -1832,7 +1821,7 @@ static BOOL PMFloatWindowLooksLikeStatusShrinkWindow(UIWindow *window) {
 }
 
 static void PMFloatPreArm(NSString *reason) {
-    if (!PMFloatProbeShouldRecord() || !PMFloatAnyFloatingWindowVisible()) return;
+    if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
     PMFloatLastPreArmReason = [reason copy] ?: @"";
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
@@ -1870,9 +1859,8 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         });
         return;
     }
-    // Single-owner model: Float no longer owns a DynamicSource to tear down.
+    // Single-owner model: Float never owned a DynamicSource.
     // Only clear float eligibility state. Global/App sources stay managed.
-    PMFloatDynamicFrameRateSource = nil;
     PMFloatSourceReleaseCount += 1;
     PMFloatWindowConfirmed = NO;
     PMFloatWriteState(@"floatSource.release", @"expired", YES);
@@ -1884,10 +1872,8 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // lifetime. This prevents 120Hz drops during VC transitions, tab switches,
 // animations, and other non-scroll scenarios.
 static id PMAppPersistentFrameRateSource = nil;
-// Thread-local: allow our own teardown to clear managed sources via orig IMP.
-// System-initiated clears remain blocked by PMIsManagedSource.
-static __thread BOOL PMAllowManagedSourceClear = NO;
-
+// Managed sources are never cleared via the system empty-reasons path.
+// Self-teardown of Global/App persistent sources is not used in release.
 // SB keeps one display-level source owner: Global. Banner/Float only re-apply
 // that owner; they no longer allocate their own DynamicSource slots.
 // App process keeps its own persistent source (different process).
@@ -2556,8 +2542,9 @@ static void PMAppScrollArm(__unused NSString *event) {
 %hook UIAlertController
 - (void)viewDidAppear:(BOOL)animated {
     if (!PMIsTargetProcess()) {
+        // Ordinary apps: refresh App persistent only.
+        // Float arm lives on window/float-feature paths, not generic menus.
         PMAppRefreshPersistentSource();
-        PMFloatArm(@"alert.viewDidAppear");
     }
     %orig;
 }
@@ -2566,19 +2553,11 @@ static void PMAppScrollArm(__unused NSString *event) {
 // Catch UIMenuController (classic menu)
 %hook UIMenuController
 - (void)showFromRect:(CGRect)rect inView:(UIView *)view animated:(BOOL)animated {
-    if (!PMIsTargetProcess()) {
-        PMFloatWriteState(@"menu.showFromRect", PMClassName(view), YES);
-        PMAppRefreshPersistentSource();
-        PMFloatArm(@"menu.showFromRect");
-    }
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
     %orig;
 }
 - (void)showFromBarButtonItem:(id)item animated:(BOOL)animated {
-    if (!PMIsTargetProcess()) {
-        PMFloatWriteState(@"menu.showFromBarButton", PMClassName(item), YES);
-        PMAppRefreshPersistentSource();
-        PMFloatArm(@"menu.showFromBarButton");
-    }
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
     %orig;
 }
 %end
@@ -2586,11 +2565,7 @@ static void PMAppScrollArm(__unused NSString *event) {
 // Catch UIPopoverPresentationController
 %hook UIPopoverPresentationController
 - (void)viewDidAppear:(BOOL)animated {
-    if (!PMIsTargetProcess()) {
-        PMFloatWriteState(@"popover.viewDidAppear", PMClassName(self), YES);
-        PMAppRefreshPersistentSource();
-        PMFloatArm(@"popover.viewDidAppear");
-    }
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
     %orig;
 }
 %end
@@ -2605,11 +2580,7 @@ static void PMHookContextMenuInteractionIfAvailable(void) {
     if (!m) return;
     IMP origImp = method_getImplementation(m);
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
-        if (!PMIsTargetProcess()) {
-            PMFloatWriteState(@"ctxMenu.present", @"UIContextMenuInteraction", YES);
-            PMAppRefreshPersistentSource();
-            PMFloatArm(@"ctxMenu.present");
-        }
+        if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
     method_setImplementation(m, newImp);
@@ -2625,11 +2596,7 @@ static void PMHookEditMenuInteractionIfAvailable(void) {
     if (!m) return;
     IMP origImp = method_getImplementation(m);
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
-        if (!PMIsTargetProcess()) {
-            PMFloatWriteState(@"editMenu.present", @"UIEditMenuInteraction", YES);
-            PMAppRefreshPersistentSource();
-            PMFloatArm(@"editMenu.present");
-        }
+        if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
     });
     method_setImplementation(m, newImp);
@@ -2734,7 +2701,7 @@ static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SE
         appliedRange = PMForce120Range();
     } else if (PMIsEligibleNow() || PMFloatIsEligibleNow()) {
         if (PMIsEligibleNow()) PMSetHighFrameRateReasonIfPossible(self, NO, YES);
-        if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) PMSetHighFrameRateReasonDirect(self);
+        if (PMFloatIsEligibleNow() || PMIsAppProcessEligible()) PMSetHighFrameRateReasonDirect(self);
         appliedRange = PMForce120Range();
     }
     PMFPSRecordRange(@"CADynamicFrameRateSource.setPreferredFrameRateRange", @"dynamicSource", range, appliedRange);
@@ -2745,11 +2712,9 @@ static void repl_CADynamicFrameRateSource_setHighFrameRateReasons_count(id self,
     if (!orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) return;
 
     // Preserve Apple's clear/release path for non-persistent sources.
-    // Protect our single-owner sources (SB Global + App persistent) from
-    // system animation cleanup. Explicit self-teardown can set
-    // PMAllowManagedSourceClear to bypass this guard.
+    // Protect single-owner sources (SB Global + App persistent) from system cleanup.
     if (!reasons || count == 0) {
-        if (PMIsManagedSource(self) && !PMAllowManagedSourceClear) {
+        if (PMIsManagedSource(self)) {
             unsigned int persistReasons[1] = { 1U };
             orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, persistReasons, (NSUInteger)1);
             return;
@@ -2758,7 +2723,7 @@ static void repl_CADynamicFrameRateSource_setHighFrameRateReasons_count(id self,
         return;
     }
 
-    if (PMIsEligibleNow() || PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
+    if (PMIsEligibleNow() || PMFloatIsEligibleNow() || PMIsAppProcessEligible()) {
         unsigned int forced[1] = { 1U };
         orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, forced, 1);
     } else {
