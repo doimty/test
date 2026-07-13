@@ -1321,7 +1321,11 @@ static UIWindow      *PMSBKeepAliveWindow = nil;
 static CALayer       *PMSBDirtyLayer      = nil;
 static BOOL           PMSBKeepAliveNeeded = NO;
 
-// --- Tick: toggle dirty layer only when needed ---
+// Precomputed CGColors for dirty layer toggle (avoid per-frame alloc)
+static CGColorRef PMSBDirtyColorA = NULL;
+static CGColorRef PMSBDirtyColorB = NULL;
+
+// --- Tick: toggle backgroundColor to force GPU rasterization ---
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
@@ -1330,7 +1334,7 @@ static BOOL           PMSBKeepAliveNeeded = NO;
     if (!PMSBKeepAliveNeeded) return;
     static BOOL toggle = NO;
     toggle = !toggle;
-    PMSBDirtyLayer.position = CGPointMake(toggle ? 0.0f : 0.5f, 0.0f);
+    PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
 }
 @end
 
@@ -1343,20 +1347,33 @@ static void PMSBKeepAliveEvaluate(void) {
     PMSBKeepAliveNeeded = (front != nil) && !PMSBIsAppHooked(front);
 }
 
-// --- Install: create everything once, always visible, always running ---
+// --- Install: visible-area window + rasterization-forcing dirty layer ---
 
 static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
-        // Window + dirty layer (offscreen, always composited)
-        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-10, -10, 1, 1)];
-        PMSBKeepAliveWindow.windowLevel            = -9999;
+        // Precompute toggle colors (tiny luminance diff, imperceptible)
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGFloat cA[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        CGFloat cB[4] = {0.01f, 0.01f, 0.01f, 1.0f};
+        PMSBDirtyColorA = CGColorCreate(cs, cA);
+        PMSBDirtyColorB = CGColorCreate(cs, cB);
+        CGColorSpaceRelease(cs);
+
+        // Window: on-screen (0,0), below normal windows but inside visible rect
+        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
+        PMSBKeepAliveWindow.windowLevel            = -1;
         PMSBKeepAliveWindow.hidden                  = NO;
         PMSBKeepAliveWindow.userInteractionEnabled   = NO;
+        PMSBKeepAliveWindow.opaque                   = NO;
         PMSBKeepAliveWindow.backgroundColor         = [UIColor clearColor];
+
+        // Dirty layer: 1x1, ultra-low opacity, backgroundColor-driven rasterization
         PMSBDirtyLayer = [CALayer layer];
-        PMSBDirtyLayer.frame   = CGRectMake(0, 0, 1, 1);
-        PMSBDirtyLayer.opacity = 0.01f;
+        PMSBDirtyLayer.frame           = CGRectMake(0, 0, 1, 1);
+        PMSBDirtyLayer.opacity         = 0.004f;
+        PMSBDirtyLayer.backgroundColor = PMSBDirtyColorA;
+        PMSBDirtyLayer.allowsGroupOpacity = NO;
         [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
 
         // DisplayLink (always running, tick decides whether to toggle)
@@ -1364,20 +1381,18 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
                                                         selector:@selector(pm_sbTick:)];
         if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
-            CAFrameRateRange range;
-            range.minimum   = 80;
-            range.preferred = TARGET_FPS;
-            range.maximum   = TARGET_FPS;
+            CAFrameRateRange range = PMForce120Range();
             [PMSBKeepAliveLink setPreferredFrameRateRange:range];
         } else if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
             [PMSBKeepAliveLink setPreferredFramesPerSecond:TARGET_FPS];
         }
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-        // Evaluation timer (separate concern)
-        [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *t) {
+        // Evaluation timer on CommonModes (fires during scrolling too)
+        NSTimer *evalTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *t) {
             PMSBKeepAliveEvaluate();
         }];
+        [[NSRunLoop mainRunLoop] addTimer:evalTimer forMode:NSRunLoopCommonModes];
     } @catch (__unused NSException *e) {}
 }
 
