@@ -1254,6 +1254,37 @@ static NSUInteger PMGlobalSBApplyCount = 0;
 static BOOL PMGlobalSBEnabled = NO;
 static CFAbsoluteTime PMGlobalLastApply = 0;
 
+// === Persistent SpringBoard DisplayLink: keeps DPPMS from downclocking ===
+// A running CADisplayLink in SpringBoard acts as a live 120Hz consumer.
+// DPPMS treats active display links as proof of demand; a mere
+// CADynamicFrameRateSource vote can be overridden when the foreground
+// app (injection-blocked) only produces 60fps content.
+static CADisplayLink *PMSBKeepAliveLink = nil;
+
+@interface PMSBKeepAliveTarget : NSObject
+@end
+@implementation PMSBKeepAliveTarget
+- (void)pm_sbTick:(__unused CADisplayLink *)link {}
+@end
+
+static void PMSBInstallKeepAliveLink(void) {
+    if (PMSBKeepAliveLink) return;
+    @try {
+        PMSBKeepAliveTarget *target = [[PMSBKeepAliveTarget alloc] init];
+        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:target selector:@selector(pm_sbTick:)];
+        if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+            CAFrameRateRange range;
+            range.minimum = 80;
+            range.preferred = TARGET_FPS;
+            range.maximum = TARGET_FPS;
+            [PMSBKeepAliveLink setPreferredFrameRateRange:range];
+        } else if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
+            [PMSBKeepAliveLink setPreferredFramesPerSecond:TARGET_FPS];
+        }
+        [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    } @catch (__unused NSException *e) {}
+}
+
 
 static void PMGlobalSBApply(NSString *reason) {
     if (!PMGlobalSBEnabled || !PMDeviceSupports120Hz()) return;
@@ -1288,6 +1319,7 @@ static void PMGlobalSBSetup(void) {
     if (PMGlobalSBEnabled) return;
     PMGlobalSBEnabled = YES;
     PMGlobalSBApply(@"setup");
+    PMSBInstallKeepAliveLink();
 }
 
 static CFAbsoluteTime PMFloatArmUntil = 0;
