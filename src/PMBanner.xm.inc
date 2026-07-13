@@ -1,13 +1,23 @@
-static BOOL PMIsArmed(void) {
+static BOOL PMBannerLifecycleActive = NO;
+static BOOL PMBannerWindowConfirmed = NO;
+static CFAbsoluteTime PMBannerArmUntil = 0;
+static NSUInteger PMBannerSession = 0;
+static __weak id PMCurrentBannerPresentable = nil;
+static uintptr_t PMCurrentBannerPresentablePtr = 0;
+static __weak UIWindow *PMCurrentBannerWindow = nil;
+static __weak id PMCurrentBannerScene = nil;
+static CFAbsoluteTime PMBannerLastSourceApplyAt = 0;
+
+static BOOL PMBannerIsArmed(void) {
     return CFAbsoluteTimeGetCurrent() < PMBannerArmUntil;
 }
 
-static BOOL PMIsEligibleNow(void) {
-    return PMIsTargetProcess() && PMBannerWindowConfirmed && PMIsArmed();
+static BOOL PMBannerIsEligibleNow(void) {
+    return PMIsTargetProcess() && PMBannerWindowConfirmed && PMBannerIsArmed();
 }
 
 static void PMSetHighFrameRateReasonIfPossible(id obj, BOOL isDisplayLink, BOOL isDynamicSource) {
-    if (!obj || !PMIsEligibleNow()) return;
+    if (!obj || !PMBannerIsEligibleNow()) return;
     @try {
         static SEL singleSel = nil;
         static SEL multiSel = nil;
@@ -30,7 +40,7 @@ static void PMSetHighFrameRateReasonIfPossible(id obj, BOOL isDisplayLink, BOOL 
 }
 
 static void PMSetFrameRateRangeIfPossible(id obj, BOOL isDisplayLink, BOOL isDynamicSource) {
-    if (!obj || !PMIsEligibleNow()) return;
+    if (!obj || !PMBannerIsEligibleNow()) return;
     @try {
         static SEL sel = nil;
         static dispatch_once_t onceToken;
@@ -50,22 +60,10 @@ static void PMApplyToCAObject(id obj, BOOL isDisplayLink, BOOL isDynamicSource) 
     PMSetFrameRateRangeIfPossible(obj, isDisplayLink, isDynamicSource);
 }
 
-// Forward declarations for FPS probe (defined later)
-static void PMFPSRecordRange(NSString *event, NSString *reason, CAFrameRateRange origRange, CAFrameRateRange appliedRange);
-static void PMFPSRecordSourceApply(NSString *event, NSString *reason);
-static void PMFPSRecordGlobalApply(NSString *event, NSString *reason);
-// Global SB source (defined later in keepalive section)
-static void PMGlobalSBApply(NSString *reason);
-static void PMGlobalSBApplyForced(NSString *reason);
-static void PMSBKeepAliveApplyLinkRange(void);
-// App persistent source (defined later)
-static void PMAppEnsurePersistentSource(void);
-static void PMAppRefreshPersistentSource(void);
-
 // Banner no longer owns a separate DynamicSource. SB has one owner:
 // PMGlobalSBDisplaySource. Banner lifecycle only re-applies that owner.
 static void PMApplyDisplayFrameRateSource(NSString *source) {
-    if (!PMIsEligibleNow()) return;
+    if (!PMBannerIsEligibleNow()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMBannerLastSourceApplyAt > 0 && (now - PMBannerLastSourceApplyAt) < 0.10) return;
     @try {
@@ -172,7 +170,7 @@ static void PMScheduleCapture(id presentable, NSString *source) {
     for (NSNumber *delayNumber in delays) {
         double delay = delayNumber.doubleValue;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            if (!PMBannerLifecycleActive && !PMIsArmed()) return;
+            if (!PMBannerLifecycleActive && !PMBannerIsArmed()) return;
             NSString *suffix = [NSString stringWithFormat:@".delayed%.2f", delay];
             if (!PMCaptureFromPresentable(capturedPresentable, [capturedSource stringByAppendingString:[suffix stringByAppendingString:@".presentable"]])) {
                 PMScanApplicationWindows([capturedSource stringByAppendingString:[suffix stringByAppendingString:@".windows"]]);
@@ -187,7 +185,7 @@ static void PMScheduleDisplaySourceReapply(NSString *source, NSArray<NSNumber *>
         double delay = delayNumber.doubleValue;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (scheduledSession != PMBannerSession) return;
-            if (!PMIsArmed() || !PMBannerWindowConfirmed) return;
+            if (!PMBannerIsArmed() || !PMBannerWindowConfirmed) return;
             PMApplyDisplayFrameRateSource(source ?: @"displaySource.reapply");
         });
     }
@@ -254,7 +252,7 @@ static void PMScheduleExitPollRelease(NSUInteger endingSession, CFAbsoluteTime s
 
         // Only keep confirmed while the banner window is still present.
         // Previously this forced Confirmed=YES even after window gone, which
-        // polluted PMIsEligibleNow and stretched banner eligibility falsely.
+        // polluted PMBannerIsEligibleNow and stretched banner eligibility falsely.
         if (found) {
             PMBannerArmUntil = MAX(PMBannerArmUntil, now + 0.35);
             PMBannerWindowConfirmed = YES;
@@ -310,6 +308,3 @@ static void PMEndBannerSession(NSString *event, NSString *note, id presentable) 
         PMScheduleExitPollRelease(endingSession, startedAt, 0);
     }
 }
-
-
-

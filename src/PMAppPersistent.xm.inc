@@ -69,4 +69,3 @@ static void PMAppScrollArm(__unused NSString *event) {
     if (PMIsTargetProcess()) return;
     PMAppRefreshPersistentSource();
 }
-

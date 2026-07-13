@@ -12,6 +12,8 @@ on:
       - '**/*.h'
       - '**/*.m'
       - '**/*.xm'
+      - '**/*.xmi'
+      - '**/*.inc'
       - '**/*.plist'
       - 'Makefile'
       - 'control'

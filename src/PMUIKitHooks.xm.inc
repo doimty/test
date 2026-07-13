@@ -1,0 +1,414 @@
+%hook UIViewController
+
+- (void)viewWillAppear:(BOOL)animated {
+    if (!PMIsTargetProcess()) {
+        // App processes: refresh persistent source on VC transitions
+        PMAppRefreshPersistentSource();
+        // SpringBoard: arm Float if floating window visible
+        if (PMFloatAnyFloatingWindowVisible()) {
+            PMFloatArm(@"vc.presentation");
+        }
+    }
+    %orig;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    // Re-affirm 120Hz after VC transitions in app processes
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+}
+
+- (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
+    %orig;
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+}
+
+%end
+
+%hook UINavigationController
+
+- (void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
+    %orig;
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+}
+
+%end
+
+%hook UICollectionView
+
+- (void)reloadData {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UICollectionView.reloadData", YES);
+    %orig;
+}
+
+- (void)layoutSubviews {
+    %orig;
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UICollectionView.layoutSubviews", NO);
+}
+
+%end
+
+%hook UITableView
+
+- (void)reloadData {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UITableView.reloadData", YES);
+    %orig;
+}
+
+- (void)layoutSubviews {
+    %orig;
+    if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UITableView.layoutSubviews", NO);
+}
+
+%end
+
+
+%hook UIWindow
+
+- (void)setFrame:(CGRect)frame {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try {
+            if (PMFloatWindowLooksLikeStatusShrinkWindow((UIWindow *)self) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
+                PMFloatPreArm(@"UIWindow.statusBar.smallFrame");
+            }
+            PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setFrame");
+        } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (!PMIsTargetProcess()) {
+        PMFloatWindowSetFrameCount += 1;
+        PMFloatLastWindowClass = [PMClassName(self) copy];
+        PMFloatLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
+        PMFloatLastFrame = frame;
+        PMFloatWriteState(@"UIWindow.setFrame", PMFloatLastWindowClass ?: @"", NO);
+        if (PMFloatWindowLooksLikeStatusShrinkWindow((UIWindow *)self) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
+            PMFloatSmallStatusBarArmCount += 1;
+            PMFloatPreArm(@"UIWindow.statusBar.smallFrame");
+        }
+        PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setFrame");
+    }
+    %orig;
+}
+
+- (void)setBounds:(CGRect)bounds {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try { PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds"); } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (!PMIsTargetProcess()) {
+        PMFloatWindowSetBoundsCount += 1;
+        PMFloatLastWindowClass = [PMClassName(self) copy];
+        PMFloatLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
+        PMFloatLastBounds = bounds;
+        PMFloatWriteState(@"UIWindow.setBounds", PMFloatLastWindowClass ?: @"", NO);
+        PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds");
+    }
+    %orig;
+}
+
+- (void)makeKeyAndVisible {
+    if (!PMIsTargetProcess()) {
+        // App process only (this branch is !SpringBoard).
+        PMAppRefreshPersistentSource();
+        // Float arm is no-op unless floating package/window is present.
+        PMFloatArmForWindow((UIWindow *)self, @"window.makeKeyAndVisible");
+    }
+    %orig;
+}
+
+- (void)setWindowLevel:(UIWindowLevel)level {
+    if (level >= 1000 && level < 2000 && !PMIsTargetProcess()) {
+        NSString *winClass = PMClassName(self);
+        PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
+        PMAppRefreshPersistentSource();
+        PMFloatArm(@"windowLevel.menu");
+    }
+    %orig;
+}
+
+%end
+
+%hook UIView
+
+- (void)setFrame:(CGRect)frame {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try {
+            if (PMFloatWindowLooksLikeStatusShrinkWindow(((UIView *)self).window) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
+                PMFloatPreArm(@"UIView.statusBar.smallFrame");
+            }
+            PMFloatArmForView((UIView *)self, @"UIView.setFrame");
+        } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setFrame", frame, NO);
+    if (!PMIsTargetProcess()) {
+        PMFloatViewSetFrameCount += 1;
+        PMFloatLastViewClass = [PMClassName(self) copy];
+        PMFloatLastFrame = frame;
+        PMFloatCaptureWindowInfoForView(self);
+        PMFloatWriteState(@"UIView.setFrame", PMFloatLastViewClass ?: @"", NO);
+        @try {
+            if (PMFloatWindowLooksLikeStatusShrinkWindow(((UIView *)self).window) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
+                PMFloatSmallStatusBarArmCount += 1;
+                PMFloatPreArm(@"UIView.statusBar.smallFrame");
+            }
+        } @catch (__unused NSException *e) {}
+        PMFloatArmForView((UIView *)self, @"UIView.setFrame");
+    }
+    %orig;
+}
+
+- (void)setBounds:(CGRect)bounds {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try { PMFloatArmForView((UIView *)self, @"UIView.setBounds"); } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setBounds", bounds, YES);
+    if (!PMIsTargetProcess()) {
+        PMFloatViewSetBoundsCount += 1;
+        PMFloatLastViewClass = [PMClassName(self) copy];
+        PMFloatLastBounds = bounds;
+        PMFloatCaptureWindowInfoForView(self);
+        PMFloatWriteState(@"UIView.setBounds", PMFloatLastViewClass ?: @"", NO);
+        PMFloatArmForView((UIView *)self, @"UIView.setBounds");
+    }
+    %orig;
+}
+
+%end
+
+%hook UIScrollView
+
+- (void)setContentOffset:(CGPoint)contentOffset {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (PMIsTargetProcess()) {
+        PMGlobalSBApply(@"UIScrollView.setContentOffset");
+    } else {
+        @try { PMAppScrollArm(@"UIScrollView.setContentOffset"); } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) {
+        PMJankRecordScrollView((UIScrollView *)self, contentOffset);
+        PMGlobalSBApply(@"UIScrollView.setContentOffset");
+    }
+    if (!PMIsTargetProcess()) PMAppScrollArm(@"UIScrollView.setContentOffset");
+    %orig;
+}
+
+- (void)setContentOffset:(CGPoint)contentOffset animated:(BOOL)animated {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (PMIsTargetProcess()) {
+        PMGlobalSBApply(@"UIScrollView.setContentOffsetAnimated");
+    } else {
+        @try { PMAppScrollArm(@"UIScrollView.setContentOffsetAnimated"); } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) {
+        PMJankRecordScrollView((UIScrollView *)self, contentOffset);
+        PMGlobalSBApply(@"UIScrollView.setContentOffsetAnimated");
+    }
+    if (!PMIsTargetProcess()) PMAppScrollArm(@"UIScrollView.setContentOffsetAnimated");
+    %orig;
+}
+
+- (void)layoutSubviews {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try {
+            if (PMAppScrollViewIsMoving((UIScrollView *)self)) PMAppScrollArm(@"UIScrollView.layoutSubviews.moving");
+        } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UIScrollView.layoutSubviews", NO);
+    if (!PMIsTargetProcess() && PMAppScrollViewIsMoving((UIScrollView *)self)) PMAppScrollArm(@"UIScrollView.layoutSubviews.moving");
+    %orig;
+}
+
+%end
+
+%hook UIViewPropertyAnimator
+
+- (void)startAnimation {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimation");
+    %orig;
+}
+
+- (void)startAnimationAfterDelay:(NSTimeInterval)delay {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimationAfterDelay");
+    %orig;
+}
+
+%end
+
+%hook CALayer
+
+- (void)addAnimation:(CAAnimation *)animation forKey:(NSString *)key {
+    if (PMBannerIsEligibleNow() && animation && PMLayerBelongsToBannerWindow((CALayer *)self)) {
+        PMApplyToCAObject(animation, NO, NO);
+    }
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try {
+            NSString *floatKey = [key copy] ?: @"";
+            if (PMFloatAnyFloatingWindowVisible() && ([floatKey isEqualToString:@"opacity"] || [floatKey containsString:@"position"] || [floatKey containsString:@"bounds"] || [floatKey containsString:@"transform"])) {
+                PMFloatPreArm([NSString stringWithFormat:@"CALayer.addAnimation.%@", floatKey ?: @""]);
+            }
+            PMFloatArmForLayer((CALayer *)self, @"CALayer.addAnimation");
+            if (PMFloatIsEligibleNow() && animation) PMApplyToCAObjectDirect(animation);
+        } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordLayerAnimation((CALayer *)self, animation, key);
+    if (!PMIsTargetProcess()) {
+        PMFloatLayerAddAnimationCount += 1;
+        PMFloatLastLayerClass = [PMClassName(self) copy];
+        PMFloatLastAnimationClass = [PMClassName(animation) copy];
+        PMFloatLastAnimationKey = [key copy] ?: @"";
+        PMFloatWriteState(@"CALayer.addAnimation", PMFloatLastAnimationKey ?: @"", NO);
+        if (PMFloatAnyFloatingWindowVisible() && ([PMFloatLastAnimationKey isEqualToString:@"opacity"] || [PMFloatLastAnimationKey containsString:@"position"] || [PMFloatLastAnimationKey containsString:@"bounds"] || [PMFloatLastAnimationKey containsString:@"transform"])) {
+            PMFloatPreArm([NSString stringWithFormat:@"CALayer.addAnimation.%@", PMFloatLastAnimationKey ?: @""]);
+        }
+        PMFloatArmForLayer((CALayer *)self, @"CALayer.addAnimation");
+        if (PMFloatIsEligibleNow() && animation) PMApplyToCAObjectDirect(animation);
+    }
+    %orig;
+}
+
+- (void)setBounds:(CGRect)bounds {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds"); } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setBounds");
+    if (!PMIsTargetProcess()) {
+        PMFloatLayerSetBoundsCount += 1;
+        PMFloatLastLayerClass = [PMClassName(self) copy];
+        PMFloatLastBounds = bounds;
+        PMFloatWriteState(@"CALayer.setBounds", PMFloatLastLayerClass ?: @"", NO);
+        PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds");
+    }
+    %orig;
+}
+
+- (void)setPosition:(CGPoint)position {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition"); } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setPosition");
+    if (!PMIsTargetProcess()) {
+        PMFloatLayerSetPositionCount += 1;
+        PMFloatLastLayerClass = [PMClassName(self) copy];
+        PMFloatLastPosition = position;
+        PMFloatWriteState(@"CALayer.setPosition", PMFloatLastLayerClass ?: @"", NO);
+        PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition");
+    }
+    %orig;
+}
+
+- (void)setTransform:(CATransform3D)transform {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (!PMIsTargetProcess()) {
+        @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform"); } @catch (__unused NSException *e) {}
+    }
+    %orig;
+    return;
+#endif
+    if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setTransform");
+    if (!PMIsTargetProcess()) {
+        PMFloatLayerSetTransformCount += 1;
+        PMFloatLastLayerClass = [PMClassName(self) copy];
+        PMFloatWriteState(@"CALayer.setTransform", PMFloatLastLayerClass ?: @"", NO);
+        PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform");
+    }
+    %orig;
+}
+
+%end
+
+
+// ========== BROAD MENU / MODAL / OVERLAY DETECTION ==========
+// Strategy: detect menus/modals via UIWindow lifecycle + view hierarchy clues
+// without relying on specific class names.
+
+// makeKeyAndVisible and setWindowLevel merged into main %hook UIWindow block above
+
+// Catch alert/modal presentations
+// Ordinary apps: only refresh App persistent source.
+// Float arm is gated internally (floating package / floating window only).
+%hook UIAlertController
+- (void)viewDidAppear:(BOOL)animated {
+    if (!PMIsTargetProcess()) {
+        // Ordinary apps: refresh App persistent only.
+        // Float arm lives on window/float-feature paths, not generic menus.
+        PMAppRefreshPersistentSource();
+    }
+    %orig;
+}
+%end
+
+// Catch UIMenuController (classic menu)
+%hook UIMenuController
+- (void)showFromRect:(CGRect)rect inView:(UIView *)view animated:(BOOL)animated {
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+    %orig;
+}
+- (void)showFromBarButtonItem:(id)item animated:(BOOL)animated {
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+    %orig;
+}
+%end
+
+// Catch UIPopoverPresentationController
+%hook UIPopoverPresentationController
+- (void)viewDidAppear:(BOOL)animated {
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+    %orig;
+}
+%end

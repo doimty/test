@@ -3,8 +3,6 @@
 // Only records class names, counters, and frame-rate parameters.
 // It intentionally does not record chat text, contacts, image paths, URLs, or screenshots.
 // ============================================================
-#define PM_SCOPEPROBE_VERSION @"1.0.5"
-#define PM_ENABLE_DIAGNOSTIC_PROBES 0
 #define PM_WECHAT_PROBE_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.tencent.xin.plist"
 
 static NSUInteger PMProbeInjectedCount = 0;
@@ -711,51 +709,3 @@ __attribute__((unused)) static void PMProbeRecordRange(NSString *event, CAFrameR
     PMProbeLastRangeMaximum = range.maximum;
     PMProbeWriteState(event, @"range", NO);
 }
-
-#define PM_FLOAT_PROBE_TARGET_PACKAGE @"com.be-huge.floating-view"
-#define PM_FLOAT_PROBE_SPRINGBOARD_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.springboard.plist"
-#define PM_FLOAT_PROBE_PLUGIN_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.be-huge.floating-view.plist"
-#define PM_FLOAT_PROBE_WECHAT_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.tencent.xin.plist"
-#define PM_FLOAT_PROBE_FILZA_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.filza.plist"
-
-static NSUInteger PMFloatProbeInjectedCount = 0;
-static NSUInteger PMFloatWindowSetFrameCount = 0;
-static NSUInteger PMFloatWindowSetBoundsCount = 0;
-static NSUInteger PMFloatViewSetFrameCount = 0;
-static NSUInteger PMFloatViewSetBoundsCount = 0;
-static NSUInteger PMFloatLayerSetBoundsCount = 0;
-static NSUInteger PMFloatLayerSetPositionCount = 0;
-static NSUInteger PMFloatLayerSetTransformCount = 0;
-static NSUInteger PMFloatLayerAddAnimationCount = 0;
-static NSUInteger PMFloatAnimationRangeSetCount = 0;
-static NSUInteger PMFloatDisplayLinkCreateCount = 0;
-static NSUInteger PMFloatDisplayLinkRangeSetCount = 0;
-static NSUInteger PMFloatDisplayLinkFPSSetCount = 0;
-static NSUInteger PMFloatDisplayLinkFrameIntervalSetCount = 0;
-static NSUInteger PMFloatPreArmLowFPSCount = 0;
-static NSUInteger PMFloatPreArmInProcessManagerCount = 0;
-static NSUInteger PMFloatSmallStatusBarArmCount = 0;
-// Create counter retained for probe schema only (Float no longer owns a DynamicSource).
-static NSUInteger PMFloatSourceApplyCount = 0;
-static NSUInteger PMFloatSourceReleaseCount = 0;
-static NSString *PMFloatLastEvent = nil;
-static NSString *PMFloatLastNote = nil;
-static NSString *PMFloatLastWindowClass = nil;
-static NSString *PMFloatLastRootViewControllerClass = nil;
-static NSString *PMFloatLastViewClass = nil;
-static NSString *PMFloatLastLayerClass = nil;
-static NSString *PMFloatLastAnimationClass = nil;
-static NSString *PMFloatLastAnimationKey = nil;
-static NSString *PMFloatLastDisplayLinkTargetClass = nil;
-static NSString *PMFloatLastPreArmReason = nil;
-static double PMFloatLastRangeMinimum = 0;
-static double PMFloatLastRangePreferred = 0;
-static double PMFloatLastRangeMaximum = 0;
-static NSInteger PMFloatLastPreferredFPS = 0;
-static NSInteger PMFloatLastFrameInterval = 0;
-static CGRect PMFloatLastFrame = {{0, 0}, {0, 0}};
-static CGRect PMFloatLastBounds = {{0, 0}, {0, 0}};
-static CGPoint PMFloatLastPosition = {0, 0};
-static CFAbsoluteTime PMFloatLastWriteTime __attribute__((unused)) = 0;
-
-// === Global Display Source for SpringBoard (minimal, safe) ===

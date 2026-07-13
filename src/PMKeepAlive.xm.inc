@@ -1,3 +1,9 @@
+static id PMGlobalSBDisplaySource = nil;
+static NSUInteger PMGlobalSBCreateCount = 0;
+static NSUInteger PMGlobalSBApplyCount = 0;
+static BOOL PMGlobalSBEnabled = NO;
+static CFAbsoluteTime PMGlobalLastApply = 0;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MARK: - Keepalive DisplayLink (prevents DPPMS downclock for blocked apps)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -322,4 +328,3 @@ static void PMGlobalSBSetup(void) {
     PMGlobalSBApply(@"setup");
     PMSBInstallKeepAliveLink();
 }
-

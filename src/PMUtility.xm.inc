@@ -127,5 +127,3 @@ static id PMMainCADisplay(void) {
 #pragma clang diagnostic pop
     return display;
 }
-
-

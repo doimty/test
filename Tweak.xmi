@@ -1,0 +1,59 @@
+#import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
+#import <QuartzCore/QuartzCore.h>
+#import <dispatch/dispatch.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#import <substrate.h>
+#import <Metal/Metal.h>
+#include <notify.h>
+
+#define TWEAK_NAME @"ProMotion120"
+#define TARGET_FPS 120
+#define PM_SCOPEPROBE_VERSION @"1.0.5"
+#define PM_ENABLE_DIAGNOSTIC_PROBES 0
+
+#ifndef __IPHONE_15_0
+typedef struct {
+    float minimum;
+    float preferred;
+    float maximum;
+} CAFrameRateRange;
+#endif
+
+@interface CADisplay : NSObject
++ (CADisplay *)mainDisplay;
+@property (nonatomic, readonly) NSArray *availableModes;
+@end
+
+@interface CADisplayMode : NSObject
+@property (nonatomic, readonly) double refreshRate;
+@end
+
+// Cross-module declarations for the single textual compilation unit.
+#include "src/PMInternalDeclarations.xm.inc"
+
+// Utility functions (shared across all modules).
+#include "src/PMUtility.xm.inc"
+
+// Banner lifecycle (depends on PMUtility for PMIsTargetProcess, etc.).
+#include "src/PMBanner.xm.inc"
+
+// Diagnostics (disabled by PM_ENABLE_DIAGNOSTIC_PROBES 0).
+#include "src/PMDiagnostic.xm.inc"
+
+// Keepalive for injection-blocked foreground apps.
+#include "src/PMKeepAlive.xm.inc"
+
+// Floating-window/menu support.
+#include "src/PMFloat.xm.inc"
+
+// App-process persistent DynamicSource owner.
+#include "src/PMAppPersistent.xm.inc"
+
+// Logos hook layers. Tweak.xmi is C-preprocessed before Logos.
+#include "src/PMSystemHooks.xm.inc"
+#include "src/PMRenderingHooks.xm.inc"
+#include "src/PMUIKitHooks.xm.inc"
+#include "src/PMRuntimeHooks.xm.inc"
+#include "src/PMBootstrap.xm.inc"

@@ -1,3 +1,50 @@
+#define PM_FLOAT_PROBE_TARGET_PACKAGE @"com.be-huge.floating-view"
+#define PM_FLOAT_PROBE_SPRINGBOARD_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.springboard.plist"
+#define PM_FLOAT_PROBE_PLUGIN_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.be-huge.floating-view.plist"
+#define PM_FLOAT_PROBE_WECHAT_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.tencent.xin.plist"
+#define PM_FLOAT_PROBE_FILZA_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.filza.plist"
+
+static BOOL PMFloatWindowConfirmed = NO;
+static NSUInteger PMFloatProbeInjectedCount = 0;
+static NSUInteger PMFloatWindowSetFrameCount = 0;
+static NSUInteger PMFloatWindowSetBoundsCount = 0;
+static NSUInteger PMFloatViewSetFrameCount = 0;
+static NSUInteger PMFloatViewSetBoundsCount = 0;
+static NSUInteger PMFloatLayerSetBoundsCount = 0;
+static NSUInteger PMFloatLayerSetPositionCount = 0;
+static NSUInteger PMFloatLayerSetTransformCount = 0;
+static NSUInteger PMFloatLayerAddAnimationCount = 0;
+static NSUInteger PMFloatAnimationRangeSetCount = 0;
+static NSUInteger PMFloatDisplayLinkCreateCount = 0;
+static NSUInteger PMFloatDisplayLinkRangeSetCount = 0;
+static NSUInteger PMFloatDisplayLinkFPSSetCount = 0;
+static NSUInteger PMFloatDisplayLinkFrameIntervalSetCount = 0;
+static NSUInteger PMFloatPreArmLowFPSCount = 0;
+static NSUInteger PMFloatPreArmInProcessManagerCount = 0;
+static NSUInteger PMFloatSmallStatusBarArmCount = 0;
+// Counters retained for the disabled probe schema; Float owns no DynamicSource.
+static NSUInteger PMFloatSourceApplyCount = 0;
+static NSUInteger PMFloatSourceReleaseCount = 0;
+static NSString *PMFloatLastEvent = nil;
+static NSString *PMFloatLastNote = nil;
+static NSString *PMFloatLastWindowClass = nil;
+static NSString *PMFloatLastRootViewControllerClass = nil;
+static NSString *PMFloatLastViewClass = nil;
+static NSString *PMFloatLastLayerClass = nil;
+static NSString *PMFloatLastAnimationClass = nil;
+static NSString *PMFloatLastAnimationKey = nil;
+static NSString *PMFloatLastDisplayLinkTargetClass = nil;
+static NSString *PMFloatLastPreArmReason = nil;
+static double PMFloatLastRangeMinimum = 0;
+static double PMFloatLastRangePreferred = 0;
+static double PMFloatLastRangeMaximum = 0;
+static NSInteger PMFloatLastPreferredFPS = 0;
+static NSInteger PMFloatLastFrameInterval = 0;
+static CGRect PMFloatLastFrame = {{0, 0}, {0, 0}};
+static CGRect PMFloatLastBounds = {{0, 0}, {0, 0}};
+static CGPoint PMFloatLastPosition = {0, 0};
+static CFAbsoluteTime PMFloatLastWriteTime __attribute__((unused)) = 0;
+
 static CFAbsoluteTime PMFloatArmUntil = 0;
 static NSUInteger PMFloatSession = 0;
 static BOOL PMFloatVisibleCache = NO;
@@ -379,4 +426,3 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     PMFloatWindowConfirmed = NO;
     PMFloatWriteState(@"floatSource.release", @"expired", YES);
 }
-
