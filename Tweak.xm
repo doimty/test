@@ -1220,7 +1220,8 @@ static NSUInteger PMFloatDisplayLinkFrameIntervalSetCount = 0;
 static NSUInteger PMFloatPreArmLowFPSCount = 0;
 static NSUInteger PMFloatPreArmInProcessManagerCount = 0;
 static NSUInteger PMFloatSmallStatusBarArmCount = 0;
-static NSUInteger PMFloatSourceCreateCount = 0;
+// Create counter retained for probe schema only (Float no longer owns a DynamicSource).
+__attribute__((unused)) static NSUInteger PMFloatSourceCreateCount = 0;
 static NSUInteger PMFloatSourceApplyCount = 0;
 static NSUInteger PMFloatSourceReleaseCount = 0;
 static NSString *PMFloatLastEvent = nil;
