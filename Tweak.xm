@@ -223,47 +223,34 @@ static id PMMainCADisplay(void) {
 static void PMFPSRecordRange(NSString *event, NSString *reason, CAFrameRateRange origRange, CAFrameRateRange appliedRange);
 static void PMFPSRecordSourceApply(NSString *event, NSString *reason);
 static void PMFPSRecordGlobalApply(NSString *event, NSString *reason);
+// Global SB source (defined later in keepalive section)
+static void PMGlobalSBApply(NSString *reason);
+// App persistent source (defined later)
+static void PMAppEnsurePersistentSource(void);
+static void PMAppRefreshPersistentSource(void);
 
+// Banner no longer owns a separate DynamicSource. SB has one owner:
+// PMGlobalSBDisplaySource. Banner lifecycle only re-applies that owner.
 static void PMApplyDisplayFrameRateSource(NSString *source) {
     if (!PMIsEligibleNow()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMBannerLastSourceApplyAt > 0 && (now - PMBannerLastSourceApplyAt) < 0.10) return;
     @try {
-        if (!PMBannerDynamicFrameRateSource) {
-            Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
-            id display = PMMainCADisplay();
-            if (SourceClass && display) {
-                id allocated = [SourceClass alloc];
-                SEL initSel = NSSelectorFromString(@"initWithDisplay:");
-                if ([allocated respondsToSelector:initSel]) {
-                    typedef id (*PMInitWithDisplayFn)(id, SEL, id);
-                    PMInitWithDisplayFn fn = (PMInitWithDisplayFn)objc_msgSend;
-                    PMBannerDynamicFrameRateSource = fn(allocated, initSel, display);
-                }
-            }
-        }
-        if (PMBannerDynamicFrameRateSource) {
-            PMSetHighFrameRateReasonIfPossible(PMBannerDynamicFrameRateSource, NO, YES);
-            PMSetFrameRateRangeIfPossible(PMBannerDynamicFrameRateSource, NO, YES);
-            PMBannerLastSourceApplyAt = now;
-            PMFPSRecordSourceApply(@"bannerDisplaySource", source ?: @"unknown");
-        }
+        // Re-apply the single SB owner. Do not allocate a 2nd source.
+        PMGlobalSBApply(source ?: @"banner.reapply");
+        PMBannerLastSourceApplyAt = now;
+        PMFPSRecordSourceApply(@"bannerDisplaySource", source ?: @"unknown");
+        // Keep legacy pointer nil so old release paths are no-ops.
+        PMBannerDynamicFrameRateSource = nil;
     } @catch (__unused NSException *e) {
     }
 }
 
 static void PMReleaseDisplayFrameRateSource(NSString *source) {
-    if (!PMBannerDynamicFrameRateSource) return;
-    id sourceObject = PMBannerDynamicFrameRateSource;
+    // Single-owner model: never tear down Global on banner exit.
+    // Banner session end only clears banner state; Global stays for SB.
+    (void)source;
     PMBannerDynamicFrameRateSource = nil;
-    @try {
-        SEL multiSel = NSSelectorFromString(@"setHighFrameRateReasons:count:");
-        if ([sourceObject respondsToSelector:multiSel]) {
-            PMReasonsSetterDyn fn = (PMReasonsSetterDyn)objc_msgSend;
-            fn(sourceObject, multiSel, NULL, (NSUInteger)0);
-        }
-    } @catch (__unused NSException *e) {
-    }
 }
 
 static BOOL PMLayerBelongsToBannerWindow(CALayer *layer) {
@@ -435,9 +422,17 @@ static void PMScheduleExitPollRelease(NSUInteger endingSession, CFAbsoluteTime s
         BOOL timedOut = (now - startedAt) >= 4.0;
         BOOL found = PMFindBannerWindowForExitPoll(@"exitPoll.scan");
 
-        PMBannerArmUntil = MAX(PMBannerArmUntil, now + 0.35);
-        PMBannerWindowConfirmed = YES;
-        PMApplyDisplayFrameRateSource(@"exitPoll.reapplyDisplaySource");
+        // Only keep confirmed while the banner window is still present.
+        // Previously this forced Confirmed=YES even after window gone, which
+        // polluted PMIsEligibleNow and stretched banner eligibility falsely.
+        if (found) {
+            PMBannerArmUntil = MAX(PMBannerArmUntil, now + 0.35);
+            PMBannerWindowConfirmed = YES;
+            PMApplyDisplayFrameRateSource(@"exitPoll.reapplyDisplaySource");
+        } else {
+            // Keep a short arm tail for exit animation only; do not fake confirmation.
+            PMBannerArmUntil = MAX(PMBannerArmUntil, now + 0.20);
+        }
 
         if (timedOut) {
             PMFinishExitPollRelease(@"exitPoll.timeoutReleaseDisplaySource", YES);
@@ -457,7 +452,8 @@ static void PMScheduleExitPollRelease(NSUInteger endingSession, CFAbsoluteTime s
 static BOOL PMPresentableMatchesCurrent(id presentable) {
     uintptr_t endingPtr = PMPresentablePointer(presentable);
     uintptr_t currentPtr = PMCurrentBannerPresentablePtr;
-    if (!endingPtr || !currentPtr) return YES;
+    // Unknown identity: ignore end (do not blindly match)
+    if (!endingPtr || !currentPtr) return NO;
     return endingPtr == currentPtr;
 }
 
@@ -1320,18 +1316,18 @@ static CADisplayLink *PMSBKeepAliveLink   = nil;
 static UIWindow      *PMSBKeepAliveWindow = nil;
 static CALayer       *PMSBDirtyLayer      = nil;
 static BOOL           PMSBKeepAliveNeeded = NO;
+static NSTimer       *PMSBKeepAliveEvalTimer = nil;
 
 // Precomputed CGColors for dirty layer toggle (avoid per-frame alloc)
 static CGColorRef PMSBDirtyColorA = NULL;
 static CGColorRef PMSBDirtyColorB = NULL;
 
-// --- Tick: toggle backgroundColor to force GPU rasterization ---
+// --- Tick: only runs when link is unpaused ---
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
 - (void)pm_sbTick:(__unused CADisplayLink *)link {
-    if (!PMSBKeepAliveNeeded) return;
     static BOOL toggle = NO;
     toggle = !toggle;
     PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
@@ -1340,19 +1336,24 @@ static CGColorRef PMSBDirtyColorB = NULL;
 
 static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
 
-// --- Evaluate: 1-second timer sets the flag ---
+// --- Evaluate: pause/unpause link; no empty 120Hz callbacks ---
 
 static void PMSBKeepAliveEvaluate(void) {
+    if (!PMSBKeepAliveLink) return;
     NSString *front = PMSBFrontmostBundleID();
-    PMSBKeepAliveNeeded = (front != nil) && !PMSBIsAppHooked(front);
+    BOOL needed = (front != nil) && !PMSBIsAppHooked(front);
+    if (needed == PMSBKeepAliveNeeded) return;
+    PMSBKeepAliveNeeded = needed;
+    PMSBKeepAliveLink.paused = !needed;
+    // Keep window in tree always; only dirty when unpaused.
+    // Hidden flip on every app switch can reintroduce compositor transition delay.
 }
 
-// --- Install: visible-area window + rasterization-forcing dirty layer ---
+// --- Install: starts paused; only burns frames for injection-blocked front apps ---
 
 static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
-        // Precompute toggle colors (tiny luminance diff, imperceptible)
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
         CGFloat cA[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         CGFloat cB[4] = {0.01f, 0.01f, 0.01f, 1.0f};
@@ -1360,7 +1361,8 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // Window: on-screen (0,0), below normal windows but inside visible rect
+        // On-screen 1x1 under normal windows. Not a strong DPPMS proof by itself;
+        // paired with pause/unpause so we only pay when blocked apps are front.
         PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 1, 1)];
         PMSBKeepAliveWindow.windowLevel            = -1;
         PMSBKeepAliveWindow.hidden                  = NO;
@@ -1368,7 +1370,6 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveWindow.opaque                   = NO;
         PMSBKeepAliveWindow.backgroundColor         = [UIColor clearColor];
 
-        // Dirty layer: 1x1, ultra-low opacity, backgroundColor-driven rasterization
         PMSBDirtyLayer = [CALayer layer];
         PMSBDirtyLayer.frame           = CGRectMake(0, 0, 1, 1);
         PMSBDirtyLayer.opacity         = 0.004f;
@@ -1376,10 +1377,10 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBDirtyLayer.allowsGroupOpacity = NO;
         [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
 
-        // DisplayLink (always running, tick decides whether to toggle)
         PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
         PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
                                                         selector:@selector(pm_sbTick:)];
+        PMSBKeepAliveLink.paused = YES; // true zero cost until needed
         if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
             CAFrameRateRange range = PMForce120Range();
             [PMSBKeepAliveLink setPreferredFrameRateRange:range];
@@ -1388,17 +1389,20 @@ static void PMSBInstallKeepAliveLink(void) {
         }
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-        // Evaluation timer on CommonModes (fires during scrolling too)
-        NSTimer *evalTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *t) {
+        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *t) {
             PMSBKeepAliveEvaluate();
         }];
-        [[NSRunLoop mainRunLoop] addTimer:evalTimer forMode:NSRunLoopCommonModes];
+        [[NSRunLoop mainRunLoop] addTimer:PMSBKeepAliveEvalTimer forMode:NSRunLoopCommonModes];
+        // Immediate first evaluation so first blocked app doesn't wait 1s
+        PMSBKeepAliveEvaluate();
     } @catch (__unused NSException *e) {}
 }
 
 
 static void PMGlobalSBApply(NSString *reason) {
-    if (!PMGlobalSBEnabled || !PMDeviceSupports120Hz()) return;
+    // Single SB owner: create-or-reapply Global only. Banner/Float must not
+    // allocate additional DynamicSource instances.
+    if (!PMIsTargetProcess() || !PMDeviceSupports120Hz()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMGlobalLastApply > 0 && (now - PMGlobalLastApply) < 0.20) return;
     @try {
@@ -1695,35 +1699,30 @@ static void PMFloatReleaseIfExpired(NSUInteger session);
 
 static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
     if (!PMFloatIsEligibleNow()) return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.10) return;
     @try {
-        if (!PMFloatDynamicFrameRateSource) {
-            Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
-            id display = PMMainCADisplay();
-            if (SourceClass && display) {
-                id allocated = [SourceClass alloc];
-                SEL initSel = NSSelectorFromString(@"initWithDisplay:");
-                if ([allocated respondsToSelector:initSel]) {
-                    typedef id (*PMInitWithDisplayFn)(id, SEL, id);
-                    PMInitWithDisplayFn fn = (PMInitWithDisplayFn)objc_msgSend;
-                    PMFloatDynamicFrameRateSource = fn(allocated, initSel, display);
-                    PMFloatSourceCreateCount += 1;
-                }
-            }
+        // Single-owner: never allocate PMFloatDynamicFrameRateSource.
+        // SB re-applies Global; injected apps re-apply App persistent source.
+        if (PMIsTargetProcess()) {
+            PMGlobalSBApply(event ?: @"float.reapply");
+        } else {
+            PMAppEnsurePersistentSource();
+            PMAppRefreshPersistentSource();
         }
-        if (PMFloatDynamicFrameRateSource) {
-            CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-            if (PMFloatLastSourceApplyAt <= 0 || (now - PMFloatLastSourceApplyAt) >= 0.10) {
-                PMApplyToCAObjectDirect(PMFloatDynamicFrameRateSource);
-                PMFloatSourceApplyCount += 1;
-                PMFloatLastSourceApplyAt = now;
-                PMFloatWriteState(@"floatSource.apply", event ?: @"", NO);
-            }
-        }
+        PMFloatDynamicFrameRateSource = nil; // legacy slot stays empty
+        PMFloatSourceApplyCount += 1;
+        PMFloatLastSourceApplyAt = now;
+        PMFloatWriteState(@"floatSource.apply", event ?: @"", NO);
     } @catch (__unused NSException *e) {
     }
 }
 
 static void PMFloatArm(NSString *event) {
+    // Gate: only floating-view package / floating windows may create Float source.
+    // Menu/alert hooks in ordinary apps must not stack a second DynamicSource on
+    // top of PMAppPersistentFrameRateSource.
+    if (!PMFloatProbeShouldRecord() || !PMFloatAnyFloatingWindowVisible()) return;
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
@@ -1815,22 +1814,10 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         });
         return;
     }
-    if (PMFloatDynamicFrameRateSource) {
-        // Formally clear the source's reason before releasing, so the system
-        // knows this source no longer requests 120Hz.  Call the original IMP
-        // directly (bypassing our PMIsManagedSource guard) so the clear
-        // actually reaches CoreAnimation.
-        @try {
-            if (orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) {
-                orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(
-                    PMFloatDynamicFrameRateSource,
-                    NSSelectorFromString(@"setHighFrameRateReasons:count:"),
-                    NULL, (NSUInteger)0);
-            }
-        } @catch (__unused NSException *e) {}
-        PMFloatDynamicFrameRateSource = nil;
-        PMFloatSourceReleaseCount += 1;
-    }
+    // Single-owner model: Float no longer owns a DynamicSource to tear down.
+    // Only clear float eligibility state. Global/App sources stay managed.
+    PMFloatDynamicFrameRateSource = nil;
+    PMFloatSourceReleaseCount += 1;
     PMFloatWindowConfirmed = NO;
     PMFloatWriteState(@"floatSource.release", @"expired", YES);
 }
@@ -1841,18 +1828,21 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
 // lifetime. This prevents 120Hz drops during VC transitions, tab switches,
 // animations, and other non-scroll scenarios.
 static id PMAppPersistentFrameRateSource = nil;
-static BOOL PMAppPersistentSourceApplied = NO;
+// Thread-local: allow our own teardown to clear managed sources via orig IMP.
+// System-initiated clears remain blocked by PMIsManagedSource.
+static __thread BOOL PMAllowManagedSourceClear = NO;
 
-// Helper: is this one of our managed sources that should never be cleared by system?
+// SB keeps one display-level source owner: Global. Banner/Float only re-apply
+// that owner; they no longer allocate their own DynamicSource slots.
+// App process keeps its own persistent source (different process).
 static inline BOOL PMIsManagedSource(id source) {
     return source == PMGlobalSBDisplaySource
-        || source == PMAppPersistentFrameRateSource
-        || source == PMFloatDynamicFrameRateSource
-        || source == PMBannerDynamicFrameRateSource;
+        || source == PMAppPersistentFrameRateSource;
 }
 
 static void PMAppEnsurePersistentSource(void) {
-    if (PMIsTargetProcess() || PMAppPersistentSourceApplied) return;
+    // Gate on live source pointer, not a sticky applied flag that can brick rebuild.
+    if (PMIsTargetProcess() || PMAppPersistentFrameRateSource) return;
     @try {
         Class SourceClass = NSClassFromString(@"CADynamicFrameRateSource");
         id display = PMMainCADisplay();
@@ -1866,7 +1856,6 @@ static void PMAppEnsurePersistentSource(void) {
                 if (PMAppPersistentFrameRateSource) {
                     PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
                     PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
-                    PMAppPersistentSourceApplied = YES;
                 }
             }
         }
@@ -1957,6 +1946,9 @@ static void PMAppScrollArm(__unused NSString *event) {
 
 %hook CADisplayLink
 
+// Hot path: no fake SB/Float/App branches. If device supports 120Hz, force it.
+// Eligibility only gates DynamicSource lifecycle elsewhere, not per-link apply.
+
 + (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
     CADisplayLink *link = %orig;
     if (PMIsTargetProcess()) {
@@ -1975,26 +1967,7 @@ static void PMAppScrollArm(__unused NSString *event) {
         PMFloatWriteState(@"CADisplayLink.displayLinkWithTarget", PMFloatLastDisplayLinkTargetClass ?: @"", YES);
     }
     if (PMDeviceSupports120Hz() && link) {
-        if (PMIsTargetProcess()) {
-            // SpringBoard: always apply 120Hz
-            // Use banner lifecycle management when banner is active, otherwise direct apply
-            if (PMIsEligibleNow()) {
-                PMApplyToCAObject(link, YES, NO);
-            } else {
-                PMApplyToCAObjectDirect(link);
-            }
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
-            // Float window or App process: apply 120Hz
-            PMApplyToCAObjectDirect(link);
-        } else {
-            // Fallback: should rarely reach here
-            if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
-                CAFrameRateRange range = PMForce120Range();
-                [link setPreferredFrameRateRange:range];
-            } else if ([link respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
-                [link setPreferredFramesPerSecond:TARGET_FPS];
-            }
-        }
+        PMApplyToCAObjectDirect(link);
     }
     return link;
 }
@@ -2009,24 +1982,8 @@ static void PMAppScrollArm(__unused NSString *event) {
         }
     }
     if (PMDeviceSupports120Hz()) {
-        CAFrameRateRange appliedRange;
-        if (PMIsTargetProcess()) {
-            // SpringBoard: always apply 120Hz
-            if (PMIsEligibleNow()) {
-                PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-            } else {
-                PMSetHighFrameRateReasonDirect(self);
-            }
-            appliedRange = PMForce120Range();
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
-            // Float window or App process: apply 120Hz
-            PMSetHighFrameRateReasonDirect(self);
-            appliedRange = PMForce120Range();
-        } else {
-            // Fallback
-            appliedRange = PMForce120Range();
-        }
-        %orig(appliedRange);
+        PMSetHighFrameRateReasonDirect(self);
+        %orig(PMForce120Range());
     } else {
         %orig;
     }
@@ -2049,23 +2006,12 @@ static void PMAppScrollArm(__unused NSString *event) {
 #if PM_ENABLE_DIAGNOSTIC_PROBES
         PMFPSFPSSetCount += 1;
         PMFPSLastEvent = @"CADisplayLink.setPreferredFramesPerSecond";
-        PMFPSLastReason = PMFloatWindowConfirmed ? @"bannerActive" : @"global";
+        PMFPSLastReason = @"force120";
         PMFPSLastOrigFPS = fps;
         PMFPSLastAppliedFPS = TARGET_FPS;
         if (fps != TARGET_FPS) PMFPSOverriddenCount += 1;
 #endif
-        // Always apply 120Hz with highFrameRateReason
-        if (PMIsTargetProcess()) {
-            // SpringBoard
-            if (PMIsEligibleNow()) {
-                PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-            } else {
-                PMSetHighFrameRateReasonDirect(self);
-            }
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
-            // Float or App (Float has higher priority in check order)
-            PMSetHighFrameRateReasonDirect(self);
-        }
+        PMSetHighFrameRateReasonDirect(self);
         %orig(TARGET_FPS);
     } else {
         %orig;
@@ -2082,23 +2028,12 @@ static void PMAppScrollArm(__unused NSString *event) {
 #if PM_ENABLE_DIAGNOSTIC_PROBES
         PMFPSFrameIntervalSetCount += 1;
         PMFPSLastEvent = @"CADisplayLink.setFrameInterval";
-        PMFPSLastReason = PMFloatWindowConfirmed ? @"bannerActive" : @"global";
+        PMFPSLastReason = @"force120";
         PMFPSLastOrigInterval = interval;
         PMFPSLastAppliedInterval = 1;
         if (interval != 1) PMFPSOverriddenCount += 1;
 #endif
-        // Always apply 120Hz with highFrameRateReason
-        if (PMIsTargetProcess()) {
-            // SpringBoard
-            if (PMIsEligibleNow()) {
-                PMSetHighFrameRateReasonIfPossible(self, YES, NO);
-            } else {
-                PMSetHighFrameRateReasonDirect(self);
-            }
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
-            // Float or App (Float has higher priority in check order)
-            PMSetHighFrameRateReasonDirect(self);
-        }
+        PMSetHighFrameRateReasonDirect(self);
         %orig(1);
     } else {
         %orig;
@@ -2116,24 +2051,8 @@ static void PMAppScrollArm(__unused NSString *event) {
         PMFloatRecordRange(@"CAAnimation.setPreferredFrameRateRange", range);
     }
     if (PMDeviceSupports120Hz()) {
-        CAFrameRateRange appliedRange;
-        if (PMIsTargetProcess()) {
-            // SpringBoard: always apply 120Hz
-            if (PMIsEligibleNow()) {
-                PMSetHighFrameRateReasonIfPossible(self, NO, NO);
-            } else {
-                PMSetHighFrameRateReasonDirect(self);
-            }
-            appliedRange = PMForce120Range();
-        } else if (PMFloatIsEligibleNow() || PMIsAppEligibleNow()) {
-            // Float window or App process: apply 120Hz
-            PMSetHighFrameRateReasonDirect(self);
-            appliedRange = PMForce120Range();
-        } else {
-            // Fallback: should rarely reach here
-            appliedRange = PMForce120Range();
-        }
-        %orig(appliedRange);
+        PMSetHighFrameRateReasonDirect(self);
+        %orig(PMForce120Range());
     } else {
         %orig;
     }
@@ -2307,9 +2226,9 @@ static void PMAppScrollArm(__unused NSString *event) {
 
 - (void)makeKeyAndVisible {
     if (!PMIsTargetProcess()) {
-        // In app processes: refresh persistent source on window activation
+        // App process only (this branch is !SpringBoard).
         PMAppRefreshPersistentSource();
-        // In SpringBoard: arm Float for floating windows
+        // Float arm is no-op unless floating package/window is present.
         PMFloatArmForWindow((UIWindow *)self, @"window.makeKeyAndVisible");
     }
     %orig;
@@ -2319,6 +2238,7 @@ static void PMAppScrollArm(__unused NSString *event) {
     if (level >= 1000 && level < 2000 && !PMIsTargetProcess()) {
         NSString *winClass = PMClassName(self);
         PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
+        PMAppRefreshPersistentSource();
         PMFloatArm(@"windowLevel.menu");
     }
     %orig;
@@ -2561,6 +2481,8 @@ static void PMAppScrollArm(__unused NSString *event) {
 // makeKeyAndVisible and setWindowLevel merged into main %hook UIWindow block above
 
 // Catch alert/modal presentations
+// Ordinary apps: only refresh App persistent source.
+// Float arm is gated internally (floating package / floating window only).
 %hook UIAlertController
 - (void)viewDidAppear:(BOOL)animated {
     if (!PMIsTargetProcess()) {
@@ -2576,6 +2498,7 @@ static void PMAppScrollArm(__unused NSString *event) {
 - (void)showFromRect:(CGRect)rect inView:(UIView *)view animated:(BOOL)animated {
     if (!PMIsTargetProcess()) {
         PMFloatWriteState(@"menu.showFromRect", PMClassName(view), YES);
+        PMAppRefreshPersistentSource();
         PMFloatArm(@"menu.showFromRect");
     }
     %orig;
@@ -2583,6 +2506,7 @@ static void PMAppScrollArm(__unused NSString *event) {
 - (void)showFromBarButtonItem:(id)item animated:(BOOL)animated {
     if (!PMIsTargetProcess()) {
         PMFloatWriteState(@"menu.showFromBarButton", PMClassName(item), YES);
+        PMAppRefreshPersistentSource();
         PMFloatArm(@"menu.showFromBarButton");
     }
     %orig;
@@ -2594,6 +2518,7 @@ static void PMAppScrollArm(__unused NSString *event) {
 - (void)viewDidAppear:(BOOL)animated {
     if (!PMIsTargetProcess()) {
         PMFloatWriteState(@"popover.viewDidAppear", PMClassName(self), YES);
+        PMAppRefreshPersistentSource();
         PMFloatArm(@"popover.viewDidAppear");
     }
     %orig;
@@ -2612,6 +2537,7 @@ static void PMHookContextMenuInteractionIfAvailable(void) {
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
         if (!PMIsTargetProcess()) {
             PMFloatWriteState(@"ctxMenu.present", @"UIContextMenuInteraction", YES);
+            PMAppRefreshPersistentSource();
             PMFloatArm(@"ctxMenu.present");
         }
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
@@ -2631,6 +2557,7 @@ static void PMHookEditMenuInteractionIfAvailable(void) {
     IMP newImp = imp_implementationWithBlock(^(id self, CGPoint p) {
         if (!PMIsTargetProcess()) {
             PMFloatWriteState(@"editMenu.present", @"UIEditMenuInteraction", YES);
+            PMAppRefreshPersistentSource();
             PMFloatArm(@"editMenu.present");
         }
         ((void(*)(id,SEL,CGPoint))origImp)(self, sel, p);
@@ -2748,11 +2675,11 @@ static void repl_CADynamicFrameRateSource_setHighFrameRateReasons_count(id self,
     if (!orig_CADynamicFrameRateSource_setHighFrameRateReasons_count) return;
 
     // Preserve Apple's clear/release path for non-persistent sources.
-    // But protect our persistent sources (SB global + App persistent) from
-    // being cleared by system animation cleanup.
+    // Protect our single-owner sources (SB Global + App persistent) from
+    // system animation cleanup. Explicit self-teardown can set
+    // PMAllowManagedSourceClear to bypass this guard.
     if (!reasons || count == 0) {
-        if (PMIsManagedSource(self)) {
-            // Don't clear our persistent sources — re-apply instead
+        if (PMIsManagedSource(self) && !PMAllowManagedSourceClear) {
             unsigned int persistReasons[1] = { 1U };
             orig_CADynamicFrameRateSource_setHighFrameRateReasons_count(self, _cmd, persistReasons, (NSUInteger)1);
             return;
