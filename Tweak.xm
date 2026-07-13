@@ -1255,23 +1255,30 @@ static NSUInteger PMGlobalSBApplyCount = 0;
 static BOOL PMGlobalSBEnabled = NO;
 static CFAbsoluteTime PMGlobalLastApply = 0;
 
-// === Persistent SpringBoard DisplayLink: keeps DPPMS from downclocking ===
-// A running CADisplayLink in SpringBoard acts as a live 120Hz consumer.
-// DPPMS treats active display links as proof of demand; a mere
-// CADynamicFrameRateSource vote can be overridden when the foreground
-// app (injection-blocked) only produces 60fps content.
-// === Smart keepalive: only burn render-dirty for injection-blocked apps ===
-// Apps with our hooks injected handle 120Hz themselves; keepalive is redundant.
-// Use Darwin notification state as IPC: app-side sets state=1 on load,
-// SpringBoard reads state to skip keepalive for hooked apps.
+// ═══════════════════════════════════════════════════════════════════════════
+// MARK: - Keepalive DisplayLink (prevents DPPMS downclock for blocked apps)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Problem:  CADynamicFrameRateSource is a "vote" DPPMS can ignore.
+//           When the foreground app is injection-blocked and only produces
+//           60fps content, DPPMS downclocks the display.
+// Solution: A persistent CADisplayLink in SpringBoard that toggles a tiny
+//           offscreen dirty layer every frame, producing real render commits
+//           that DPPMS treats as proof of 120Hz demand.
+// Smart:    Only active when an injection-blocked app is in the foreground.
+//           Hooked apps report their status via Darwin notify IPC.
+// ─────────────────────────────────────────────────────────────────────────
+
+// --- IPC: query frontmost app and injection status ---
+
 static NSString *PMSBFrontmostBundleID(void) {
     @try {
         Class cls = NSClassFromString(@"SBApplicationController");
         if (!cls) return nil;
-        SEL sharedSel = NSSelectorFromString(@"sharedInstance");
-        if (![cls respondsToSelector:sharedSel]) return nil;
         typedef id (*PMIdGetter)(id, SEL);
         PMIdGetter getter = (PMIdGetter)objc_msgSend;
+        SEL sharedSel = NSSelectorFromString(@"sharedInstance");
+        if (![cls respondsToSelector:sharedSel]) return nil;
         id controller = getter((id)cls, sharedSel);
         if (!controller) return nil;
         SEL frontSel = NSSelectorFromString(@"frontmostApplication");
@@ -1282,14 +1289,11 @@ static NSString *PMSBFrontmostBundleID(void) {
         id app = getter(controller, frontSel);
         if (!app) return nil;
         SEL bundleSel = NSSelectorFromString(@"bundleIdentifier");
-        if ([app respondsToSelector:bundleSel]) {
-            return getter(app, bundleSel);
-        }
+        if ([app respondsToSelector:bundleSel]) return getter(app, bundleSel);
     } @catch (__unused NSException *e) {}
     return nil;
 }
 
-// Cache Darwin notification tokens per bundle ID to avoid repeated register/cancel
 static NSMutableDictionary<NSString *, NSNumber *> *PMHookedTokenCache = nil;
 
 static BOOL PMSBIsAppHooked(NSString *bundleID) {
@@ -1310,69 +1314,73 @@ static BOOL PMSBIsAppHooked(NSString *bundleID) {
     return state == 1;
 }
 
+// --- Keepalive state ---
+
+static CADisplayLink *PMSBKeepAliveLink   = nil;
+static UIWindow      *PMSBKeepAliveWindow = nil;
+static CALayer       *PMSBDirtyLayer      = nil;
+
+// --- Tick: minimal — only toggles the dirty layer ---
+
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
 - (void)pm_sbTick:(__unused CADisplayLink *)link {
-    // Toggle a sub-pixel property on a tiny offscreen layer to create
-    // a real render-dirty commit each frame.  DPPMS checks actual
-    // content production, not just DisplayLink existence.
-    static CALayer *dirtyLayer = nil;
-    static UIWindow *keepAliveWindow = nil;
     static BOOL toggle = NO;
-    static NSUInteger frameCount = 0;
-    static BOOL needsKeepAlive = YES;
-
-    frameCount++;
-    // Re-evaluate once per second (~120 frames at 120Hz)
-    if (frameCount % 120 == 0) {
-        NSString *front = PMSBFrontmostBundleID();
-        if (!front) {
-            needsKeepAlive = NO; // home screen / lock screen
-        } else {
-            needsKeepAlive = !PMSBIsAppHooked(front); // only for unhooked apps
-        }
-    }
-    if (!needsKeepAlive) return;
-
-    if (!keepAliveWindow) {
-        @try {
-            keepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-10, -10, 1, 1)];
-            keepAliveWindow.windowLevel = -9999;
-            keepAliveWindow.hidden = NO;
-            keepAliveWindow.userInteractionEnabled = NO;
-            keepAliveWindow.backgroundColor = [UIColor clearColor];
-            dirtyLayer = [CALayer layer];
-            dirtyLayer.frame = CGRectMake(0, 0, 1, 1);
-            dirtyLayer.opacity = 0.01f;
-            [keepAliveWindow.layer addSublayer:dirtyLayer];
-        } @catch (__unused NSException *e) {}
-    }
-    if (dirtyLayer.superlayer) {
-        toggle = !toggle;
-        dirtyLayer.position = CGPointMake(toggle ? 0.0f : 0.5f, 0.0f);
-    }
+    toggle = !toggle;
+    PMSBDirtyLayer.position = CGPointMake(toggle ? 0.0f : 0.5f, 0.0f);
 }
 @end
 
-static CADisplayLink *PMSBKeepAliveLink = nil;
 static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
+
+// --- Evaluate: decide whether keepalive should be active ---
+
+static void PMSBKeepAliveEvaluate(void) {
+    if (!PMSBKeepAliveLink) return;
+    NSString *front = PMSBFrontmostBundleID();
+    BOOL needed = (front != nil) && !PMSBIsAppHooked(front);
+    if (needed == !PMSBKeepAliveLink.paused) return; // no change
+    PMSBKeepAliveLink.paused  = !needed;
+    PMSBKeepAliveWindow.hidden = !needed;
+}
+
+// --- Install: create everything once, start paused ---
 
 static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
+        // Window + dirty layer (offscreen, invisible)
+        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-10, -10, 1, 1)];
+        PMSBKeepAliveWindow.windowLevel        = -9999;
+        PMSBKeepAliveWindow.hidden              = YES;
+        PMSBKeepAliveWindow.userInteractionEnabled = NO;
+        PMSBKeepAliveWindow.backgroundColor     = [UIColor clearColor];
+        PMSBDirtyLayer = [CALayer layer];
+        PMSBDirtyLayer.frame   = CGRectMake(0, 0, 1, 1);
+        PMSBDirtyLayer.opacity = 0.01f;
+        [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
+
+        // DisplayLink (starts paused)
         PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
-        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance selector:@selector(pm_sbTick:)];
+        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
+                                                        selector:@selector(pm_sbTick:)];
+        PMSBKeepAliveLink.paused = YES;
         if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
             CAFrameRateRange range;
-            range.minimum = 80;
+            range.minimum   = 80;
             range.preferred = TARGET_FPS;
-            range.maximum = TARGET_FPS;
+            range.maximum   = TARGET_FPS;
             [PMSBKeepAliveLink setPreferredFrameRateRange:range];
         } else if ([PMSBKeepAliveLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
             [PMSBKeepAliveLink setPreferredFramesPerSecond:TARGET_FPS];
         }
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+
+        // 1-second evaluation timer (separate from DisplayLink)
+        [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *t) {
+            PMSBKeepAliveEvaluate();
+        }];
     } @catch (__unused NSException *e) {}
 }
 
