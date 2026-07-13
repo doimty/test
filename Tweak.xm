@@ -1262,7 +1262,29 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
-- (void)pm_sbTick:(__unused CADisplayLink *)link {}
+- (void)pm_sbTick:(__unused CADisplayLink *)link {
+    // Toggle a sub-pixel property on a tiny offscreen layer to create
+    // a real render-dirty commit each frame.  DPPMS checks actual
+    // content production, not just DisplayLink existence.
+    static CALayer *dirtyLayer = nil;
+    static BOOL toggle = NO;
+    if (!dirtyLayer) {
+        dirtyLayer = [CALayer layer];
+        dirtyLayer.frame = CGRectMake(-2, -2, 1, 1);
+        dirtyLayer.opacity = 0.01f;
+        @try {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            UIWindow *win = [[UIApplication sharedApplication] keyWindow];
+#pragma clang diagnostic pop
+            if (win) [win.layer addSublayer:dirtyLayer];
+        } @catch (__unused NSException *e) {}
+    }
+    if (dirtyLayer.superlayer) {
+        toggle = !toggle;
+        dirtyLayer.position = CGPointMake(toggle ? -1.5f : -2.0f, -2.0f);
+    }
+}
 @end
 
 static CADisplayLink *PMSBKeepAliveLink = nil;
