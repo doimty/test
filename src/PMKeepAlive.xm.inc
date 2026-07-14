@@ -79,12 +79,12 @@ static CGColorRef PMSBDirtyColorB = NULL;
 // v1.0.22: attach UIWindowScene + stronger dirty + CADisplay mode pin.
 // 1.0.20/21 full-width 2pt/opacity 0.02 still lost to DPPMS 80Hz compromise
 // when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
+// 1.0.33-kaA (ablation A): height only 4→2; keep 1.0.22 opacity toggle 0.12/0.10.
 
 static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
-// User rejects any on-screen keepalive UIWindow. Keep 1x1 off-screen only.
-static const CGFloat PMSBKeepAliveStripH = 1.0;
+static const CGFloat PMSBKeepAliveStripH = 2.0;
 
-__attribute__((unused)) static void PMSBKeepAliveAttachScene(void) {
+static void PMSBKeepAliveAttachScene(void) {
     if (!PMSBKeepAliveWindow) return;
     @try {
         // iOS 13+: unattached UIWindow may never commit; pin to any live SB scene.
@@ -166,21 +166,23 @@ static void PMSBForceMainDisplayHighMode(void) {
 @end
 @implementation PMSBKeepAliveTarget
 - (void)pm_sbTick:(__unused CADisplayLink *)link {
+    if (!PMSBDirtyLayer) return;
     static BOOL toggle = NO;
     static NSUInteger tick = 0;
     toggle = !toggle;
     tick += 1;
 
-    // Off-screen 1x1 only. Never paint an on-screen strip (user rejects visible UI).
-    if (PMSBDirtyLayer) {
-        CGFloat y = toggle ? 0.0 : 1.0;
-        PMSBDirtyLayer.position = CGPointMake(0.5, y + 0.5);
-        PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
-        PMSBDirtyLayer.opacity = toggle ? 0.01f : 0.005f;
-    }
+    // Dual dirty: position + color. Stronger alpha so DPPMS cannot settle at 80.
+    CGFloat y = toggle ? 0.0 : 1.0;
+    PMSBDirtyLayer.position = CGPointMake(CGRectGetMidX(PMSBDirtyLayer.bounds), y + CGRectGetMidY(PMSBDirtyLayer.bounds));
+    PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
+    // Force a real content commit (not just geometry) every frame.
+    PMSBDirtyLayer.opacity = toggle ? 0.12f : 0.10f;
 
     PMSBKeepAliveApplyLinkRange();
     PMGlobalSBApplyForced(@"keepalive.tick");
+    // During float resize/zoom, pin preferredMode every frame; sparse pin leaves
+    // whole animation at 60 then snaps to 120 after completion.
     BOOL floatMotion = NO;
     @try {
         static int motionTokenTick = -1;
@@ -241,9 +243,16 @@ static void PMSBKeepAliveEvaluate(void) {
     PMSBKeepAliveLink.paused = !needed;
 
     if (needed) {
-        // Keep off-screen host alive for optional dirty layer; never resize onto screen.
         if (PMSBKeepAliveWindow) {
+            PMSBKeepAliveAttachScene();
             PMSBKeepAliveWindow.hidden = NO;
+            CGRect screen = [UIScreen mainScreen].bounds;
+            CGFloat w = MAX(screen.size.width, screen.size.height);
+            if (fabs(PMSBKeepAliveWindow.bounds.size.width - w) > 0.5 ||
+                fabs(PMSBKeepAliveWindow.bounds.size.height - PMSBKeepAliveStripH) > 0.5) {
+                PMSBKeepAliveWindow.frame = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
+                PMSBDirtyLayer.frame = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
+            }
             if (PMSBDirtyLayer && PMSBDirtyLayer.superlayer == nil) {
                 [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
             }
@@ -268,10 +277,13 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // Off-screen private UIWindow (1.0.12 style). No on-screen strip.
-        // Primary demand: CADisplayLink range + Global DynamicSource + mode pin.
-        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-20, -20, 1, 1)];
-        PMSBKeepAliveWindow.windowLevel              = -9999.0;
+        // Full-width strip. Higher opacity than 1.0.20 (0.02) so DPPMS cannot
+        // settle the classic 80Hz compromise against dense 60Hz app content.
+        CGRect screen = [UIScreen mainScreen].bounds;
+        CGFloat w = MAX(screen.size.width, screen.size.height);
+        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, PMSBKeepAliveStripH)];
+        PMSBKeepAliveAttachScene();
+        PMSBKeepAliveWindow.windowLevel              = 1000.0; // status-bar band: stays in composition
         PMSBKeepAliveWindow.hidden                   = NO;
         PMSBKeepAliveWindow.userInteractionEnabled    = NO;
         PMSBKeepAliveWindow.opaque                    = NO;
@@ -280,13 +292,12 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveWindow.layer.masksToBounds       = YES;
 
         PMSBDirtyLayer = [CALayer layer];
-        PMSBDirtyLayer.frame             = CGRectMake(0, 0, 1, 1);
-        PMSBDirtyLayer.opacity           = 0.01f;
+        PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
+        PMSBDirtyLayer.opacity           = 0.12f;
         PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
         PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
         [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
-        (void)PMSBKeepAliveStripH;
 
         PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
         PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
@@ -316,7 +327,10 @@ static void PMSBInstallKeepAliveLink(void) {
                         PMSBKeepAliveLink.paused = NO;
                         PMSBKeepAliveApplyLinkRange();
                     }
-                    if (PMSBKeepAliveWindow) PMSBKeepAliveWindow.hidden = NO;
+                    if (PMSBKeepAliveWindow) {
+                        PMSBKeepAliveAttachScene();
+                        PMSBKeepAliveWindow.hidden = NO;
+                    }
                     PMSBForceMainDisplayHighMode();
                     PMGlobalSBApplyForced(@"float.motionhold.notify");
                 }
