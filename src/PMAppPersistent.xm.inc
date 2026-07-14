@@ -42,16 +42,26 @@ static void PMAppEnsurePersistentSource(void) {
 static CFAbsoluteTime PMAppLastRefreshAt = 0;
 static const CFTimeInterval PMAppRefreshMinInterval = 0.20;
 
-static void PMAppRefreshPersistentSource(void) {
-    if (PMIsTargetProcess() || !PMAppPersistentFrameRateSource) return;
+static void PMAppRefreshPersistentSourceEx(BOOL unthrottled) {
+    if (PMIsTargetProcess()) return;
+    if (!PMAppPersistentFrameRateSource) PMAppEnsurePersistentSource();
+    if (!PMAppPersistentFrameRateSource) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (PMAppLastRefreshAt > 0 && (now - PMAppLastRefreshAt) < PMAppRefreshMinInterval) return;
+    if (!unthrottled && PMAppLastRefreshAt > 0 && (now - PMAppLastRefreshAt) < PMAppRefreshMinInterval) return;
     PMAppLastRefreshAt = now;
     @try {
         PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
         PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
     } @catch (__unused NSException *e) {
     }
+}
+
+static void PMAppRefreshPersistentSource(void) {
+    PMAppRefreshPersistentSourceEx(NO);
+}
+
+static void PMAppRefreshPersistentSourceForced(void) {
+    PMAppRefreshPersistentSourceEx(YES);
 }
 
 // Scroll arm: still used to re-affirm 120Hz during active scrolling,

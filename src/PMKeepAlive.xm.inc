@@ -180,8 +180,19 @@ static void PMSBForceMainDisplayHighMode(void) {
 
     PMSBKeepAliveApplyLinkRange();
     PMGlobalSBApplyForced(@"keepalive.tick");
-    // Mode pin is heavier; ~4Hz is enough alongside per-frame vote.
-    if ((tick % 30) == 0) PMSBForceMainDisplayHighMode();
+    // During float resize/zoom, pin preferredMode every frame; sparse pin leaves
+    // whole animation at 60 then snaps to 120 after completion.
+    BOOL floatMotion = NO;
+    @try {
+        static int motionTokenTick = -1;
+        if (motionTokenTick < 0) notify_register_check("com.doimty.pm120.float.motionhold", &motionTokenTick);
+        if (motionTokenTick >= 0) {
+            uint64_t st = 0;
+            notify_get_state(motionTokenTick, &st);
+            floatMotion = (st == 1);
+        }
+    } @catch (__unused NSException *e) {}
+    if (floatMotion || (tick % 5) == 0) PMSBForceMainDisplayHighMode();
 }
 @end
 
@@ -207,7 +218,19 @@ static void PMSBKeepAliveEvaluate(void) {
     // drops float UI to 60Hz or the 10Hz idle floor. Keep render proof alive
     // while any floating window is visible.
     BOOL floatVisible = PMFloatAnyFloatingWindowVisible();
-    if (floatVisible) positive = YES;
+    // Plugin-process float zoom posts Darwin motion-hold; SB must keep dirty
+    // proof for the whole animation even when float windows are not in SB.
+    BOOL floatMotionHold = NO;
+    @try {
+        static int motionToken = -1;
+        if (motionToken < 0) notify_register_check("com.doimty.pm120.float.motionhold", &motionToken);
+        if (motionToken >= 0) {
+            uint64_t st = 0;
+            notify_get_state(motionToken, &st);
+            floatMotionHold = (st == 1);
+        }
+    } @catch (__unused NSException *e) {}
+    if (floatVisible || floatMotionHold) positive = YES;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (positive) {
         // Hold 2s past last positive so frontmost nil / brief transitions don't pause mid-scroll.

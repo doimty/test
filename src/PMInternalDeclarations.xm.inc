@@ -16,6 +16,7 @@ static void PMSBKeepAliveEvaluate(void);
 // App-process persistent source.
 static void PMAppEnsurePersistentSource(void);
 static void PMAppRefreshPersistentSource(void);
+static void PMAppRefreshPersistentSourceForced(void);
 
 // Floating-window arming (used from keepalive / UIKit hooks).
 static BOOL PMFloatFeatureEnabled(void);

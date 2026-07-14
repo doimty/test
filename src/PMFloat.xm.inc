@@ -333,6 +333,131 @@ static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
 
 static void PMFloatReleaseIfExpired(NSUInteger session);
 static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottled);
+static void PMFloatMotionHoldStart(void);
+static void PMFloatMotionHoldStop(void);
+static void PMFloatNotifySBMotionHold(BOOL active);
+static void PMFloatKickKeepAliveNow(void);
+
+// Plugin-process motion hold: whole zoom/shrink animation stays at 60 when
+// only soft DynamicSource votes fire. Keep a tiny dirty DisplayLink for the
+// arm window so DPPMS sees real 120 demand from the float host process.
+static CADisplayLink *PMFloatMotionHoldLink = nil;
+static CALayer *PMFloatMotionHoldLayer = nil;
+static UIWindow *PMFloatMotionHoldWindow = nil;
+static BOOL PMFloatMotionHoldActive = NO;
+static int PMFloatMotionHoldNotifyToken = -1;
+static int PMFloatMotionHoldSBToken = -1;
+
+#define PM_FLOAT_MOTION_HOLD_NOTIFY "com.doimty.pm120.float.motionhold"
+
+@interface PMFloatMotionHoldTarget : NSObject
+@end
+@implementation PMFloatMotionHoldTarget
+- (void)pm_floatTick:(__unused CADisplayLink *)link {
+    if (!PMFloatMotionHoldLayer) return;
+    static BOOL toggle = NO;
+    toggle = !toggle;
+    PMFloatMotionHoldLayer.opacity = toggle ? 0.14f : 0.11f;
+    CGFloat y = toggle ? 0.0 : 1.0;
+    PMFloatMotionHoldLayer.position = CGPointMake(CGRectGetMidX(PMFloatMotionHoldLayer.bounds),
+                                                 y + CGRectGetMidY(PMFloatMotionHoldLayer.bounds));
+    if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+        [link setPreferredFrameRateRange:PMForce120Range()];
+    }
+    // Plugin process: hard re-apply app persistent vote every frame of motion.
+    if (!PMIsTargetProcess()) {
+        PMAppEnsurePersistentSource();
+        PMAppRefreshPersistentSourceForced();
+    } else {
+        PMGlobalSBApplyForced(@"float.motion.tick");
+        PMSBForceMainDisplayHighMode();
+    }
+}
+@end
+static PMFloatMotionHoldTarget *PMFloatMotionHoldTargetInstance = nil;
+
+static void PMFloatNotifySBMotionHold(BOOL active) {
+    // floating-view package publishes; SpringBoard reads state.
+    if (PMIsTargetProcess()) return;
+    @try {
+        if (PMFloatMotionHoldNotifyToken < 0) {
+            notify_register_check(PM_FLOAT_MOTION_HOLD_NOTIFY, &PMFloatMotionHoldNotifyToken);
+        }
+        if (PMFloatMotionHoldNotifyToken >= 0) {
+            notify_set_state(PMFloatMotionHoldNotifyToken, active ? 1 : 0);
+            notify_post(PM_FLOAT_MOTION_HOLD_NOTIFY);
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+static BOOL PMFloatSBMotionHoldRequested(void) {
+    if (!PMIsTargetProcess()) return NO;
+    @try {
+        if (PMFloatMotionHoldSBToken < 0) {
+            notify_register_check(PM_FLOAT_MOTION_HOLD_NOTIFY, &PMFloatMotionHoldSBToken);
+        }
+        if (PMFloatMotionHoldSBToken < 0) return NO;
+        uint64_t state = 0;
+        notify_get_state(PMFloatMotionHoldSBToken, &state);
+        return state == 1;
+    } @catch (__unused NSException *e) {
+        return NO;
+    }
+}
+
+static void PMFloatMotionHoldStart(void) {
+    if (!PMFloatFeatureEnabled() || !PMDeviceSupports120Hz()) return;
+    PMFloatMotionHoldActive = YES;
+    PMFloatNotifySBMotionHold(YES);
+    if (PMIsTargetProcess()) {
+        // SB already has keepalive; just force it on for the motion window.
+        PMFloatKickKeepAliveNow();
+        return;
+    }
+    @try {
+        if (!PMFloatMotionHoldWindow) {
+            CGRect screen = [UIScreen mainScreen].bounds;
+            CGFloat w = MAX(screen.size.width, screen.size.height);
+            PMFloatMotionHoldWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, 2.0)];
+            PMFloatMotionHoldWindow.windowLevel = 2001.0;
+            PMFloatMotionHoldWindow.userInteractionEnabled = NO;
+            PMFloatMotionHoldWindow.opaque = NO;
+            PMFloatMotionHoldWindow.backgroundColor = [UIColor clearColor];
+            PMFloatMotionHoldWindow.hidden = NO;
+            PMFloatMotionHoldLayer = [CALayer layer];
+            PMFloatMotionHoldLayer.frame = CGRectMake(0, 0, w, 2.0);
+            PMFloatMotionHoldLayer.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+            [PMFloatMotionHoldWindow.layer addSublayer:PMFloatMotionHoldLayer];
+        } else {
+            PMFloatMotionHoldWindow.hidden = NO;
+        }
+        if (!PMFloatMotionHoldTargetInstance) {
+            PMFloatMotionHoldTargetInstance = [[PMFloatMotionHoldTarget alloc] init];
+        }
+        if (!PMFloatMotionHoldLink) {
+            PMFloatMotionHoldLink = [CADisplayLink displayLinkWithTarget:PMFloatMotionHoldTargetInstance
+                                                               selector:@selector(pm_floatTick:)];
+            if ([PMFloatMotionHoldLink respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
+                [PMFloatMotionHoldLink setPreferredFrameRateRange:PMForce120Range()];
+            } else if ([PMFloatMotionHoldLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
+                [PMFloatMotionHoldLink setPreferredFramesPerSecond:TARGET_FPS];
+            }
+            [PMFloatMotionHoldLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+        }
+        PMFloatMotionHoldLink.paused = NO;
+        PMAppEnsurePersistentSource();
+        PMAppRefreshPersistentSourceForced();
+    } @catch (__unused NSException *e) {}
+}
+
+static void PMFloatMotionHoldStop(void) {
+    PMFloatMotionHoldActive = NO;
+    PMFloatNotifySBMotionHold(NO);
+    @try {
+        if (PMFloatMotionHoldLink) PMFloatMotionHoldLink.paused = YES;
+        if (PMFloatMotionHoldWindow) PMFloatMotionHoldWindow.hidden = YES;
+    } @catch (__unused NSException *e) {}
+}
 
 static void PMFloatKickKeepAliveNow(void) {
     if (!PMIsTargetProcess()) return;
@@ -350,10 +475,6 @@ static void PMFloatKickKeepAliveNow(void) {
     } @catch (__unused NSException *e) {}
 }
 
-static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
-    PMFloatApplyDisplayFrameRateSourceEx(event, NO);
-}
-
 static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottled) {
     if (!PMFloatIsEligibleNow() && !unthrottled) return;
     // Geometry first-frame path may call before eligible is fully latched.
@@ -367,17 +488,14 @@ static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottl
     // Default ~1 frame floor; shrink/zoom paths pass unthrottled.
     if (!unthrottled && PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.016) return;
     @try {
-        // Single-owner: no Float DynamicSource. SB re-applies Global;
-        // injected apps re-apply App persistent source.
         if (PMIsTargetProcess()) {
             PMGlobalSBApplyForced(event ?: @"float.reapply");
+            // Mode pin every geometry apply: animation windows stay 60 if pin is sparse.
             PMSBForceMainDisplayHighMode();
         } else {
             PMAppEnsurePersistentSource();
-            // Unthrottled: call refresh twice after ensure; second path still
-            // helps if system cleared reasons between create and first apply.
-            PMAppRefreshPersistentSource();
-            if (unthrottled) PMAppRefreshPersistentSource();
+            if (unthrottled) PMAppRefreshPersistentSourceForced();
+            else PMAppRefreshPersistentSource();
         }
         PMFloatSourceApplyCount += 1;
         PMFloatLastSourceApplyAt = now;
@@ -393,7 +511,10 @@ static void PMFloatArmEx(NSString *event, BOOL requireVisible, BOOL unthrottled)
     PMFloatWindowConfirmed = YES;
     PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
     PMFloatApplyDisplayFrameRateSourceEx(event, unthrottled);
-    if (unthrottled) PMFloatKickKeepAliveNow();
+    if (unthrottled || !alreadyArmed) {
+        PMFloatMotionHoldStart();
+        if (PMIsTargetProcess()) PMFloatKickKeepAliveNow();
+    }
     if (alreadyArmed) return;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
@@ -503,8 +624,10 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     if (session != PMFloatSession) return;
     if (PMFloatIsArmed()) {
         // While armed, keep re-applying source; DynamicSource votes decay under idle float UI.
-        if (PMFloatAnyFloatingWindowVisible()) {
-            PMFloatApplyDisplayFrameRateSource(@"float.hold");
+        if (PMFloatAnyFloatingWindowVisible() || PMFloatMotionHoldActive || PMFloatSBMotionHoldRequested()) {
+            PMFloatApplyDisplayFrameRateSourceEx(@"float.hold", YES);
+            if (PMIsTargetProcess()) PMFloatKickKeepAliveNow();
+            else PMFloatMotionHoldStart();
         }
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             PMFloatReleaseIfExpired(session);
@@ -512,12 +635,13 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         return;
     }
     // Still visible after arm window: renew instead of dropping to 60/10Hz idle floor.
-    if (PMFloatAnyFloatingWindowVisible()) {
+    if (PMFloatAnyFloatingWindowVisible() || PMFloatSBMotionHoldRequested()) {
         PMFloatArm(@"float.renew");
         return;
     }
     // Single-owner model: Float never owned a DynamicSource.
     // Only clear float eligibility state. Global/App sources stay managed.
+    PMFloatMotionHoldStop();
     PMFloatSourceReleaseCount += 1;
     PMFloatWindowConfirmed = NO;
     PMFloatWriteState(@"floatSource.release", @"expired", YES);
