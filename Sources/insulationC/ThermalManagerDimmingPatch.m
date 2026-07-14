@@ -4,9 +4,6 @@
 #import "include/Tweak.h"
 #import "../insulationObjC/InsulationDebug.h"
 #import "../insulationObjC/InsulationProbe.h"
-#include <string.h>
-
-extern char ***_NSGetArgv(void);
 
 // Match PowerHelper/CLI: resolve through jbroot/rootlessPath so roothide and
 // rootless both read the same prefs file the control plane writes.
@@ -18,10 +15,7 @@ static NSString *const InsulationPowerModeKey = @"thermalPowerMode";
 static const int InsulationUnrestrictedPowerTarget = 65000;
 
 static BOOL insulationThermalPatchIsThermalmonitord(void) {
-    char *argv0 = **_NSGetArgv();
-    char *path = strrchr(argv0, '/');
-    const char *name = path == NULL ? argv0 : path + 1;
-    return strcmp(name, "thermalmonitord") == 0;
+    return insulationIsThermalmonitordProcess();
 }
 
 static BOOL insulationThermalPatchBoolPref(NSDictionary *prefs, NSString *key) {

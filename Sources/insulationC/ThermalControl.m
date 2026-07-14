@@ -5,6 +5,7 @@
 #import <SystemConfiguration/SystemConfiguration.h>
 #include <dlfcn.h>
 #include <notify.h>
+#include <string.h>
 
 __attribute__((weak_import)) extern const char *const kOSThermalNotificationPressureLevelName;
 
@@ -18,6 +19,18 @@ void insulationMarkProcessStart(void) {
     if (InsulationProcessStartTime <= 0) {
         InsulationProcessStartTime = CFAbsoluteTimeGetCurrent();
     }
+}
+
+bool insulationIsThermalmonitordProcess(void) {
+    extern char ***_NSGetArgv(void);
+    char ***argvp = _NSGetArgv();
+    if (argvp == NULL || *argvp == NULL || **argvp == NULL) {
+        return false;
+    }
+    char *argv0 = **argvp;
+    char *slash = strrchr(argv0, '/');
+    const char *name = slash == NULL ? argv0 : slash + 1;
+    return strcmp(name, "thermalmonitord") == 0;
 }
 
 bool insulationFullPowerBootGuardActive(void) {

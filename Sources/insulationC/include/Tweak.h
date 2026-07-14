@@ -35,6 +35,7 @@ int insulationGetRuntimeState(int * _Nullable thermalMode, int * _Nullable cpuMo
 void insulationMarkProcessStart(void);
 bool insulationFullPowerBootGuardActive(void);
 double insulationFullPowerBootGuardDurationSeconds(void);
+bool insulationIsThermalmonitordProcess(void);
 int insulationSetDarwinThermalPressure(int pressure);
 int insulationSetOSNotifEnabled(bool enable, bool persist);
 int insulationSetOSNotifNative(void);

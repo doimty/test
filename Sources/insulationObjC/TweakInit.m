@@ -30,6 +30,11 @@ static void InsulationRestartNotificationCallback(CFNotificationCenterRef center
 
 __attribute__((constructor)) static void InsulationObjCPortInit(void) {
     InsulationProbeMarkLoaded(@"init.begin");
+    // Match DimmingPatch: filter + runtime gate. Do not install hooks outside thermalmonitord.
+    if (!insulationIsThermalmonitordProcess()) {
+        InsulationProbeMarkLoaded(@"init.skip.nonThermalmonitord");
+        return;
+    }
     insulationMarkProcessStart();
     InsulationRuntimeHooksInstall();
     InsulationProbeMarkLoaded(@"hooks.installed");

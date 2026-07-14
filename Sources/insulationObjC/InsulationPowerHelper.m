@@ -8,10 +8,14 @@
 
 static NSDictionary *InsulationPrefs;
 static BOOL InsulationIsApplying;
+static BOOL InsulationApplyPending;
+static NSString *InsulationApplyPendingSource;
+static uint64_t InsulationSoonGeneration;
 static NSString *InsulationLastCPUPerformanceMode;
 static BOOL InsulationLastThermalMitigationsDisabled;
 static BOOL InsulationHasNormalizedThermalMitigationsState;
 static BOOL InsulationLastForcedCommonProductThermal;
+static BOOL InsulationOwnedDarwinThermalPressure;
 static int InsulationPendingFullCPURestoreCount;
 static int InsulationObservedCPUPowerMax;
 static const int InsulationUnrestrictedPowerTarget = 65000;
@@ -370,10 +374,15 @@ static void InsulationApplyThermalTuningPreferences(void) {
         int ret = insulationSetThermalMitigationsEnabled(false, true);
         INSULATION_LOG(@"thermalPowerMode fullPower -> thermal mitigations disabled (%d)", ret);
         (void)ret;
-    } else if (!InsulationHasNormalizedThermalMitigationsState || InsulationLastThermalMitigationsDisabled) {
-        int ret = insulationSetThermalMitigationsNative();
-        INSULATION_LOG(@"thermalPowerMode native/lowPower -> thermal mitigations restored native once (%d)", ret);
+    } else if (InsulationLastThermalMitigationsDisabled) {
+        // Leaving fullPower: delete OSThermalStatus keys instead of rewriting engageBehavior=true.
+        // native-once left persistent plugin ownership; reset restores "key absent" semantics.
+        int ret = insulationResetThermalMitigations();
+        INSULATION_LOG(@"thermalPowerMode leave fullPower -> reset engageBehavior keys (%d)", ret);
         (void)ret;
+    } else if (!InsulationHasNormalizedThermalMitigationsState) {
+        // First apply in off/low: do not invent engageBehavior keys.
+        INSULATION_LOG(@"thermalPowerMode off/low first apply -> leave OSThermalStatus mitigations untouched");
     }
     InsulationLastThermalMitigationsDisabled = forceThermalMitigationsOff;
     InsulationHasNormalizedThermalMitigationsState = YES;
@@ -405,41 +414,56 @@ static void InsulationApplyThermalTuningPreferences(void) {
 }
 
 static void InsulationExecutePuppetEventLocked(NSString *source) {
-#if !INSULATION_PROBE_ENABLED
-    (void)source;
-#endif
     if (InsulationIsApplying) {
-        InsulationProbeEvent(@"apply.reentrySkipped");
+        // Coalesce: remember latest request and run once more after current apply finishes.
+        InsulationApplyPending = YES;
+        InsulationApplyPendingSource = [source copy] ?: @"pending";
+        InsulationProbeEvent(@"apply.reentryPending");
         return;
     }
-    InsulationIsApplying = YES;
-    @try {
-        InsulationReloadPreferences();
-        InsulationProbeRecordApply(InsulationPowerMode(), insulationFullPowerBootGuardActive(), source ?: @"unknown");
 
-        CommonProduct *product = InsulationCommonProductSnapshot();
-        if (InsulationThermalDimmingBypassActive()) {
-            // EXP-D: Aggressive pressure handling (match 0.0.13)
-            // Always set nominal and zero pressure, no "light" cap
-            [product putDeviceInThermalSimulationMode:@"nominal"];
-            [product putDeviceInLowTempSimulationMode:@"nominal"];
-            InsulationLastForcedCommonProductThermal = YES;
-            int ret = insulationSetDarwinThermalPressure(0);
-            INSULATION_LOG(@"insulation dimming bypass thermal state nominal -> Darwin pressure 0 (%d)", ret);
-            (void)ret;
-        } else if (InsulationLastForcedCommonProductThermal) {
-            [product putDeviceInThermalSimulationMode:@"off"];
-            [product putDeviceInLowTempSimulationMode:@"off"];
-            InsulationLastForcedCommonProductThermal = NO;
-            INSULATION_LOG(@"insulation native/lowPower thermal state: restored CommonProduct simulation off once");
-        } else {
-            INSULATION_LOG(@"insulation native/lowPower thermal state: leaving system pressure untouched");
+    NSString *activeSource = source ?: @"unknown";
+    do {
+        InsulationApplyPending = NO;
+        InsulationIsApplying = YES;
+        @try {
+            InsulationReloadPreferences();
+            InsulationProbeRecordApply(InsulationPowerMode(), insulationFullPowerBootGuardActive(), activeSource);
+
+            CommonProduct *product = InsulationCommonProductSnapshot();
+            if (InsulationThermalDimmingBypassActive()) {
+                // EXP-D: Aggressive pressure handling (match 0.0.13)
+                // Always set nominal and zero pressure, no "light" cap
+                [product putDeviceInThermalSimulationMode:@"nominal"];
+                [product putDeviceInLowTempSimulationMode:@"nominal"];
+                InsulationLastForcedCommonProductThermal = YES;
+                int ret = insulationSetDarwinThermalPressure(0);
+                InsulationOwnedDarwinThermalPressure = YES;
+                INSULATION_LOG(@"insulation dimming bypass thermal state nominal -> Darwin pressure 0 (%d)", ret);
+                (void)ret;
+            } else if (InsulationLastForcedCommonProductThermal || InsulationOwnedDarwinThermalPressure) {
+                [product putDeviceInThermalSimulationMode:@"off"];
+                [product putDeviceInLowTempSimulationMode:@"off"];
+                InsulationLastForcedCommonProductThermal = NO;
+                // Stop owning Darwin pressure. True sensor value cannot be reconstructed; we only
+                // drop ownership so thermalmonitord can publish again on the next real update.
+                InsulationOwnedDarwinThermalPressure = NO;
+                INSULATION_LOG(@"insulation native/lowPower thermal state: released CommonProduct simulation + Darwin ownership");
+            } else {
+                INSULATION_LOG(@"insulation native/lowPower thermal state: leaving system pressure untouched");
+            }
+            InsulationApplyThermalTuningPreferences();
+        } @finally {
+            InsulationIsApplying = NO;
+            InsulationProbeEvent(@"apply.finished");
         }
-        InsulationApplyThermalTuningPreferences();
-    } @finally {
-        InsulationIsApplying = NO;
-        InsulationProbeEvent(@"apply.finished");
-    }
+
+        if (!InsulationApplyPending) {
+            break;
+        }
+        activeSource = InsulationApplyPendingSource ?: @"pending";
+        InsulationApplyPendingSource = nil;
+    } while (YES);
 }
 
 void InsulationExecutePuppetEventWithSource(NSString *source) {
@@ -458,12 +482,17 @@ void InsulationExecutePuppetEvent(void) {
 }
 
 void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
-    // EXP-D: Reduce background calls from 8 to 4 (match 0.0.13).
-    // Keep InsulationRestoreEventCount in sync with this schedule.
+    // Keep InsulationRestoreEventCount in sync with this schedule (4 delayed applies).
+    // Supersede prior Soon storms so constructor + notification do not stack 8+ fires.
+    uint64_t generation = ++InsulationSoonGeneration;
+    NSString *resolvedSource = [source copy] ?: @"soon";
     NSArray<NSNumber *> *delays = @[@0.25, @1.0, @2.0, @4.0];
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([delay doubleValue] * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-            InsulationExecutePuppetEventWithSource(source ?: @"soon");
+            if (generation != InsulationSoonGeneration) {
+                return;
+            }
+            InsulationExecutePuppetEventWithSource(resolvedSource);
         });
     }
 }

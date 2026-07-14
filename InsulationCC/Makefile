@@ -12,6 +12,9 @@ InsulationCC_FILES = Sources/InsulationCCModule.m
 InsulationCC_INSTALL_PATH = /Library/ControlCenter/Bundles
 InsulationCC_RESOURCE_DIRS = Resources
 InsulationCC_CFLAGS = -fobjc-arc -Iinclude -I../InsulationPrefs/Sources/InsulationPrefsC/include
+ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
+InsulationCC_LDFLAGS += -lroothide
+endif
 InsulationCC_FRAMEWORKS = UIKit Foundation CoreFoundation QuartzCore
 InsulationCC_PRIVATE_FRAMEWORKS = ControlCenterUIKit
 

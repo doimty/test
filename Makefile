@@ -22,7 +22,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = insulation
 insulation_USE_MODULES = 0
-# 0.1.37+clean1: keep Package Version at 0.1.37; probe tax off for formal builds.
+# 0.1.37+clean2: keep Package Version at 0.1.37; probe tax off; CC roothide; apply coalesce; off reset.
 # Re-enable diagnostics with: make ... INSULATION_PROBE_ENABLED=1
 INSULATION_PROBE_ENABLED ?= 0
 insulation_OBJC_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) $(if $(filter 1,$(INSULATION_PROBE_ENABLED)),,! -name 'InsulationProbe.m'))
