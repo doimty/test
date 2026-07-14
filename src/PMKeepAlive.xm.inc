@@ -79,8 +79,6 @@ static CGColorRef PMSBDirtyColorB = NULL;
 // v1.0.22: attach UIWindowScene + stronger dirty + CADisplay mode pin.
 // 1.0.20/21 full-width 2pt/opacity 0.02 still lost to DPPMS 80Hz compromise
 // when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
-// 1.0.33-kaB (ablation B): opacity only → fixed 0.02; keep height 4 (1.0.22).
-// No per-frame opacity toggle; position+color dual dirty remains every tick.
 
 static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
 static const CGFloat PMSBKeepAliveStripH = 4.0;
@@ -177,24 +175,13 @@ static void PMSBForceMainDisplayHighMode(void) {
     CGFloat y = toggle ? 0.0 : 1.0;
     PMSBDirtyLayer.position = CGPointMake(CGRectGetMidX(PMSBDirtyLayer.bounds), y + CGRectGetMidY(PMSBDirtyLayer.bounds));
     PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
-    // Ablation B: fixed low opacity (no toggle). Dirty comes from position+color.
-    PMSBDirtyLayer.opacity = 0.02f;
+    // Force a real content commit (not just geometry) every frame.
+    PMSBDirtyLayer.opacity = toggle ? 0.12f : 0.10f;
 
     PMSBKeepAliveApplyLinkRange();
     PMGlobalSBApplyForced(@"keepalive.tick");
-    // During float resize/zoom, pin preferredMode every frame; sparse pin leaves
-    // whole animation at 60 then snaps to 120 after completion.
-    BOOL floatMotion = NO;
-    @try {
-        static int motionTokenTick = -1;
-        if (motionTokenTick < 0) notify_register_check("com.doimty.pm120.float.motionhold", &motionTokenTick);
-        if (motionTokenTick >= 0) {
-            uint64_t st = 0;
-            notify_get_state(motionTokenTick, &st);
-            floatMotion = (st == 1);
-        }
-    } @catch (__unused NSException *e) {}
-    if (floatMotion || (tick % 5) == 0) PMSBForceMainDisplayHighMode();
+    // Mode pin is heavier; ~4Hz is enough alongside per-frame vote.
+    if ((tick % 30) == 0) PMSBForceMainDisplayHighMode();
 }
 @end
 
@@ -220,19 +207,7 @@ static void PMSBKeepAliveEvaluate(void) {
     // drops float UI to 60Hz or the 10Hz idle floor. Keep render proof alive
     // while any floating window is visible.
     BOOL floatVisible = PMFloatAnyFloatingWindowVisible();
-    // Plugin-process float zoom posts Darwin motion-hold; SB must keep dirty
-    // proof for the whole animation even when float windows are not in SB.
-    BOOL floatMotionHold = NO;
-    @try {
-        static int motionToken = -1;
-        if (motionToken < 0) notify_register_check("com.doimty.pm120.float.motionhold", &motionToken);
-        if (motionToken >= 0) {
-            uint64_t st = 0;
-            notify_get_state(motionToken, &st);
-            floatMotionHold = (st == 1);
-        }
-    } @catch (__unused NSException *e) {}
-    if (floatVisible || floatMotionHold) positive = YES;
+    if (floatVisible) positive = YES;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (positive) {
         // Hold 2s past last positive so frontmost nil / brief transitions don't pause mid-scroll.
@@ -294,7 +269,7 @@ static void PMSBInstallKeepAliveLink(void) {
 
         PMSBDirtyLayer = [CALayer layer];
         PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
-        PMSBDirtyLayer.opacity           = 0.02f;
+        PMSBDirtyLayer.opacity           = 0.12f;
         PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
         PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
@@ -311,33 +286,6 @@ static void PMSBInstallKeepAliveLink(void) {
             PMSBKeepAliveEvaluate();
         }];
         [[NSRunLoop mainRunLoop] addTimer:PMSBKeepAliveEvalTimer forMode:NSRunLoopCommonModes];
-        // Instant wake on plugin zoom/shrink. 0.15s timer alone misses the first
-        // frames of float motion → whole animation locks 60 until settle.
-        static int motionHoldDispatchToken = -1;
-        if (motionHoldDispatchToken < 0) {
-            notify_register_dispatch("com.doimty.pm120.float.motionhold",
-                                     &motionHoldDispatchToken,
-                                     dispatch_get_main_queue(),
-                                     ^(__unused int t) {
-                uint64_t st = 0;
-                notify_get_state(t, &st);
-                if (st == 1) {
-                    PMSBKeepAliveHoldUntil = CFAbsoluteTimeGetCurrent() + 6.0;
-                    PMSBKeepAliveNeeded = YES;
-                    if (PMSBKeepAliveLink) {
-                        PMSBKeepAliveLink.paused = NO;
-                        PMSBKeepAliveApplyLinkRange();
-                    }
-                    if (PMSBKeepAliveWindow) {
-                        PMSBKeepAliveAttachScene();
-                        PMSBKeepAliveWindow.hidden = NO;
-                    }
-                    PMSBForceMainDisplayHighMode();
-                    PMGlobalSBApplyForced(@"float.motionhold.notify");
-                }
-                PMSBKeepAliveEvaluate();
-            });
-        }
         PMSBKeepAliveEvaluate();
     } @catch (__unused NSException *e) {}
 }

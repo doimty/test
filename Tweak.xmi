@@ -10,10 +10,8 @@
 
 #define TWEAK_NAME @"ProMotion120"
 #define TARGET_FPS 120
-// Diagnostic disk probes permanently off in release path (1.0.27 watchdog lesson).
-#define PM_SCOPEPROBE_VERSION @"1.0.33-kaB"
+#define PM_SCOPEPROBE_VERSION @"1.0.34-rollback24"
 #define PM_ENABLE_DIAGNOSTIC_PROBES 0
-#define PM_ENABLE_FLOAT_ZOOM_PROBE 0
 
 #ifndef __IPHONE_15_0
 typedef struct {

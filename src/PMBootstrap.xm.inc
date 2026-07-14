@@ -5,10 +5,6 @@
             // Dynamic source protection for ALL processes
             PMInstallDynamicSourceHooks();
             if (PMIsTargetProcess()) {
-#if PM_ENABLE_FLOAT_ZOOM_PROBE
-                PMFloatProbeInjectedCount += 1;
-                PMFloatWriteState(@"ctor.injected.sb", @"com.apple.springboard", YES);
-#endif
                 PMInstallHooks();
                 PMHookContextMenuInteractionIfAvailable();
                 PMHookEditMenuInteractionIfAvailable();
@@ -31,9 +27,6 @@
                     }
                 } @catch (__unused NSException *e) {}
                 PMFloatProbeInjectedCount += 1;
-#if PM_ENABLE_FLOAT_ZOOM_PROBE
-                PMFloatWriteState(@"ctor.injected", PMBundleID() ?: @"", YES);
-#endif
                 // Initialize persistent 120Hz source after main display is ready
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     PMAppEnsurePersistentSource();

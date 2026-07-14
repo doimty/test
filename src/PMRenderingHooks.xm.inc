@@ -8,15 +8,13 @@
     if (PMIsTargetProcess()) {
         PMJankRecordDisplayLinkTarget(PMClassName(target));
     }
-    if (PMFloatFeatureEnabled()) {
+    if (!PMIsTargetProcess()) {
         PMFloatDisplayLinkCreateCount += 1;
         PMFloatLastDisplayLinkTargetClass = [PMClassName(target) copy];
         if (link && PMFloatLastDisplayLinkTargetClass) {
             @try { objc_setAssociatedObject(link, PMFloatDisplayLinkTargetClassKey, PMFloatLastDisplayLinkTargetClass, OBJC_ASSOCIATION_COPY_NONATOMIC); } @catch (__unused NSException *e) {}
         }
-        // In-process animation manager often drives float zoom. Arm on SB + plugin.
-        if (PMFloatTargetIsInProcessAnimationManager(PMFloatLastDisplayLinkTargetClass) &&
-            (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
+        if (PMFloatTargetIsInProcessAnimationManager(PMFloatLastDisplayLinkTargetClass) && PMFloatAnyFloatingWindowVisible()) {
             PMFloatPreArmInProcessManagerCount += 1;
             PMFloatPreArm(@"CADisplayLink.UIViewInProcessAnimationManager");
         }
@@ -29,11 +27,10 @@
 }
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
-    if (PMFloatFeatureEnabled()) {
+    if (!PMIsTargetProcess()) {
         PMFloatDisplayLinkRangeSetCount += 1;
         PMFloatRecordRange(@"CADisplayLink.setPreferredFrameRateRange", range);
-        if ((PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed()) &&
-            ((range.preferred > 0 && range.preferred < TARGET_FPS) || (range.maximum > 0 && range.maximum < TARGET_FPS))) {
+        if (PMFloatAnyFloatingWindowVisible() && ((range.preferred > 0 && range.preferred < TARGET_FPS) || (range.maximum > 0 && range.maximum < TARGET_FPS))) {
             PMFloatPreArmLowFPSCount += 1;
             PMFloatPreArm(@"CADisplayLink.lowRange");
         }

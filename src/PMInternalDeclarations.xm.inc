@@ -11,16 +11,12 @@ static void PMGlobalSBApply(NSString *reason);
 static void PMGlobalSBApplyForced(NSString *reason);
 static void PMSBForceMainDisplayHighMode(void);
 static void PMSBKeepAliveApplyLinkRange(void);
-static void PMSBKeepAliveEvaluate(void);
 
 // App-process persistent source.
 static void PMAppEnsurePersistentSource(void);
 static void PMAppRefreshPersistentSource(void);
-static void PMAppRefreshPersistentSourceForced(void);
 
 // Floating-window arming (used from keepalive / UIKit hooks).
 static BOOL PMFloatFeatureEnabled(void);
 static BOOL PMFloatAnyFloatingWindowVisible(void);
 static void PMFloatArm(NSString *event);
-static void PMFloatArmGeometry(NSString *event);
-static void PMFloatReassertAfterGeometry(NSString *event);
