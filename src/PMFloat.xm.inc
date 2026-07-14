@@ -228,11 +228,16 @@ static void PMFloatCaptureWindowInfoForView(UIView *view) {
 }
 
 static void PMFloatRecordRange(NSString *event, CAFrameRateRange range) {
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    (void)event; (void)range;
+    return;
+#else
     if (!PMFloatFeatureEnabled()) return;
     PMFloatLastRangeMinimum = range.minimum;
     PMFloatLastRangePreferred = range.preferred;
     PMFloatLastRangeMaximum = range.maximum;
     PMFloatWriteState(event, @"range", NO);
+#endif
 }
 
 static BOOL PMFloatIsArmed(void) {
@@ -312,17 +317,20 @@ static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
     @try {
         // Single-owner: no Float DynamicSource. SB re-applies Global;
         // injected apps re-apply App persistent source.
+        // preferredMode pin stays on keepalive only (sparse) — do not dual-pin from float.
         if (PMIsTargetProcess()) {
-            // Forced: resize/zoom must not wait on 0.20s throttled Global apply.
             PMGlobalSBApplyForced(event ?: @"float.reapply");
-            PMSBForceMainDisplayHighMode();
         } else {
             PMAppEnsurePersistentSource();
             PMAppRefreshPersistentSource();
         }
-        PMFloatSourceApplyCount += 1;
         PMFloatLastSourceApplyAt = now;
+#if PM_ENABLE_DIAGNOSTIC_PROBES
+        PMFloatSourceApplyCount += 1;
         PMFloatWriteState(@"floatSource.apply", event ?: @"", NO);
+#else
+        (void)event;
+#endif
     } @catch (__unused NSException *e) {
     }
 }
@@ -348,10 +356,12 @@ static void PMFloatArm(NSString *event) {
 
 static void PMFloatArmForWindow(UIWindow *window, NSString *event) {
     if (!PMFloatShouldArmForWindow(window)) return;
+#if PM_ENABLE_DIAGNOSTIC_PROBES
     if (window) {
         PMFloatLastWindowClass = [PMClassName(window) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(window.rootViewController) copy];
     }
+#endif
     PMFloatArm(event);
 }
 
@@ -390,12 +400,16 @@ static BOOL PMFloatWindowLooksLikeStatusShrinkWindow(UIWindow *window) {
 
 static void PMFloatPreArm(NSString *reason) {
     if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
+#if PM_ENABLE_DIAGNOSTIC_PROBES
     PMFloatLastPreArmReason = [reason copy] ?: @"";
+#endif
     BOOL alreadyArmed = PMFloatIsArmed() && PMFloatWindowConfirmed;
     PMFloatWindowConfirmed = YES;
     PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
     PMFloatApplyDisplayFrameRateSource(reason ?: @"prearm");
+#if PM_ENABLE_DIAGNOSTIC_PROBES
     PMFloatWriteState(@"floatPreArm", reason ?: @"", YES);
+#endif
     if (alreadyArmed) return;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
@@ -440,7 +454,11 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
     }
     // Single-owner model: Float never owned a DynamicSource.
     // Only clear float eligibility state. Global/App sources stay managed.
+#if PM_ENABLE_DIAGNOSTIC_PROBES
     PMFloatSourceReleaseCount += 1;
+#endif
     PMFloatWindowConfirmed = NO;
+#if PM_ENABLE_DIAGNOSTIC_PROBES
     PMFloatWriteState(@"floatSource.release", @"expired", YES);
+#endif
 }

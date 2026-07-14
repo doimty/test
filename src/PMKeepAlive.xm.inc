@@ -81,8 +81,9 @@ static CGColorRef PMSBDirtyColorB = NULL;
 // when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
 
 static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
-// 1.0.35-off1 experiment: host OFFSCREEN (user requested try). 1.0.32 previously
-// dropped SB ~18Hz on this device — keep DisplayLink+Global+mode pin; no visible strip.
+// Pinned host: offscreen 1x1 (no visible top strip). Keepalive demand =
+// DisplayLink range + Global DynamicSource + sparse preferredMode pin.
+// Only valid on 24-float baseline (do not recombine with 25/26 float thrash).
 static const CGFloat PMSBKeepAliveStripH = 1.0;
 static const CGFloat PMSBKeepAliveOffX = -20.0;
 static const CGFloat PMSBKeepAliveOffY = -20.0;
@@ -259,9 +260,8 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // EXPERIMENT 1.0.35-off1: offscreen 1x1 host (no visible top strip).
-        // Demand relies on CADisplayLink range + Global DynamicSource + mode pin.
-        // If SB drops ~18Hz again, roll back to 1.0.34 on-screen strip.
+        // Offscreen 1x1 host (no visible top strip). Demand = DisplayLink +
+        // Global DynamicSource + sparse mode pin on 24-float baseline.
         PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(PMSBKeepAliveOffX, PMSBKeepAliveOffY, PMSBKeepAliveStripH, PMSBKeepAliveStripH)];
         PMSBKeepAliveAttachScene();
         PMSBKeepAliveWindow.windowLevel              = -9999.0; // intentionally out of visible stack

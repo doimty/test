@@ -72,6 +72,9 @@
 
 - (void)layoutSubviews {
     %orig;
+#if !PM_ENABLE_DIAGNOSTIC_PROBES
+    return;
+#endif
     if (PMIsTargetProcess()) PMJankRecordListView((UIView *)self, @"UITableView.layoutSubviews", NO);
 }
 
@@ -140,8 +143,6 @@
 
 - (void)setWindowLevel:(UIWindowLevel)level {
     if (level >= 1000 && level < 2000 && PMFloatFeatureEnabled()) {
-        NSString *winClass = PMClassName(self);
-        PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
         if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
         PMFloatArm(@"windowLevel.menu");
     }
