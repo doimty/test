@@ -84,7 +84,7 @@ static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive n
 // User rejects any on-screen keepalive UIWindow. Keep 1x1 off-screen only.
 static const CGFloat PMSBKeepAliveStripH = 1.0;
 
-static void PMSBKeepAliveAttachScene(void) {
+__attribute__((unused)) static void PMSBKeepAliveAttachScene(void) {
     if (!PMSBKeepAliveWindow) return;
     @try {
         // iOS 13+: unattached UIWindow may never commit; pin to any live SB scene.
