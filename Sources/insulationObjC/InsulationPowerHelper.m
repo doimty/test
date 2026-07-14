@@ -428,7 +428,9 @@ static void InsulationExecutePuppetEventLocked(NSString *source) {
         InsulationIsApplying = YES;
         @try {
             InsulationReloadPreferences();
+            // activeSource is always retained for coalesce trailing apply; probe may be compiled out.
             InsulationProbeRecordApply(InsulationPowerMode(), insulationFullPowerBootGuardActive(), activeSource);
+            (void)activeSource;
 
             CommonProduct *product = InsulationCommonProductSnapshot();
             if (InsulationThermalDimmingBypassActive()) {
