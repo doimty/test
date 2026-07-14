@@ -82,7 +82,8 @@
 
 - (void)setFrame:(CGRect)frame {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    // Float windows often live in SpringBoard; arm on SB + floating-view package.
+    if (PMFloatFeatureEnabled()) {
         @try {
             if (PMFloatWindowLooksLikeStatusShrinkWindow((UIWindow *)self) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
                 PMFloatPreArm(@"UIWindow.statusBar.smallFrame");
@@ -93,7 +94,7 @@
     %orig;
     return;
 #endif
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatWindowSetFrameCount += 1;
         PMFloatLastWindowClass = [PMClassName(self) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
@@ -110,13 +111,13 @@
 
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         @try { PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatWindowSetBoundsCount += 1;
         PMFloatLastWindowClass = [PMClassName(self) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(self.rootViewController) copy];
@@ -129,19 +130,19 @@
 
 - (void)makeKeyAndVisible {
     if (!PMIsTargetProcess()) {
-        // App process only (this branch is !SpringBoard).
         PMAppRefreshPersistentSource();
-        // Float arm is no-op unless floating package/window is present.
+    }
+    if (PMFloatFeatureEnabled()) {
         PMFloatArmForWindow((UIWindow *)self, @"window.makeKeyAndVisible");
     }
     %orig;
 }
 
 - (void)setWindowLevel:(UIWindowLevel)level {
-    if (level >= 1000 && level < 2000 && !PMIsTargetProcess()) {
+    if (level >= 1000 && level < 2000 && PMFloatFeatureEnabled()) {
         NSString *winClass = PMClassName(self);
         PMFloatWriteState([NSString stringWithFormat:@"windowLevel=%.0f", (float)level], winClass ?: @"", YES);
-        PMAppRefreshPersistentSource();
+        if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
         PMFloatArm(@"windowLevel.menu");
     }
     %orig;
@@ -153,7 +154,7 @@
 
 - (void)setFrame:(CGRect)frame {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         @try {
             if (PMFloatWindowLooksLikeStatusShrinkWindow(((UIView *)self).window) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
                 PMFloatPreArm(@"UIView.statusBar.smallFrame");
@@ -165,7 +166,7 @@
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setFrame", frame, NO);
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatViewSetFrameCount += 1;
         PMFloatLastViewClass = [PMClassName(self) copy];
         PMFloatLastFrame = frame;
@@ -184,14 +185,14 @@
 
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         @try { PMFloatArmForView((UIView *)self, @"UIView.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setBounds", bounds, YES);
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatViewSetBoundsCount += 1;
         PMFloatLastViewClass = [PMClassName(self) copy];
         PMFloatLastBounds = bounds;
@@ -264,19 +265,33 @@
 - (void)startAnimation {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+    // Resize/zoom float windows commonly use property animators in SB.
+    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
+        PMFloatArm(@"UIViewPropertyAnimator.startAnimation");
+    }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimation");
+    if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
+        PMFloatArm(@"UIViewPropertyAnimator.startAnimation");
+    }
     %orig;
 }
 
 - (void)startAnimationAfterDelay:(NSTimeInterval)delay {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
+    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
+        PMFloatArm(@"UIViewPropertyAnimator.startAnimationAfterDelay");
+    }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimationAfterDelay");
+    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
+        PMFloatArm(@"UIViewPropertyAnimator.startAnimationAfterDelay");
+    }
     %orig;
 }
 
@@ -289,7 +304,7 @@
         PMApplyToCAObject(animation, NO, NO);
     }
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         @try {
             NSString *floatKey = [key copy] ?: @"";
             if (PMFloatAnyFloatingWindowVisible() && ([floatKey isEqualToString:@"opacity"] || [floatKey containsString:@"position"] || [floatKey containsString:@"bounds"] || [floatKey containsString:@"transform"])) {
@@ -303,7 +318,7 @@
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerAnimation((CALayer *)self, animation, key);
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatLayerAddAnimationCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatLastAnimationClass = [PMClassName(animation) copy];
@@ -320,14 +335,14 @@
 
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setBounds");
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatLayerSetBoundsCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatLastBounds = bounds;
@@ -339,14 +354,14 @@
 
 - (void)setPosition:(CGPoint)position {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setPosition");
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatLayerSetPositionCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatLastPosition = position;
@@ -358,14 +373,14 @@
 
 - (void)setTransform:(CATransform3D)transform {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform"); } @catch (__unused NSException *e) {}
     }
     %orig;
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setTransform");
-    if (!PMIsTargetProcess()) {
+    if (PMFloatFeatureEnabled()) {
         PMFloatLayerSetTransformCount += 1;
         PMFloatLastLayerClass = [PMClassName(self) copy];
         PMFloatWriteState(@"CALayer.setTransform", PMFloatLastLayerClass ?: @"", NO);

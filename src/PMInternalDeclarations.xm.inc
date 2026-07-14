@@ -9,6 +9,7 @@ static void PMFPSRecordGlobalApply(NSString *event, NSString *reason);
 // SpringBoard global source and blocked-app keepalive.
 static void PMGlobalSBApply(NSString *reason);
 static void PMGlobalSBApplyForced(NSString *reason);
+static void PMSBForceMainDisplayHighMode(void);
 static void PMSBKeepAliveApplyLinkRange(void);
 
 // App-process persistent source.

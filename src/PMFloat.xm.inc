@@ -307,12 +307,15 @@ static void PMFloatReleaseIfExpired(NSUInteger session);
 static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
     if (!PMFloatIsEligibleNow()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.10) return;
+    // Geometry/transform bursts need sub-frame re-votes; keep a very short floor only.
+    if (PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.016) return;
     @try {
         // Single-owner: no Float DynamicSource. SB re-applies Global;
         // injected apps re-apply App persistent source.
         if (PMIsTargetProcess()) {
-            PMGlobalSBApply(event ?: @"float.reapply");
+            // Forced: resize/zoom must not wait on 0.20s throttled Global apply.
+            PMGlobalSBApplyForced(event ?: @"float.reapply");
+            PMSBForceMainDisplayHighMode();
         } else {
             PMAppEnsurePersistentSource();
             PMAppRefreshPersistentSource();
@@ -329,12 +332,15 @@ static void PMFloatArm(NSString *event) {
     // Menu/alert hooks in ordinary apps must not stack a second DynamicSource on
     // top of PMAppPersistentFrameRateSource.
     if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
+    BOOL alreadyArmed = PMFloatIsArmed() && PMFloatWindowConfirmed;
     PMFloatWindowConfirmed = YES;
-    PMFloatSession += 1;
-    NSUInteger session = PMFloatSession;
-    // Hold longer while float UI is live; expire path re-arms if still visible.
+    // Resize/zoom fires geometry hooks every frame. Extend hold + re-vote only;
+    // do not spin a new expire session each mutation.
     PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
     PMFloatApplyDisplayFrameRateSource(event);
+    if (alreadyArmed) return;
+    PMFloatSession += 1;
+    NSUInteger session = PMFloatSession;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.00 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         PMFloatReleaseIfExpired(session);
     });
@@ -385,12 +391,14 @@ static BOOL PMFloatWindowLooksLikeStatusShrinkWindow(UIWindow *window) {
 static void PMFloatPreArm(NSString *reason) {
     if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
     PMFloatLastPreArmReason = [reason copy] ?: @"";
+    BOOL alreadyArmed = PMFloatIsArmed() && PMFloatWindowConfirmed;
     PMFloatWindowConfirmed = YES;
-    PMFloatSession += 1;
-    NSUInteger session = PMFloatSession;
     PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
     PMFloatApplyDisplayFrameRateSource(reason ?: @"prearm");
     PMFloatWriteState(@"floatPreArm", reason ?: @"", YES);
+    if (alreadyArmed) return;
+    PMFloatSession += 1;
+    NSUInteger session = PMFloatSession;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.00 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         PMFloatReleaseIfExpired(session);
     });
