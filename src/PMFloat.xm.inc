@@ -1,10 +1,29 @@
-#define PM_FLOAT_PROBE_TARGET_PACKAGE @"com.be-huge.floating-view"
-#define PM_FLOAT_PROBE_SPRINGBOARD_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.springboard.plist"
-#define PM_FLOAT_PROBE_PLUGIN_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.be-huge.floating-view.plist"
-#define PM_FLOAT_PROBE_WECHAT_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.com.tencent.xin.plist"
-#define PM_FLOAT_PROBE_FILZA_LOG_PATH @"/var/mobile/Library/Preferences/com.promotion120.scopeprobe.filza.plist"
+// Float window / menu 120Hz support.
+// Scope: SpringBoard + com.be-huge.floating-view only.
+// No disk probes. Plugin publishes Darwin motion-hold; SB owns dirty keepalive.
+
+#define PM_FLOAT_HOST_PACKAGE @"com.be-huge.floating-view"
+#define PM_FLOAT_MOTION_HOLD_NOTIFY "com.doimty.pm120.float.motionhold"
 
 static BOOL PMFloatWindowConfirmed = NO;
+static CFAbsoluteTime PMFloatArmUntil = 0;
+static NSUInteger PMFloatSession = 0;
+static BOOL PMFloatVisibleCache = NO;
+static CFAbsoluteTime PMFloatVisibleCacheAt = 0;
+static CFAbsoluteTime PMFloatLastSourceApplyAt = 0;
+
+// Retained for optional last-class notes in arm helpers (no I/O).
+static NSString *PMFloatLastWindowClass = nil;
+static NSString *PMFloatLastRootViewControllerClass = nil;
+
+static CADisplayLink *PMFloatMotionHoldLink = nil;
+static CALayer *PMFloatMotionHoldLayer = nil;
+static UIWindow *PMFloatMotionHoldWindow = nil;
+static BOOL PMFloatMotionHoldActive = NO;
+static int PMFloatMotionHoldNotifyToken = -1;
+static int PMFloatMotionHoldSBToken = -1;
+
+// Compat names used by older hook call sites (no probe I/O).
 static NSUInteger PMFloatProbeInjectedCount = 0;
 static NSUInteger PMFloatWindowSetFrameCount = 0;
 static NSUInteger PMFloatWindowSetBoundsCount = 0;
@@ -22,13 +41,8 @@ static NSUInteger PMFloatDisplayLinkFrameIntervalSetCount = 0;
 static NSUInteger PMFloatPreArmLowFPSCount = 0;
 static NSUInteger PMFloatPreArmInProcessManagerCount = 0;
 static NSUInteger PMFloatSmallStatusBarArmCount = 0;
-// Counters retained for the disabled probe schema; Float owns no DynamicSource.
 static NSUInteger PMFloatSourceApplyCount = 0;
 static NSUInteger PMFloatSourceReleaseCount = 0;
-static NSString *PMFloatLastEvent = nil;
-static NSString *PMFloatLastNote = nil;
-static NSString *PMFloatLastWindowClass = nil;
-static NSString *PMFloatLastRootViewControllerClass = nil;
 static NSString *PMFloatLastViewClass = nil;
 static NSString *PMFloatLastLayerClass = nil;
 static NSString *PMFloatLastAnimationClass = nil;
@@ -43,230 +57,29 @@ static NSInteger PMFloatLastFrameInterval = 0;
 static CGRect PMFloatLastFrame = {{0, 0}, {0, 0}};
 static CGRect PMFloatLastBounds = {{0, 0}, {0, 0}};
 static CGPoint PMFloatLastPosition = {0, 0};
-static CFAbsoluteTime PMFloatLastWriteTime __attribute__((unused)) = 0;
-
-static CFAbsoluteTime PMFloatArmUntil = 0;
-static NSUInteger PMFloatSession = 0;
-static BOOL PMFloatVisibleCache = NO;
-static CFAbsoluteTime PMFloatVisibleCacheAt = 0;
-static CFAbsoluteTime PMFloatLastSourceApplyAt = 0;
 static const void *PMFloatDisplayLinkTargetClassKey = &PMFloatDisplayLinkTargetClassKey;
 
+// Legacy alias so older includes keep compiling if they reference the probe package name.
+#ifndef PM_FLOAT_PROBE_TARGET_PACKAGE
+#define PM_FLOAT_PROBE_TARGET_PACKAGE PM_FLOAT_HOST_PACKAGE
+#endif
+
 static BOOL PMFloatFeatureEnabled(void) {
-    // Cached: bundle ID never changes within a process.
     static int cachedResult = -1;
     if (cachedResult < 0) {
         NSString *bundleID = PMBundleID();
         cachedResult = ([bundleID isEqualToString:@"com.apple.springboard"]
-            || [bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE]) ? 1 : 0;
+            || [bundleID isEqualToString:PM_FLOAT_HOST_PACKAGE]) ? 1 : 0;
     }
     return cachedResult == 1;
 }
 
-static NSString *PMFloatProbeLogPath(void) {
-    NSString *bundleID = PMBundleID();
-    if ([bundleID isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE]) return PM_FLOAT_PROBE_PLUGIN_LOG_PATH;
-    if ([bundleID isEqualToString:@"com.tencent.xin"]) return PM_FLOAT_PROBE_WECHAT_LOG_PATH;
-    if ([bundleID containsString:@"filza"] || [bundleID containsString:@"Filza"]) return PM_FLOAT_PROBE_FILZA_LOG_PATH;
-    return PM_FLOAT_PROBE_SPRINGBOARD_LOG_PATH;
-}
-
-static NSDictionary *PMFloatRectDict(CGRect rect) {
-    return @{
-        @"x": @(rect.origin.x),
-        @"y": @(rect.origin.y),
-        @"width": @(rect.size.width),
-        @"height": @(rect.size.height)
-    };
-}
-
-__attribute__((unused)) static NSDictionary *PMFloatPointDict(CGPoint point) {
-    return @{
-        @"x": @(point.x),
-        @"y": @(point.y)
-    };
-}
-
-__attribute__((unused)) static NSArray *PMFloatWindowSummary(void) {
-    if (!PMFloatFeatureEnabled()) return @[];
-    NSMutableArray *summary = [NSMutableArray array];
-    @try {
-        Class UIApplicationClass = NSClassFromString(@"UIApplication");
-        if (!UIApplicationClass || ![UIApplicationClass respondsToSelector:@selector(sharedApplication)]) return summary;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        UIApplication *app = [UIApplicationClass performSelector:@selector(sharedApplication)];
-#pragma clang diagnostic pop
-        if (!app || ![app respondsToSelector:@selector(windows)]) return summary;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        NSArray *windows = [app performSelector:@selector(windows)];
-#pragma clang diagnostic pop
-        NSUInteger index = 0;
-        for (UIWindow *window in windows) {
-            if (index >= 16) break;
-            UIViewController *root = nil;
-            if ([window respondsToSelector:@selector(rootViewController)]) root = window.rootViewController;
-            [summary addObject:@{
-                @"index": @(index),
-                @"windowClass": PMClassName(window),
-                @"rootViewControllerClass": PMClassName(root),
-                @"hidden": @([window isHidden]),
-                @"alpha": @([window alpha]),
-                @"level": @([window windowLevel]),
-                @"frame": PMFloatRectDict([window frame]),
-                @"bounds": PMFloatRectDict([window bounds])
-            }];
-            index += 1;
-        }
-    } @catch (__unused NSException *e) {
-    }
-    return summary;
-}
-
-__attribute__((unused)) static NSMutableDictionary *PMFloatLoadRoot(void) {
-    NSMutableDictionary *root = [NSMutableDictionary dictionaryWithContentsOfFile:PMFloatProbeLogPath()];
-    if (!root) root = [NSMutableDictionary dictionary];
-    root[@"version"] = PM_SCOPEPROBE_VERSION;
-    root[@"targetPackage"] = PM_FLOAT_PROBE_TARGET_PACKAGE;
-    root[@"bundleID"] = PMBundleID();
-    root[@"pid"] = @([[NSProcessInfo processInfo] processIdentifier]);
-    root[@"lastWrite"] = [[NSDate date] description];
-    return root;
-}
-
-#if PM_ENABLE_FLOAT_ZOOM_PROBE || PM_ENABLE_DIAGNOSTIC_PROBES
-static uint64_t PMFloatReadMotionHoldNotifyState(void) {
-    static int token = -1;
-    @try {
-        if (token < 0) notify_register_check("com.doimty.pm120.float.motionhold", &token);
-        if (token < 0) return 0;
-        uint64_t st = 0;
-        notify_get_state(token, &st);
-        return st;
-    } @catch (__unused NSException *e) {
-        return 0;
-    }
-}
-
-// Shared snapshot writer used by full diagnostic probes and the zoom-only probe.
-// WARNING: never call from hot UIView.setFrame paths without heavy throttling.
-// 1.0.27 zoomprobe1 wrote too often and tripped respring/watchdog.
-static void PMFloatWriteStateSnapshot(NSString *event, NSString *note, BOOL includeWindows) {
-    if (!PMFloatFeatureEnabled()) return;
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    PMFloatLastWriteTime = now;
-    PMFloatLastEvent = [event copy] ?: @"";
-    PMFloatLastNote = [note copy] ?: @"";
-    @synchronized([NSUserDefaults class]) {
-        NSMutableDictionary *root = PMFloatLoadRoot();
-        NSMutableDictionary *state = [NSMutableDictionary dictionary];
-        state[@"event"] = PMFloatLastEvent ?: @"";
-        state[@"note"] = PMFloatLastNote ?: @"";
-        state[@"timestamp"] = [[NSDate date] description];
-        state[@"probeMode"] = PM_ENABLE_FLOAT_ZOOM_PROBE ? @"zoomprobe1" : @"full";
-        state[@"lastWindowClass"] = PMFloatLastWindowClass ?: @"";
-        state[@"lastRootViewControllerClass"] = PMFloatLastRootViewControllerClass ?: @"";
-        state[@"lastViewClass"] = PMFloatLastViewClass ?: @"";
-        state[@"lastLayerClass"] = PMFloatLastLayerClass ?: @"";
-        state[@"lastAnimationClass"] = PMFloatLastAnimationClass ?: @"";
-        state[@"lastAnimationKey"] = PMFloatLastAnimationKey ?: @"";
-        state[@"lastDisplayLinkTargetClass"] = PMFloatLastDisplayLinkTargetClass ?: @"";
-        state[@"lastPreArmReason"] = PMFloatLastPreArmReason ?: @"";
-        state[@"lastFrame"] = PMFloatRectDict(PMFloatLastFrame);
-        state[@"lastBounds"] = PMFloatRectDict(PMFloatLastBounds);
-        state[@"lastPosition"] = PMFloatPointDict(PMFloatLastPosition);
-        state[@"lastRange"] = @{
-            @"minimum": @(PMFloatLastRangeMinimum),
-            @"preferred": @(PMFloatLastRangePreferred),
-            @"maximum": @(PMFloatLastRangeMaximum)
-        };
-        state[@"lastPreferredFPS"] = @(PMFloatLastPreferredFPS);
-        state[@"lastFrameInterval"] = @(PMFloatLastFrameInterval);
-        state[@"sourceActive"] = @NO;
-        state[@"windowConfirmed"] = @(PMFloatWindowConfirmed);
-        state[@"armUntil"] = @(PMFloatArmUntil);
-        state[@"armedNow"] = @((PMFloatArmUntil > 0) && (now < PMFloatArmUntil));
-        state[@"motionHoldNotify"] = @(PMFloatReadMotionHoldNotifyState());
-        state[@"counts"] = @{
-            @"injected": @(PMFloatProbeInjectedCount),
-            @"windowSetFrame": @(PMFloatWindowSetFrameCount),
-            @"windowSetBounds": @(PMFloatWindowSetBoundsCount),
-            @"viewSetFrame": @(PMFloatViewSetFrameCount),
-            @"viewSetBounds": @(PMFloatViewSetBoundsCount),
-            @"layerSetBounds": @(PMFloatLayerSetBoundsCount),
-            @"layerSetPosition": @(PMFloatLayerSetPositionCount),
-            @"layerSetTransform": @(PMFloatLayerSetTransformCount),
-            @"layerAddAnimation": @(PMFloatLayerAddAnimationCount),
-            @"animationRangeSet": @(PMFloatAnimationRangeSetCount),
-            @"displayLinkCreate": @(PMFloatDisplayLinkCreateCount),
-            @"displayLinkRangeSet": @(PMFloatDisplayLinkRangeSetCount),
-            @"displayLinkFPSSet": @(PMFloatDisplayLinkFPSSetCount),
-            @"displayLinkFrameIntervalSet": @(PMFloatDisplayLinkFrameIntervalSetCount),
-            @"preArmLowFPS": @(PMFloatPreArmLowFPSCount),
-            @"preArmInProcessManager": @(PMFloatPreArmInProcessManagerCount),
-            @"smallStatusBarArm": @(PMFloatSmallStatusBarArmCount),
-            @"sourceCreate": @0,
-            @"sourceApply": @(PMFloatSourceApplyCount),
-            @"sourceRelease": @(PMFloatSourceReleaseCount)
-        };
-        if (includeWindows) state[@"windows"] = PMFloatWindowSummary();
-        root[@"state"] = state;
-        [root writeToFile:PMFloatProbeLogPath() atomically:YES];
-    }
-}
-#endif
-
 static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
-#if !(PM_ENABLE_FLOAT_ZOOM_PROBE || PM_ENABLE_DIAGNOSTIC_PROBES)
     (void)event; (void)note; (void)force;
-    return;
-#elif PM_ENABLE_FLOAT_ZOOM_PROBE
-    // Focused zoom probe: SB + floating-view only, throttled disk writes.
-    if (!PMFloatFeatureEnabled()) return;
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (!force && PMFloatLastWriteTime > 0 && (now - PMFloatLastWriteTime) < 0.12) return;
-    @try {
-        PMFloatWriteStateSnapshot(event, note, force);
-    } @catch (__unused NSException *e) {}
-#else
-    // Full diagnostic path (menu/edit limited) — kept for future WeChat work.
-    if (!PMFloatFeatureEnabled()) return;
-    if (!force && ![event containsString:@"editMenu"]
-        && ![event containsString:@"menu"]
-        && ![event containsString:@"popover"]
-        && ![event containsString:@"EditMenu"]
-        && ![event containsString:@"Menu"]
-        && ![event containsString:@"Popover"]) return;
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (!force && PMFloatLastWriteTime > 0 && (now - PMFloatLastWriteTime) < 0.20) return;
-    @try {
-        PMFloatWriteStateSnapshot(event, note, YES);
-    } @catch (__unused NSException *e) {}
-#endif
 }
 
-// Always-safe counter bump for float geometry hooks when full diagnostic branch is off.
 static void PMFloatProbeNoteGeometry(NSString *kind, NSString *cls) {
-#if PM_ENABLE_FLOAT_ZOOM_PROBE
-    if (!PMFloatFeatureEnabled()) return;
-    if ([kind containsString:@"UIWindow.setFrame"]) PMFloatWindowSetFrameCount += 1;
-    else if ([kind containsString:@"UIWindow.setBounds"]) PMFloatWindowSetBoundsCount += 1;
-    else if ([kind containsString:@"UIView.setFrame"]) PMFloatViewSetFrameCount += 1;
-    else if ([kind containsString:@"UIView.setBounds"]) PMFloatViewSetBoundsCount += 1;
-    else if ([kind containsString:@"CALayer.setBounds"]) PMFloatLayerSetBoundsCount += 1;
-    else if ([kind containsString:@"CALayer.setPosition"]) PMFloatLayerSetPositionCount += 1;
-    else if ([kind containsString:@"CALayer.setTransform"]) PMFloatLayerSetTransformCount += 1;
-    else if ([kind containsString:@"CALayer.addAnimation"]) PMFloatLayerAddAnimationCount += 1;
-    if (cls.length) {
-        if ([kind containsString:@"UIWindow"]) PMFloatLastWindowClass = [cls copy];
-        else if ([kind containsString:@"UIView"]) PMFloatLastViewClass = [cls copy];
-        else if ([kind containsString:@"CALayer"]) PMFloatLastLayerClass = [cls copy];
-    }
-    PMFloatWriteState(kind, cls ?: @"", NO);
-#else
     (void)kind; (void)cls;
-#endif
 }
 
 static void PMFloatCaptureWindowInfoForView(UIView *view) {
@@ -282,11 +95,11 @@ static void PMFloatCaptureWindowInfoForView(UIView *view) {
 }
 
 static void PMFloatRecordRange(NSString *event, CAFrameRateRange range) {
+    (void)event;
     if (!PMFloatFeatureEnabled()) return;
     PMFloatLastRangeMinimum = range.minimum;
     PMFloatLastRangePreferred = range.preferred;
     PMFloatLastRangeMaximum = range.maximum;
-    PMFloatWriteState(event, @"range", NO);
 }
 
 static BOOL PMFloatIsArmed(void) {
@@ -299,22 +112,23 @@ static BOOL PMFloatIsEligibleNow(void) {
 
 static BOOL PMStringHasFloatingViewMarker(NSString *name) {
     if (!name || name.length == 0) return NO;
-    return [name containsString:@"floatingView."] || [name containsString:@"FVWindow"] || [name containsString:@"FVViewController"] || [name containsString:@"FVFrontConsole"];
+    return [name containsString:@"floatingView."]
+        || [name containsString:@"FVWindow"]
+        || [name containsString:@"FVViewController"]
+        || [name containsString:@"FVFrontConsole"];
 }
 
 static BOOL PMFloatIsPluginProcess(void) {
     static int cached = -1;
     if (cached < 0) {
-        cached = [PMBundleID() isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE] ? 1 : 0;
+        cached = [PMBundleID() isEqualToString:PM_FLOAT_HOST_PACKAGE] ? 1 : 0;
     }
     return cached == 1;
 }
 
 static BOOL PMFloatIsFloatingWindow(UIWindow *window) {
     if (!window) return NO;
-    // floating-view package is the float host. Class markers (floatingView./FV*)
-    // miss real windows → geometry never arms → whole zoom stays 60, snaps to 120 after.
-    // In this process only, treat any window as float-eligible.
+    // Host process: class markers often miss real windows. Treat any window as float-eligible.
     if (PMFloatIsPluginProcess()) return YES;
     NSString *windowClass = PMClassName(window);
     NSString *rootClass = @"";
@@ -330,8 +144,6 @@ static void PMFloatInvalidateVisibleCache(void) {
 static BOOL PMFloatAnyFloatingWindowVisible(void) {
     if (!PMFloatFeatureEnabled()) return NO;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    // Positive hits may reuse briefly. Negative results must not stick:
-    // a 0.25s false NO blocks Arm/PreArm/keepalive and causes shrink 60Hz flash.
     if (PMFloatVisibleCache && PMFloatVisibleCacheAt > 0 && (now - PMFloatVisibleCacheAt) < 0.05) {
         return YES;
     }
@@ -351,7 +163,6 @@ static BOOL PMFloatAnyFloatingWindowVisible(void) {
 #pragma clang diagnostic pop
             }
             for (UIWindow *window in windows) {
-                // Include alpha-weak windows; shrink may briefly hide.
                 if (PMFloatIsFloatingWindow(window) && (!window.hidden || window.alpha > 0.01)) {
                     visible = YES;
                     PMFloatLastWindowClass = [PMClassName(window) copy];
@@ -362,7 +173,6 @@ static BOOL PMFloatAnyFloatingWindowVisible(void) {
         }
     } @catch (__unused NSException *e) {
     }
-    // Only cache positive visibility. Misses re-scan next call.
     if (visible) {
         PMFloatVisibleCache = YES;
         PMFloatVisibleCacheAt = now;
@@ -386,7 +196,6 @@ static BOOL PMFloatViewLooksFloating(UIView *view) {
 static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
     if (!PMFloatFeatureEnabled()) return NO;
     if (PMFloatIsFloatingWindow(window)) return YES;
-    // nil window during detach/shrink: still arm if any float window is up or confirmed.
     if (!window) {
         return PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed();
     }
@@ -394,7 +203,10 @@ static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
     NSString *windowClass = PMClassName(window);
     NSString *rootClass = @"";
     @try { rootClass = PMClassName(window.rootViewController); } @catch (__unused NSException *e) {}
-    if ([windowClass containsString:@"CoverSheet"] || [windowClass containsString:@"ControlCenter"] || [rootClass containsString:@"CoverSheet"] || [rootClass containsString:@"ControlCenter"]) return NO;
+    if ([windowClass containsString:@"CoverSheet"] || [windowClass containsString:@"ControlCenter"]
+        || [rootClass containsString:@"CoverSheet"] || [rootClass containsString:@"ControlCenter"]) {
+        return NO;
+    }
     return YES;
 }
 
@@ -404,18 +216,6 @@ static void PMFloatMotionHoldStart(void);
 static void PMFloatMotionHoldStop(void);
 static void PMFloatNotifySBMotionHold(BOOL active);
 static void PMFloatKickKeepAliveNow(void);
-
-// Plugin-process motion hold: whole zoom/shrink animation stays at 60 when
-// only soft DynamicSource votes fire. Keep a tiny dirty DisplayLink for the
-// arm window so DPPMS sees real 120 demand from the float host process.
-static CADisplayLink *PMFloatMotionHoldLink = nil;
-static CALayer *PMFloatMotionHoldLayer = nil;
-static UIWindow *PMFloatMotionHoldWindow = nil;
-static BOOL PMFloatMotionHoldActive = NO;
-static int PMFloatMotionHoldNotifyToken = -1;
-static int PMFloatMotionHoldSBToken = -1;
-
-#define PM_FLOAT_MOTION_HOLD_NOTIFY "com.doimty.pm120.float.motionhold"
 
 @interface PMFloatMotionHoldTarget : NSObject
 @end
@@ -431,7 +231,6 @@ static int PMFloatMotionHoldSBToken = -1;
     if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
         [link setPreferredFrameRateRange:PMForce120Range()];
     }
-    // Plugin process: hard re-apply app persistent vote every frame of motion.
     if (!PMIsTargetProcess()) {
         PMAppEnsurePersistentSource();
         PMAppRefreshPersistentSourceForced();
@@ -444,7 +243,6 @@ static int PMFloatMotionHoldSBToken = -1;
 static PMFloatMotionHoldTarget *PMFloatMotionHoldTargetInstance = nil;
 
 static void PMFloatNotifySBMotionHold(BOOL active) {
-    // floating-view package publishes; SpringBoard reads state.
     if (PMIsTargetProcess()) return;
     @try {
         if (PMFloatMotionHoldNotifyToken < 0) {
@@ -475,10 +273,8 @@ static BOOL PMFloatSBMotionHoldRequested(void) {
 static void PMFloatMotionHoldStart(void) {
     if (!PMFloatFeatureEnabled() || !PMDeviceSupports120Hz()) return;
     PMFloatMotionHoldActive = YES;
-    // Always re-publish so SB catches mid-zoom even if it missed the first post.
     PMFloatNotifySBMotionHold(YES);
     if (PMIsTargetProcess()) {
-        // SB already has keepalive; just force it on for the motion window.
         PMFloatKickKeepAliveNow();
         return;
     }
@@ -530,7 +326,6 @@ static void PMFloatMotionHoldStop(void) {
 static void PMFloatKickKeepAliveNow(void) {
     if (!PMIsTargetProcess()) return;
     @try {
-        // Don't wait for 0.15s eval timer on shrink first frame.
         PMSBKeepAliveEvaluate();
         if (PMSBKeepAliveLink) {
             PMSBKeepAliveLink.paused = NO;
@@ -545,7 +340,6 @@ static void PMFloatKickKeepAliveNow(void) {
 
 static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottled) {
     if (!PMFloatIsEligibleNow() && !unthrottled) return;
-    // Geometry first-frame path may call before eligible is fully latched.
     if (unthrottled) {
         PMFloatWindowConfirmed = YES;
         if (!PMFloatIsArmed()) PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
@@ -553,12 +347,10 @@ static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottl
         return;
     }
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    // Default ~1 frame floor; shrink/zoom paths pass unthrottled.
     if (!unthrottled && PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.016) return;
     @try {
         if (PMIsTargetProcess()) {
             PMGlobalSBApplyForced(event ?: @"float.reapply");
-            // Mode pin every geometry apply: animation windows stay 60 if pin is sparse.
             PMSBForceMainDisplayHighMode();
         } else {
             PMAppEnsurePersistentSource();
@@ -567,23 +359,18 @@ static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottl
         }
         PMFloatSourceApplyCount += 1;
         PMFloatLastSourceApplyAt = now;
-        PMFloatWriteState(@"floatSource.apply", event ?: @"", YES);
     } @catch (__unused NSException *e) {
     }
 }
 
 static void PMFloatArmEx(NSString *event, BOOL requireVisible, BOOL unthrottled) {
     if (!PMFloatFeatureEnabled()) return;
-    // Plugin process: never require marker-based visibility scan.
     if (requireVisible && !PMFloatIsPluginProcess()
         && !PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return;
     BOOL alreadyArmed = PMFloatIsArmed() && PMFloatWindowConfirmed;
     PMFloatWindowConfirmed = YES;
-    // Zoom/shrink can exceed 4s; keep hold for full gesture + settle.
     PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + (unthrottled ? 6.00 : 4.00);
     PMFloatApplyDisplayFrameRateSourceEx(event, unthrottled);
-    // Geometry frames must re-hold every time. Skipping when alreadyArmed left
-    // mid-animation with expired SB keepalive / stale Darwin state → whole zoom 60.
     if (unthrottled || !alreadyArmed) {
         PMFloatMotionHoldStart();
         if (PMIsTargetProcess()) PMFloatKickKeepAliveNow();
@@ -597,14 +384,21 @@ static void PMFloatArmEx(NSString *event, BOOL requireVisible, BOOL unthrottled)
 }
 
 static void PMFloatArm(NSString *event) {
-    // Gate: only floating-view package / floating windows may arm Float.
     PMFloatArmEx(event, YES, NO);
 }
 
 static void PMFloatArmGeometry(NSString *event) {
-    // Shrink/zoom: do not require fresh visible scan; unthrottled re-vote.
     PMFloatInvalidateVisibleCache();
     PMFloatArmEx(event, NO, YES);
+}
+
+// PreArm is ArmGeometry (single entry). Kept as a name for hook call sites.
+static void PMFloatPreArm(NSString *reason) {
+    if (!PMFloatFeatureEnabled()) return;
+    if (!PMFloatIsPluginProcess()
+        && !PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return;
+    PMFloatLastPreArmReason = [reason copy] ?: @"";
+    PMFloatArmGeometry(reason ?: @"prearm");
 }
 
 static void PMFloatArmForWindow(UIWindow *window, NSString *event) {
@@ -613,7 +407,13 @@ static void PMFloatArmForWindow(UIWindow *window, NSString *event) {
         PMFloatLastWindowClass = [PMClassName(window) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(window.rootViewController) copy];
     }
-    BOOL geometry = event && ([event containsString:@"setFrame"] || [event containsString:@"setBounds"] || [event containsString:@"setTransform"] || [event containsString:@"setPosition"] || [event containsString:@"addAnimation"] || [event containsString:@"PropertyAnimator"] || [event containsString:@"statusBar"]);
+    BOOL geometry = event && ([event containsString:@"setFrame"]
+        || [event containsString:@"setBounds"]
+        || [event containsString:@"setTransform"]
+        || [event containsString:@"setPosition"]
+        || [event containsString:@"addAnimation"]
+        || [event containsString:@"PropertyAnimator"]
+        || [event containsString:@"statusBar"]);
     if (geometry) PMFloatArmGeometry(event);
     else PMFloatArm(event);
 }
@@ -644,7 +444,6 @@ static void PMFloatArmForLayer(CALayer *layer, NSString *event) {
     }
 }
 
-// Post-%orig re-vote so the commit frame itself carries Forced Global / mode pin.
 static void PMFloatReassertAfterGeometry(NSString *event) {
     if (!PMFloatFeatureEnabled()) return;
     if (!(PMFloatWindowConfirmed || PMFloatIsArmed() || PMFloatAnyFloatingWindowVisible())) return;
@@ -667,15 +466,6 @@ static BOOL PMFloatWindowLooksLikeStatusShrinkWindow(UIWindow *window) {
     return NO;
 }
 
-static void PMFloatPreArm(NSString *reason) {
-    if (!PMFloatFeatureEnabled()) return;
-    if (!PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return;
-    PMFloatLastPreArmReason = [reason copy] ?: @"";
-    // Geometry/animation prearm: unthrottled first-frame re-vote.
-    PMFloatArmGeometry(reason ?: @"prearm");
-    PMFloatWriteState(@"floatPreArm", reason ?: @"", YES);
-}
-
 static NSString *PMFloatDisplayLinkTargetClass(id link) {
     NSString *targetClass = nil;
     @try {
@@ -689,14 +479,11 @@ static BOOL PMFloatTargetIsInProcessAnimationManager(NSString *targetClass) {
     return targetClass && [targetClass containsString:@"UIViewInProcessAnimationManager"];
 }
 
-// Forward declaration: original IMP for CADynamicFrameRateSource setHighFrameRateReasons:count:
-// (fully defined later with PMInstallHooks typedefs; needed here for clean Float source release)
 static void (*orig_CADynamicFrameRateSource_setHighFrameRateReasons_count)(id, SEL, const unsigned int *, NSUInteger);
 
 static void PMFloatReleaseIfExpired(NSUInteger session) {
     if (session != PMFloatSession) return;
     if (PMFloatIsArmed()) {
-        // While armed, keep re-applying source; DynamicSource votes decay under idle float UI.
         if (PMFloatAnyFloatingWindowVisible() || PMFloatMotionHoldActive || PMFloatSBMotionHoldRequested()) {
             PMFloatApplyDisplayFrameRateSourceEx(@"float.hold", YES);
             if (PMIsTargetProcess()) PMFloatKickKeepAliveNow();
@@ -707,15 +494,11 @@ static void PMFloatReleaseIfExpired(NSUInteger session) {
         });
         return;
     }
-    // Still visible after arm window: renew instead of dropping to 60/10Hz idle floor.
     if (PMFloatAnyFloatingWindowVisible() || PMFloatSBMotionHoldRequested()) {
         PMFloatArm(@"float.renew");
         return;
     }
-    // Single-owner model: Float never owned a DynamicSource.
-    // Only clear float eligibility state. Global/App sources stay managed.
     PMFloatMotionHoldStop();
     PMFloatSourceReleaseCount += 1;
     PMFloatWindowConfirmed = NO;
-    PMFloatWriteState(@"floatSource.release", @"expired", YES);
 }
