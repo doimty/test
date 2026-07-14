@@ -79,10 +79,11 @@ static CGColorRef PMSBDirtyColorB = NULL;
 // v1.0.22: attach UIWindowScene + stronger dirty + CADisplay mode pin.
 // 1.0.20/21 full-width 2pt/opacity 0.02 still lost to DPPMS 80Hz compromise
 // when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
-// 1.0.33-kaA (ablation A): height only 4→2; keep 1.0.22 opacity toggle 0.12/0.10.
+// 1.0.33-kaB (ablation B): opacity only → fixed 0.02; keep height 4 (1.0.22).
+// No per-frame opacity toggle; position+color dual dirty remains every tick.
 
 static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
-static const CGFloat PMSBKeepAliveStripH = 2.0;
+static const CGFloat PMSBKeepAliveStripH = 4.0;
 
 static void PMSBKeepAliveAttachScene(void) {
     if (!PMSBKeepAliveWindow) return;
@@ -176,8 +177,8 @@ static void PMSBForceMainDisplayHighMode(void) {
     CGFloat y = toggle ? 0.0 : 1.0;
     PMSBDirtyLayer.position = CGPointMake(CGRectGetMidX(PMSBDirtyLayer.bounds), y + CGRectGetMidY(PMSBDirtyLayer.bounds));
     PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
-    // Force a real content commit (not just geometry) every frame.
-    PMSBDirtyLayer.opacity = toggle ? 0.12f : 0.10f;
+    // Ablation B: fixed low opacity (no toggle). Dirty comes from position+color.
+    PMSBDirtyLayer.opacity = 0.02f;
 
     PMSBKeepAliveApplyLinkRange();
     PMGlobalSBApplyForced(@"keepalive.tick");
@@ -293,7 +294,7 @@ static void PMSBInstallKeepAliveLink(void) {
 
         PMSBDirtyLayer = [CALayer layer];
         PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
-        PMSBDirtyLayer.opacity           = 0.12f;
+        PMSBDirtyLayer.opacity           = 0.02f;
         PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
         PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
