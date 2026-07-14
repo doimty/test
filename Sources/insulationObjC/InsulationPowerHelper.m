@@ -4,6 +4,7 @@
 
 #import <dispatch/dispatch.h>
 #import <Foundation/Foundation.h>
+#import "../insulationC/include/InsulationCPUState.h"
 #import "../insulationC/include/Tweak.h"
 
 static NSDictionary *InsulationPrefs;
@@ -11,12 +12,14 @@ static BOOL InsulationIsApplying;
 static BOOL InsulationApplyPending;
 static NSString *InsulationApplyPendingSource;
 static uint64_t InsulationSoonGeneration;
-static NSString *InsulationLastCPUPerformanceMode;
-static BOOL InsulationLastThermalMitigationsDisabled;
-static BOOL InsulationHasNormalizedThermalMitigationsState;
+static InsulationCPUState InsulationCPUPerformanceState = {
+    .hasAppliedMode = false,
+    .appliedMode = InsulationCPUModeOff,
+    .phase = InsulationCPUPhaseBoot,
+    .pendingRestoreCount = 0,
+};
 static BOOL InsulationLastForcedCommonProductThermal;
 static BOOL InsulationOwnedDarwinThermalPressure;
-static int InsulationPendingFullCPURestoreCount;
 static int InsulationObservedCPUPowerMax;
 static const int InsulationUnrestrictedPowerTarget = 65000;
 static int InsulationObservedComponentPowerGlobalMax;
@@ -78,10 +81,6 @@ static id InsulationPrefValue(NSString *key) {
     return [InsulationPrefsSnapshot() objectForKey:key];
 }
 
-static BOOL InsulationHasPref(NSString *key) {
-    return InsulationPrefValue(key) != nil;
-}
-
 static BOOL InsulationBoolPref(NSString *key, BOOL defaultValue) {
     id value = InsulationPrefValue(key);
     if ([value isKindOfClass:[NSNumber class]]) {
@@ -134,7 +133,7 @@ BOOL InsulationPowerMitigationsDisabled(void) {
 
 BOOL InsulationCPURestoreActive(void) {
     @synchronized (InsulationStateLock()) {
-        return InsulationPendingFullCPURestoreCount > 0;
+        return InsulationCPUPerformanceState.pendingRestoreCount > 0;
     }
 }
 
@@ -309,108 +308,111 @@ static void InsulationRestoreFullCPU(MitigationController *controller) {
 }
 
 
-static void InsulationApplyCPUPerformancePreference(void) {
-    MitigationController *controller = InsulationMitigationControllerSnapshot();
+static InsulationCPUMode InsulationRequestedCPUMode(void) {
     NSString *mode = InsulationPowerMode();
-    if (![mode isEqualToString:InsulationLastCPUPerformanceMode]) {
-        InsulationResetObservedPowerState();
-    }
-    if (InsulationAggressiveFullPowerEnabled()) {
-        [controller updateCPU];
-        InsulationRestoreFullCPU(controller);
-        InsulationLastCPUPerformanceMode = mode;
-        @synchronized (InsulationStateLock()) {
-            InsulationPendingFullCPURestoreCount = 0;
-        }
-        INSULATION_LOG(@"insulation: full power mode");
-        return;
-    }
     if ([mode isEqualToString:@"fullPower"]) {
-        InsulationLastCPUPerformanceMode = @"off";
-        @synchronized (InsulationStateLock()) {
-            InsulationPendingFullCPURestoreCount = 0;
-        }
-        INSULATION_LOG(@"insulation: full power warmup guard active, delaying CPU overrides");
-        return;
+        return InsulationCPUModeFullPower;
     }
     if ([mode isEqualToString:@"lowPower"]) {
-        int level = InsulationForcedCPULevel();
-        [controller setPowerSaveActive:YES];
-        [controller setCPULevel:level];
-        [controller updateCPU];
-        [controller setPowerSaveActive:YES];
-        [controller setCPULevel:level];
-        InsulationLastCPUPerformanceMode = mode;
-        @synchronized (InsulationStateLock()) {
-            InsulationPendingFullCPURestoreCount = 0;
-        }
-        INSULATION_LOG(@"insulation: low power mode at CPU level %d with soft ceiling", level);
-        return;
+        return InsulationCPUModeLowPower;
     }
-    if (InsulationLastCPUPerformanceMode && ![InsulationLastCPUPerformanceMode isEqualToString:@"off"] && !InsulationCPURestoreActive()) {
-        @synchronized (InsulationStateLock()) {
-            InsulationPendingFullCPURestoreCount = InsulationRestoreEventCount;
-        }
+    return InsulationCPUModeOff;
+}
+
+static void InsulationApplyCPUPerformancePreference(void) {
+    MitigationController *controller = InsulationMitigationControllerSnapshot();
+    InsulationCPUMode requestedMode = InsulationRequestedCPUMode();
+    BOOL fullPowerGuardActive = requestedMode == InsulationCPUModeFullPower && insulationFullPowerBootGuardActive();
+    InsulationCPUStep step;
+    @synchronized (InsulationStateLock()) {
+        step = InsulationCPUStateStep(&InsulationCPUPerformanceState,
+                                      requestedMode,
+                                      fullPowerGuardActive,
+                                      controller != nil,
+                                      InsulationRestoreEventCount);
     }
-    InsulationLastCPUPerformanceMode = @"off";
-    if (InsulationCPURestoreActive()) {
-        [controller updateCPU];
-        InsulationClearCPUThrottle(controller);
-        int remaining = 0;
-        @synchronized (InsulationStateLock()) {
-            InsulationPendingFullCPURestoreCount -= 1;
-            remaining = InsulationPendingFullCPURestoreCount;
-        }
-        INSULATION_LOG(@"CPU performance mode off -> restore native CPU (%d left)", remaining);
-        (void)remaining;
-        return;
+
+    if (step.resetObservedPower) {
+        InsulationResetObservedPowerState();
     }
-    INSULATION_LOG(@"insulation: native thermal CPU mode unchanged");
+
+    switch (step.action) {
+        case InsulationCPUActionApplyFullPower:
+            [controller updateCPU];
+            InsulationRestoreFullCPU(controller);
+            INSULATION_LOG(@"insulation: full power mode");
+            return;
+
+        case InsulationCPUActionApplyLowPower: {
+            int level = InsulationForcedCPULevel();
+            [controller setPowerSaveActive:YES];
+            [controller setCPULevel:level];
+            [controller updateCPU];
+            [controller setPowerSaveActive:YES];
+            [controller setCPULevel:level];
+            INSULATION_LOG(@"insulation: low power mode at CPU level %d with soft ceiling", level);
+            return;
+        }
+
+        case InsulationCPUActionRestoreOff:
+            [controller updateCPU];
+            InsulationClearCPUThrottle(controller);
+            INSULATION_LOG(@"CPU performance mode off -> restore native CPU (%d left, phase %d)",
+                           step.remainingRestoreCount,
+                           step.phase);
+            return;
+
+        case InsulationCPUActionWait:
+            if (fullPowerGuardActive) {
+                INSULATION_LOG(@"insulation: full power warmup guard active, requested mode remains pending");
+            } else if (step.remainingRestoreCount > 0) {
+                INSULATION_LOG(@"insulation: native CPU restore waiting for MitigationController");
+            } else {
+                INSULATION_LOG(@"insulation: native thermal CPU mode steady");
+            }
+            return;
+    }
 }
 
 static void InsulationApplyThermalTuningPreferences(void) {
     BOOL forceThermalMitigationsOff = InsulationAggressiveFullPowerEnabled();
-    if (forceThermalMitigationsOff) {
-        int ret = insulationSetThermalMitigationsEnabled(false, true);
-        INSULATION_LOG(@"thermalPowerMode fullPower -> thermal mitigations disabled (%d)", ret);
-        (void)ret;
-    } else if (InsulationLastThermalMitigationsDisabled) {
-        // Leaving fullPower: delete OSThermalStatus keys instead of rewriting engageBehavior=true.
-        // native-once left persistent plugin ownership; reset restores "key absent" semantics.
-        int ret = insulationResetThermalMitigations();
-        INSULATION_LOG(@"thermalPowerMode leave fullPower -> reset engageBehavior keys (%d)", ret);
-        (void)ret;
-    } else if (!InsulationHasNormalizedThermalMitigationsState) {
-        // First apply in off/low: do not invent engageBehavior keys.
-        INSULATION_LOG(@"thermalPowerMode off/low first apply -> leave OSThermalStatus mitigations untouched");
-    }
-    InsulationLastThermalMitigationsDisabled = forceThermalMitigationsOff;
-    InsulationHasNormalizedThermalMitigationsState = YES;
+    int mitigationStatus = forceThermalMitigationsOff
+        ? insulationSetThermalMitigationsEnabled(false, true)
+        : insulationResetThermalMitigations();
+    INSULATION_LOG(@"thermalPowerMode %@ -> mitigation override status %d",
+                   forceThermalMitigationsOff ? @"fullPower" : @"native/lowPower",
+                   mitigationStatus);
+    (void)mitigationStatus;
 
     InsulationApplyCPUPerformancePreference();
 
-    if (InsulationHasPref(@"thermalSuppressNotificationsEnabled")) {
-        int ret = InsulationBoolPref(@"thermalSuppressNotificationsEnabled", NO) ? insulationSetOSNotifEnabled(false, true) : insulationSetOSNotifNative();
-        INSULATION_LOG(@"thermalSuppressNotificationsEnabled -> %d", ret);
-        (void)ret;
-    }
-    if (InsulationHasPref(@"thermalDisablePocketSunlightEnabled")) {
-        if (InsulationBoolPref(@"thermalDisablePocketSunlightEnabled", NO)) {
-            int ret1 = insulationSetHIPEnabled(false, true);
-            int ret2 = insulationSetSimulateHIPEnabled(false);
-            INSULATION_LOG(@"thermalDisablePocketSunlightEnabled: on -> %d/%d", ret1, ret2);
-            (void)ret1; (void)ret2;
-        } else {
-            int ret = insulationSetHIPNative();
-            INSULATION_LOG(@"thermalDisablePocketSunlightEnabled: off/native -> %d", ret);
-            (void)ret;
-        }
-    }
-    if (InsulationHasPref(@"thermalSunlightLockedEnabled")) {
-        int ret = InsulationBoolPref(@"thermalSunlightLockedEnabled", NO) ? insulationSetSunlightOverride(true, true) : insulationResetSunlightOverride();
-        INSULATION_LOG(@"thermalSunlightLockedEnabled -> %d", ret);
-        (void)ret;
-    }
+    BOOL suppressNotifications = InsulationBoolPref(@"thermalSuppressNotificationsEnabled", NO);
+    int notificationStatus = suppressNotifications
+        ? insulationSetOSNotifEnabled(false, true)
+        : insulationResetOSNotifEnabled();
+    INSULATION_LOG(@"thermalSuppressNotificationsEnabled=%d -> %d", suppressNotifications, notificationStatus);
+    (void)notificationStatus;
+
+    BOOL disablePocketSunlight = InsulationBoolPref(@"thermalDisablePocketSunlightEnabled", NO);
+    int hipStatus = disablePocketSunlight
+        ? insulationSetHIPEnabled(false, true)
+        : insulationResetHIP();
+    int simulateHIPStatus = disablePocketSunlight
+        ? insulationSetSimulateHIPEnabled(false)
+        : insulationResetSimulateHIP();
+    INSULATION_LOG(@"thermalDisablePocketSunlightEnabled=%d -> %d/%d",
+                   disablePocketSunlight,
+                   hipStatus,
+                   simulateHIPStatus);
+    (void)hipStatus;
+    (void)simulateHIPStatus;
+
+    BOOL lockSunlight = InsulationBoolPref(@"thermalSunlightLockedEnabled", NO);
+    int sunlightStatus = lockSunlight
+        ? insulationSetSunlightOverride(true, true)
+        : insulationResetSunlightOverride();
+    INSULATION_LOG(@"thermalSunlightLockedEnabled=%d -> %d", lockSunlight, sunlightStatus);
+    (void)sunlightStatus;
 }
 
 static void InsulationExecutePuppetEventLocked(NSString *source) {
@@ -471,10 +473,12 @@ static void InsulationExecutePuppetEventLocked(NSString *source) {
 void InsulationExecutePuppetEventWithSource(NSString *source) {
     dispatch_queue_t queue = InsulationApplyQueue();
     if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
+        ++InsulationSoonGeneration;
         InsulationExecutePuppetEventLocked(source);
         return;
     }
     dispatch_sync(queue, ^{
+        ++InsulationSoonGeneration;
         InsulationExecutePuppetEventLocked(source);
     });
 }
@@ -485,16 +489,27 @@ void InsulationExecutePuppetEvent(void) {
 
 void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
     // Keep InsulationRestoreEventCount in sync with this schedule (4 delayed applies).
-    // Supersede prior Soon storms so constructor + notification do not stack 8+ fires.
-    uint64_t generation = ++InsulationSoonGeneration;
+    // Generation reads and writes stay on the apply queue to avoid cross-thread races.
+    dispatch_queue_t queue = InsulationApplyQueue();
+    __block uint64_t generation = 0;
+    if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
+        generation = ++InsulationSoonGeneration;
+    } else {
+        dispatch_sync(queue, ^{
+            generation = ++InsulationSoonGeneration;
+        });
+    }
+
     NSString *resolvedSource = [source copy] ?: @"soon";
     NSArray<NSNumber *> *delays = @[@0.25, @1.0, @2.0, @4.0];
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([delay doubleValue] * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-            if (generation != InsulationSoonGeneration) {
-                return;
-            }
-            InsulationExecutePuppetEventWithSource(resolvedSource);
+            dispatch_async(queue, ^{
+                if (generation != InsulationSoonGeneration) {
+                    return;
+                }
+                InsulationExecutePuppetEventLocked(resolvedSource);
+            });
         });
     }
 }

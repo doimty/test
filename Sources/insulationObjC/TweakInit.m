@@ -19,12 +19,13 @@ static void InsulationApplyNotificationCallback(CFNotificationCenterRef center,
     InsulationExecutePuppetEventSoonWithSource(@"notification.applySoon");
 }
 
-static void InsulationRestartNotificationCallback(CFNotificationCenterRef center,
-                                                  void *observer,
-                                                  CFStringRef name,
-                                                  const void *object,
-                                                  CFDictionaryRef userInfo) {
-    INSULATION_LOG(@"insulation: restarting thermalmonitord after CPU mode change");
+static void InsulationModeChangeNotificationCallback(CFNotificationCenterRef center,
+                                                     void *observer,
+                                                     CFStringRef name,
+                                                     const void *object,
+                                                     CFDictionaryRef userInfo) {
+    InsulationExecutePuppetEventWithSource(@"notification.modeDidChange");
+    INSULATION_LOG(@"insulation: mode apply drained; restarting thermalmonitord");
     kill(getpid(), SIGTERM);
 }
 
@@ -48,14 +49,8 @@ __attribute__((constructor)) static void InsulationObjCPortInit(void) {
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
     CFNotificationCenterAddObserver(center,
                                     NULL,
-                                    InsulationApplyNotificationCallback,
-                                    CFSTR("com.be-huge.insulation.runtimeState"),
-                                    NULL,
-                                    CFNotificationSuspensionBehaviorDeliverImmediately);
-    CFNotificationCenterAddObserver(center,
-                                    NULL,
-                                    InsulationRestartNotificationCallback,
-                                    CFSTR("com.be-huge.insulation-restartThermalMonitor"),
+                                    InsulationModeChangeNotificationCallback,
+                                    CFSTR("com.be-huge.insulation-modeDidChange"),
                                     NULL,
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 

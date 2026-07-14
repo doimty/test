@@ -22,7 +22,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = insulation
 insulation_USE_MODULES = 0
-# 0.1.37+clean2: keep Package Version at 0.1.37; probe tax off; CC roothide; apply coalesce; off reset.
+# 0.1.37+clean3: keep Package Version at 0.1.37; probe tax off; lifecycle cleanup; ordered mode apply.
 # Re-enable diagnostics with: make ... INSULATION_PROBE_ENABLED=1
 INSULATION_PROBE_ENABLED ?= 0
 insulation_OBJC_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) $(if $(filter 1,$(INSULATION_PROBE_ENABLED)),,! -name 'InsulationProbe.m'))
@@ -40,10 +40,11 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 TOOL_NAME = insulationctl
 insulationctl_FILES = Sources/insulationctl/main.m \
-Sources/insulationctl/InsulationCtlArgs.c
-insulationctl_CFLAGS = -fobjc-arc -ISources/insulationctl
+Sources/insulationctl/InsulationCtlArgs.c \
+Sources/insulationC/InsulationNativeState.m
+insulationctl_CFLAGS = -fobjc-arc -ISources/insulationctl -ISources/insulationC/include
 insulationctl_LDFLAGS = -Wl,-dead_strip_dylibs
-insulationctl_FRAMEWORKS = Foundation
+insulationctl_FRAMEWORKS = Foundation SystemConfiguration
 include $(THEOS_MAKE_PATH)/tool.mk
 
 SUBPROJECTS += InsulationPrefs InsulationCC

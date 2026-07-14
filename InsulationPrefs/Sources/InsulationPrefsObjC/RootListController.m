@@ -91,11 +91,10 @@ static void InsulationPrefsSetContinuousCornerCurveIfAvailable(CALayer *layer) {
     }
     [prefs writeToFile:InsulationPrefsPlistPath() atomically:YES];
 
-    if ([key hasPrefix:@"thermal"]) {
-        InsulationPrefsPostApplyNotifications();
-    }
     if ([key isEqualToString:InsulationPrefsPowerModeKey]) {
-        InsulationPrefsPostRestartNotifications();
+        InsulationPrefsPostModeChangeNotification();
+    } else if ([key hasPrefix:@"thermal"]) {
+        InsulationPrefsPostApplyNotifications();
     }
 }
 

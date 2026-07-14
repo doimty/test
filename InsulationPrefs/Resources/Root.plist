@@ -33,8 +33,6 @@
 				<string>模拟低电频率</string>
 				<string>防止温控降频</string>
 			</array>
-			<key>PostNotification</key>
-			<string>com.be-huge.insulation-executePuppetEvent</string>
 		</dict>
 		<dict>
 			<key>cell</key>

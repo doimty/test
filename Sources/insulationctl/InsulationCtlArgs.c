@@ -68,6 +68,14 @@ int InsulationCtlParseArgs(int argc, const char *const argv[], InsulationCtlPars
             sawAction = true;
             continue;
         }
+        if (strcmp(arg, "--reset-native-state") == 0) {
+            if (sawAction || result->raw || result->quiet) {
+                return InsulationCtlSetUsageError(result, "native-state reset cannot be combined with other arguments");
+            }
+            result->action = INSULATION_CTL_ACTION_RESET_NATIVE;
+            sawAction = true;
+            continue;
+        }
         if (arg[0] == '-') {
             return InsulationCtlSetUsageError(result, "unknown option");
         }
@@ -87,6 +95,10 @@ int InsulationCtlParseArgs(int argc, const char *const argv[], InsulationCtlPars
             continue;
         }
         return InsulationCtlSetUsageError(result, "unknown action or mode");
+    }
+
+    if (result->action == INSULATION_CTL_ACTION_RESET_NATIVE && (result->raw || result->quiet)) {
+        return InsulationCtlSetUsageError(result, "native-state reset cannot be combined with other arguments");
     }
 
     result->exitCode = INSULATION_CTL_EXIT_OK;

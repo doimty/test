@@ -9,9 +9,6 @@
 
 __attribute__((weak_import)) extern const char *const kOSThermalNotificationPressureLevelName;
 
-static const char *InsulationRuntimeStateName = "com.be-huge.insulation.runtimeState";
-static const uint64_t InsulationRuntimeStateMagic = 0x494E535500000000ULL;
-
 static CFAbsoluteTime InsulationProcessStartTime = 0;
 static const double InsulationFullPowerBootGuardDuration = 0.25;
 
@@ -40,32 +37,6 @@ bool insulationFullPowerBootGuardActive(void) {
 
 double insulationFullPowerBootGuardDurationSeconds(void) {
     return InsulationFullPowerBootGuardDuration;
-}
-
-int insulationGetRuntimeState(int *thermalMode, int *cpuMode) {
-    int token = 0;
-    int status = notify_register_check(InsulationRuntimeStateName, &token);
-    if (status != NOTIFY_STATUS_OK) {
-        return status;
-    }
-
-    uint64_t state = 0;
-    status = notify_get_state(token, &state);
-    notify_cancel(token);
-    if (status != NOTIFY_STATUS_OK) {
-        return status;
-    }
-    if ((state & 0xffffffff00000000ULL) != InsulationRuntimeStateMagic) {
-        return 1;
-    }
-
-    if (thermalMode != NULL) {
-        *thermalMode = (int)((state >> 8) & 0xff);
-    }
-    if (cpuMode != NULL) {
-        *cpuMode = (int)(state & 0xff);
-    }
-    return NOTIFY_STATUS_OK;
 }
 
 static const char *insulationThermalPressureNotifyName(void) {
@@ -120,7 +91,6 @@ typedef SCPreferencesRef (*InsulationSCPreferencesCreateFn)(CFAllocatorRef alloc
 typedef Boolean (*InsulationSCPreferencesCommitChangesFn)(SCPreferencesRef prefs);
 typedef Boolean (*InsulationSCPreferencesApplyChangesFn)(SCPreferencesRef prefs);
 typedef Boolean (*InsulationSCPreferencesSetValueFn)(SCPreferencesRef prefs, CFStringRef key, CFPropertyListRef value);
-typedef Boolean (*InsulationSCPreferencesRemoveValueFn)(SCPreferencesRef prefs, CFStringRef key);
 typedef int (*InsulationSCErrorFn)(void);
 
 static void *insulationSCSymbol(const char *name) {
@@ -183,24 +153,6 @@ static int insulationSetThermalBool(CFStringRef key, CFStringRef persistKey, boo
     return status;
 }
 
-static int insulationRemoveThermalKey(CFStringRef key) {
-    SCPreferencesRef prefs = insulationThermalPrefs();
-    if (prefs == NULL) {
-        return kSCStatusFailed;
-    }
-
-    InsulationSCPreferencesRemoveValueFn removeValue = (InsulationSCPreferencesRemoveValueFn)insulationSCSymbol("SCPreferencesRemoveValue");
-    if (removeValue == NULL) {
-        CFRelease(prefs);
-        return kSCStatusFailed;
-    }
-
-    removeValue(prefs, key);
-    int status = insulationSaveThermalPrefs(prefs);
-    CFRelease(prefs);
-    return status;
-}
-
 int insulationSetOSNotifEnabled(bool enable, bool persist) {
     return insulationSetThermalBool(CFSTR("OSThermalNotificationEnabled"),
                                     CFSTR("OSThermalNotificationPersistentlyEnabled"),
@@ -212,12 +164,6 @@ int insulationSetOSNotifNative(void) {
     return insulationSetOSNotifEnabled(true, false);
 }
 
-int insulationResetOSNotifEnabled(void) {
-    int ret1 = insulationRemoveThermalKey(CFSTR("OSThermalNotificationEnabled"));
-    int ret2 = insulationRemoveThermalKey(CFSTR("OSThermalNotificationPersistentlyEnabled"));
-    return ret1 != kSCStatusOK ? ret1 : ret2;
-}
-
 int insulationSetThermalMitigationsEnabled(bool enable, bool persist) {
     return insulationSetThermalBool(CFSTR("engageBehavior"),
                                     CFSTR("engageBehaviorPersistentlyEnabled"),
@@ -227,12 +173,6 @@ int insulationSetThermalMitigationsEnabled(bool enable, bool persist) {
 
 int insulationSetThermalMitigationsNative(void) {
     return insulationSetThermalMitigationsEnabled(true, false);
-}
-
-int insulationResetThermalMitigations(void) {
-    int ret1 = insulationRemoveThermalKey(CFSTR("engageBehavior"));
-    int ret2 = insulationRemoveThermalKey(CFSTR("engageBehaviorPersistentlyEnabled"));
-    return ret1 != kSCStatusOK ? ret1 : ret2;
 }
 
 int insulationSetHIPEnabled(bool enable, bool persist) {
@@ -248,18 +188,8 @@ int insulationSetHIPNative(void) {
     return ret1 != kSCStatusOK ? ret1 : ret2;
 }
 
-int insulationResetHIP(void) {
-    int ret1 = insulationRemoveThermalKey(CFSTR("hipOverride"));
-    int ret2 = insulationRemoveThermalKey(CFSTR("hipPersistentlyEnabled"));
-    return ret1 != kSCStatusOK ? ret1 : ret2;
-}
-
 int insulationSetSimulateHIPEnabled(bool enable) {
     return insulationSetThermalBool(CFSTR("simulateHip"), NULL, enable, false);
-}
-
-int insulationResetSimulateHIP(void) {
-    return insulationRemoveThermalKey(CFSTR("simulateHip"));
 }
 
 int insulationSetSunlightOverride(bool enable, bool persist) {
@@ -267,10 +197,4 @@ int insulationSetSunlightOverride(bool enable, bool persist) {
                                     CFSTR("sunlightOverridePersistentlyEnabled"),
                                     enable,
                                     persist);
-}
-
-int insulationResetSunlightOverride(void) {
-    int ret1 = insulationRemoveThermalKey(CFSTR("sunlightOverride"));
-    int ret2 = insulationRemoveThermalKey(CFSTR("sunlightOverridePersistentlyEnabled"));
-    return ret1 != kSCStatusOK ? ret1 : ret2;
 }

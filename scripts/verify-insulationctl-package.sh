@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 scripts/test-insulationctl-args.sh
+scripts/test-insulation-cpu-state.sh
+scripts/test-clean3-native-state-contract.sh
+scripts/test-clean3-mode-notification-contract.sh
 
 fail=0
 expected_version="$(awk -F': ' 'tolower($1) == "version" { print $2; exit }' control)"
@@ -33,6 +36,9 @@ section "Source layout"
 check_file "CLI parser header" Sources/insulationctl/InsulationCtlArgs.h
 check_file "CLI parser source" Sources/insulationctl/InsulationCtlArgs.c
 check_file "CLI main" Sources/insulationctl/main.m
+check_file "native-state cleanup" Sources/insulationC/InsulationNativeState.m
+check_file "CPU state model" Sources/insulationC/InsulationCPUState.c
+check_file "pre-removal cleanup" layout/DEBIAN/prerm
 check_symlink "short command layout" layout/usr/bin/ins insulationctl
 
 if ! grep -q '^TOOL_NAME = insulationctl$' Makefile; then
@@ -108,6 +114,7 @@ for deb in "$@"; do
   ctl_path="$(find "$tmp/root" -path '*/usr/bin/insulationctl' -type f | head -n 1)"
   ins_path="$(find "$tmp/root" -path '*/usr/bin/ins' -type l | head -n 1)"
   postinst="$tmp/control/postinst"
+  prerm="$tmp/control/prerm"
 
   if [[ -n "$ctl_path" ]]; then
     echo "OK: package contains ${ctl_path#$tmp/root}"
@@ -127,6 +134,28 @@ for deb in "$@"; do
     echo "OK: package postinst does not create prefs"
   else
     echo "FAIL: package postinst missing or writes prefs" >&2
+    fail=1
+  fi
+
+  if [[ -x "$prerm" ]] && grep -Fq -- '--reset-native-state' "$prerm"; then
+    echo "OK: package prerm invokes native-state cleanup"
+  else
+    echo "FAIL: package prerm missing, non-executable, or does not invoke cleanup" >&2
+    fail=1
+  fi
+
+  if grep -R -a -F -q -- 'com.be-huge.insulation.runtimeState' "$tmp/root" ||
+     grep -R -a -F -q -- 'com.be-huge.insulation-restartThermalMonitor' "$tmp/root"; then
+    echo "FAIL: package contains retired notification names" >&2
+    fail=1
+  else
+    echo "OK: package contains no retired notification names"
+  fi
+
+  if grep -R -a -F -q -- 'com.be-huge.insulation-modeDidChange' "$tmp/root"; then
+    echo "OK: package contains ordered mode-change notification"
+  else
+    echo "FAIL: package missing ordered mode-change notification" >&2
     fail=1
   fi
 

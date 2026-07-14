@@ -4,6 +4,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 void InsulationPrefsPostDarwinNotification(NSString *name);
 void InsulationPrefsPostApplyNotifications(void);
-void InsulationPrefsPostRestartNotifications(void);
+void InsulationPrefsPostModeChangeNotification(void);
 
 NS_ASSUME_NONNULL_END

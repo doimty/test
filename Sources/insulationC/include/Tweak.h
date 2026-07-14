@@ -8,6 +8,7 @@
 #import <spawn.h>
 #include <stdbool.h>
 
+#include "InsulationNativeState.h"
 #import "./Power_header/CommonProduct.h"
 #import "./Power_header/MitigationController.h"
 #import "./Power_header/HidSensors.h"
@@ -31,7 +32,6 @@ typedef NS_ENUM(NSInteger, InsulationThermalPressureLevel) {
   InsulationThermalPressureSleeping = 5,
 };
 
-int insulationGetRuntimeState(int * _Nullable thermalMode, int * _Nullable cpuMode);
 void insulationMarkProcessStart(void);
 bool insulationFullPowerBootGuardActive(void);
 double insulationFullPowerBootGuardDurationSeconds(void);
@@ -39,14 +39,9 @@ bool insulationIsThermalmonitordProcess(void);
 int insulationSetDarwinThermalPressure(int pressure);
 int insulationSetOSNotifEnabled(bool enable, bool persist);
 int insulationSetOSNotifNative(void);
-int insulationResetOSNotifEnabled(void);
 int insulationSetThermalMitigationsEnabled(bool enable, bool persist);
 int insulationSetThermalMitigationsNative(void);
-int insulationResetThermalMitigations(void);
 int insulationSetHIPEnabled(bool enable, bool persist);
 int insulationSetHIPNative(void);
-int insulationResetHIP(void);
 int insulationSetSimulateHIPEnabled(bool enable);
-int insulationResetSimulateHIP(void);
 int insulationSetSunlightOverride(bool enable, bool persist);
-int insulationResetSunlightOverride(void);

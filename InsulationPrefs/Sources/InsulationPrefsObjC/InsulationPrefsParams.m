@@ -3,7 +3,7 @@
 
 NSString *const InsulationPrefsPowerModeKey = @"thermalPowerMode";
 NSString *const InsulationPrefsExecuteNotification = @"com.be-huge.insulation-executePuppetEvent";
-NSString *const InsulationPrefsRestartNotification = @"com.be-huge.insulation-restartThermalMonitor";
+NSString *const InsulationPrefsModeChangeNotification = @"com.be-huge.insulation-modeDidChange";
 
 NSString *InsulationPrefsPlistPath(void) {
     return rootlessPath(@"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist");

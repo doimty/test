@@ -163,7 +163,6 @@ if missing:
 print('OK: all declarations have implementations')
 
 required_static_helpers = [
-    'InsulationHasPref',
     'InsulationBoolPref',
     'InsulationResetObservedPowerState',
     'InsulationRestoreFullCPU',
@@ -177,7 +176,7 @@ required_static_helpers = [
     'InsulationPatchBacklightDictionary',
     'InsulationRecursivelyPatchThermalObject',
     'InsulationApplyNotificationCallback',
-    'InsulationRestartNotificationCallback',
+    'InsulationModeChangeNotificationCallback',
 ]
 for name in required_static_helpers:
     pattern = rf'^static\s+[A-Za-z_][A-Za-z0-9_ \t\*]*\*?\s*{name}\s*\('

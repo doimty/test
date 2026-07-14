@@ -7,8 +7,6 @@
 #import <Foundation/Foundation.h>
 #import "./PSSpecifier/PSSpecifier.h"
 
-int insulationPrefsPostRuntimeState(int thermalMode, int cpuMode);
-
 static NSString *_Nonnull rootlessPath(NSString* _Nonnull path) {
   return jbroot(path);
 }

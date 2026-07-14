@@ -14,15 +14,11 @@
 #import <unistd.h>
 
 #import "InsulationCtlArgs.h"
+#import "InsulationNativeState.h"
 
 static NSString *const InsulationCtlPrefsKey = @"thermalPowerMode";
 static NSString *const InsulationCtlPrefsBasePath = @"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
-static const char *InsulationCtlRuntimeStateName = "com.be-huge.insulation.runtimeState";
-static const char *InsulationCtlApplyNotificationName = "com.be-huge.insulation-executePuppetEvent";
-static const char *InsulationCtlRestartNotificationName = "com.be-huge.insulation-restartThermalMonitor";
-/* ASCII 'INSU' in high 32 bits; daemon checks this magic to confirm the
-   notify_set_state sender is a genuine insulationctl instance. */
-static const uint64_t InsulationCtlRuntimeStateMagic = 0x494E535500000000ULL;
+static const char *InsulationCtlModeChangeNotificationName = "com.be-huge.insulation-modeDidChange";
 
 static NSString *InsulationCtlExecutablePath(void) {
     char buffer[PATH_MAX];
@@ -205,32 +201,14 @@ static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **
     return InsulationCtlRepairPrefsOwnerIfRoot(path, errorOut);
 }
 
-static int InsulationCtlPostRuntimeState(void) {
-    int token = 0;
-    int status = notify_register_check(InsulationCtlRuntimeStateName, &token);
-    if (status != NOTIFY_STATUS_OK) {
-        return status;
-    }
-
-    status = notify_set_state(token, InsulationCtlRuntimeStateMagic);
+static bool InsulationCtlPostModeChange(NSString **errorOut) {
+    int status = notify_post(InsulationCtlModeChangeNotificationName);
     if (status == NOTIFY_STATUS_OK) {
-        status = notify_post(InsulationCtlRuntimeStateName);
-    }
-    notify_cancel(token);
-    return status;
-}
-
-static bool InsulationCtlPostApplyAndRestart(NSString **errorOut) {
-    int runtimeStatus = InsulationCtlPostRuntimeState();
-    int applyStatus = notify_post(InsulationCtlApplyNotificationName);
-    int restartStatus = notify_post(InsulationCtlRestartNotificationName);
-
-    if (runtimeStatus == NOTIFY_STATUS_OK && applyStatus == NOTIFY_STATUS_OK && restartStatus == NOTIFY_STATUS_OK) {
         return true;
     }
 
     if (errorOut) {
-        *errorOut = [NSString stringWithFormat:@"notification failed: runtime=%d apply=%d restart=%d", runtimeStatus, applyStatus, restartStatus];
+        *errorOut = [NSString stringWithFormat:@"mode notification failed: %d", status];
     }
     return false;
 }
@@ -247,6 +225,15 @@ int main(int argc, const char *argv[]) {
 
         if (parsed.action == INSULATION_CTL_ACTION_HELP) {
             InsulationCtlPrintUsage(stdout);
+            return INSULATION_CTL_EXIT_OK;
+        }
+
+        if (parsed.action == INSULATION_CTL_ACTION_RESET_NATIVE) {
+            int status = insulationResetAllNativeThermalState();
+            if (status != 0) {
+                fprintf(stderr, "insulationctl: failed to reset native thermal state: %d\n", status);
+                return INSULATION_CTL_EXIT_IO;
+            }
             return INSULATION_CTL_EXIT_OK;
         }
 
@@ -269,7 +256,7 @@ int main(int argc, const char *argv[]) {
             }
 
             NSString *notifyError = nil;
-            bool notified = InsulationCtlPostApplyAndRestart(&notifyError);
+            bool notified = InsulationCtlPostModeChange(&notifyError);
             InsulationCtlPrintMode(parsed.mode, parsed.raw, parsed.quiet);
             if (!notified) {
                 fprintf(stderr, "ins: Warning: mode saved, but apply notification failed: %s\n", [notifyError UTF8String]);

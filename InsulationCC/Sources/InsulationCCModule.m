@@ -1,6 +1,5 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
-#import <notify.h>
 
 #import "ControlCenterUIKit/CCUIContentModule.h"
 #import "ControlCenterUIKit/CCUIButtonModuleView.h"
@@ -11,23 +10,10 @@
 
 static NSString *const InsulationPrefsPath = @"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
 static NSString *const InsulationPowerModeKey = @"thermalPowerMode";
-static NSString *const InsulationExecuteNotification = @"com.be-huge.insulation-executePuppetEvent";
-static NSString *const InsulationRestartNotification = @"com.be-huge.insulation-restartThermalMonitor";
-static const char *InsulationRuntimeStateName = "com.be-huge.insulation.runtimeState";
-static const uint64_t InsulationRuntimeStateMagic = 0x494E535500000000ULL;
+static NSString *const InsulationModeChangeNotification = @"com.be-huge.insulation-modeDidChange";
 
 static void InsulationPostDarwinNotification(NSString *name) {
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge CFStringRef)name, NULL, NULL, true);
-}
-
-static void InsulationPostRuntimeState(void) {
-    int token = 0;
-    if (notify_register_check(InsulationRuntimeStateName, &token) != NOTIFY_STATUS_OK) {
-        return;
-    }
-    notify_set_state(token, InsulationRuntimeStateMagic);
-    notify_post(InsulationRuntimeStateName);
-    notify_cancel(token);
 }
 
 static NSString *InsulationResolvedPrefsPath(void) {
@@ -50,9 +36,7 @@ static void InsulationSetPowerMode(NSString *mode) {
     }
     [prefs setObject:mode forKey:InsulationPowerModeKey];
     [prefs writeToFile:InsulationResolvedPrefsPath() atomically:YES];
-    InsulationPostRuntimeState();
-    InsulationPostDarwinNotification(InsulationExecuteNotification);
-    InsulationPostDarwinNotification(InsulationRestartNotification);
+    InsulationPostDarwinNotification(InsulationModeChangeNotification);
 }
 
 @interface InsulationCCModuleViewController : CCUIMenuModuleViewController

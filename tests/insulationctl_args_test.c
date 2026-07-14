@@ -36,6 +36,12 @@ static void expect_help(const char *label, int argc, const char *const argv[]) {
     CHECK(result.action == INSULATION_CTL_ACTION_HELP, label);
 }
 
+static void expect_reset_native(const char *label, int argc, const char *const argv[]) {
+    InsulationCtlParseResult result = parse(argc, argv);
+    CHECK(result.exitCode == INSULATION_CTL_EXIT_OK, label);
+    CHECK(result.action == INSULATION_CTL_ACTION_RESET_NATIVE, label);
+}
+
 static void expect_set(const char *label,
                        int argc,
                        const char *const argv[],
@@ -106,6 +112,18 @@ int main(void) {
 
     const char *full_power[] = {"ins", "fullPower"};
     expect_set("fullPower alias", 2, full_power, INSULATION_CTL_MODE_FULL_POWER, false, false, "max", "fullPower");
+
+    const char *reset_native[] = {"insulationctl", "--reset-native-state"};
+    expect_reset_native("internal native-state reset", 2, reset_native);
+
+    const char *reset_native_with_action[] = {"insulationctl", "--reset-native-state", "status"};
+    expect_usage_error("native-state reset rejects another action", 3, reset_native_with_action);
+
+    const char *reset_native_raw[] = {"insulationctl", "--reset-native-state", "--raw"};
+    expect_usage_error("native-state reset rejects raw", 3, reset_native_raw);
+
+    const char *quiet_reset_native[] = {"insulationctl", "--quiet", "--reset-native-state"};
+    expect_usage_error("native-state reset rejects leading quiet", 3, quiet_reset_native);
 
     const char *quiet_max_1[] = {"ins", "--quiet", "max"};
     expect_set("quiet before max", 3, quiet_max_1, INSULATION_CTL_MODE_FULL_POWER, false, true, "max", "fullPower");
