@@ -22,10 +22,14 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = insulation
 insulation_USE_MODULES = 0
-insulation_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \)) \
-$(shell find Sources/insulationC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) ! -name 'Tweak.m')
+# 0.1.37+clean1: keep Package Version at 0.1.37; probe tax off for formal builds.
+# Re-enable diagnostics with: make ... INSULATION_PROBE_ENABLED=1
+INSULATION_PROBE_ENABLED ?= 0
+insulation_OBJC_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) $(if $(filter 1,$(INSULATION_PROBE_ENABLED)),,! -name 'InsulationProbe.m'))
+insulation_C_FILES = $(shell find Sources/insulationC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) ! -name 'Tweak.m')
+insulation_FILES = $(insulation_OBJC_FILES) $(insulation_C_FILES)
 
-insulation_CFLAGS = -fobjc-arc -DINSULATION_PROBE_ENABLED=1 -ISources/insulationC/include -ISources/insulationObjC
+insulation_CFLAGS = -fobjc-arc -DINSULATION_PROBE_ENABLED=$(INSULATION_PROBE_ENABLED) -ISources/insulationC/include -ISources/insulationObjC
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
 insulation_LDFLAGS += -lroothide
 endif

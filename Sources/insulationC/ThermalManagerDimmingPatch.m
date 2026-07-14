@@ -8,7 +8,11 @@
 
 extern char ***_NSGetArgv(void);
 
-static NSString *const InsulationPrefsPath = @"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
+// Match PowerHelper/CLI: resolve through jbroot/rootlessPath so roothide and
+// rootless both read the same prefs file the control plane writes.
+static NSString *InsulationThermalPatchPrefsPath(void) {
+    return rootlessPath(@"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist");
+}
 static NSString *const InsulationPreventDimmingKey = @"thermalPreventDimmingEnabled";
 static NSString *const InsulationPowerModeKey = @"thermalPowerMode";
 static const int InsulationUnrestrictedPowerTarget = 65000;
@@ -55,7 +59,7 @@ static void insulationThermalPatchRefreshPrefsIfNeeded(void) {
     
     dispatch_sync(prefsCacheQueue, ^{
         NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-        NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:InsulationPrefsPath];
+        NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:InsulationThermalPatchPrefsPath()];
         cachedPreventDimmingEnabled = insulationThermalPatchBoolPref(prefs, InsulationPreventDimmingKey);
         id mode = [prefs objectForKey:InsulationPowerModeKey];
         BOOL modeIsFullPower = [mode isKindOfClass:[NSString class]] && [mode isEqualToString:@"fullPower"];
