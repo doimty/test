@@ -309,6 +309,33 @@ static void PMSBInstallKeepAliveLink(void) {
             PMSBKeepAliveEvaluate();
         }];
         [[NSRunLoop mainRunLoop] addTimer:PMSBKeepAliveEvalTimer forMode:NSRunLoopCommonModes];
+        // Instant wake on plugin zoom/shrink. 0.15s timer alone misses the first
+        // frames of float motion → whole animation locks 60 until settle.
+        static int motionHoldDispatchToken = -1;
+        if (motionHoldDispatchToken < 0) {
+            notify_register_dispatch("com.doimty.pm120.float.motionhold",
+                                     &motionHoldDispatchToken,
+                                     dispatch_get_main_queue(),
+                                     ^(__unused int t) {
+                uint64_t st = 0;
+                notify_get_state(t, &st);
+                if (st == 1) {
+                    PMSBKeepAliveHoldUntil = CFAbsoluteTimeGetCurrent() + 6.0;
+                    PMSBKeepAliveNeeded = YES;
+                    if (PMSBKeepAliveLink) {
+                        PMSBKeepAliveLink.paused = NO;
+                        PMSBKeepAliveApplyLinkRange();
+                    }
+                    if (PMSBKeepAliveWindow) {
+                        PMSBKeepAliveAttachScene();
+                        PMSBKeepAliveWindow.hidden = NO;
+                    }
+                    PMSBForceMainDisplayHighMode();
+                    PMGlobalSBApplyForced(@"float.motionhold.notify");
+                }
+                PMSBKeepAliveEvaluate();
+            });
+        }
         PMSBKeepAliveEvaluate();
     } @catch (__unused NSException *e) {}
 }

@@ -302,8 +302,20 @@ static BOOL PMStringHasFloatingViewMarker(NSString *name) {
     return [name containsString:@"floatingView."] || [name containsString:@"FVWindow"] || [name containsString:@"FVViewController"] || [name containsString:@"FVFrontConsole"];
 }
 
+static BOOL PMFloatIsPluginProcess(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        cached = [PMBundleID() isEqualToString:PM_FLOAT_PROBE_TARGET_PACKAGE] ? 1 : 0;
+    }
+    return cached == 1;
+}
+
 static BOOL PMFloatIsFloatingWindow(UIWindow *window) {
     if (!window) return NO;
+    // floating-view package is the float host. Class markers (floatingView./FV*)
+    // miss real windows → geometry never arms → whole zoom stays 60, snaps to 120 after.
+    // In this process only, treat any window as float-eligible.
+    if (PMFloatIsPluginProcess()) return YES;
     NSString *windowClass = PMClassName(window);
     NSString *rootClass = @"";
     @try { rootClass = PMClassName(window.rootViewController); } @catch (__unused NSException *e) {}
@@ -363,6 +375,7 @@ static BOOL PMFloatAnyFloatingWindowVisible(void) {
 
 static BOOL PMFloatViewLooksFloating(UIView *view) {
     if (!view) return NO;
+    if (PMFloatIsPluginProcess()) return YES;
     if (PMStringHasFloatingViewMarker(PMClassName(view))) return YES;
     @try {
         if (PMStringHasFloatingViewMarker(PMClassName(view.nextResponder))) return YES;
@@ -462,6 +475,7 @@ static BOOL PMFloatSBMotionHoldRequested(void) {
 static void PMFloatMotionHoldStart(void) {
     if (!PMFloatFeatureEnabled() || !PMDeviceSupports120Hz()) return;
     PMFloatMotionHoldActive = YES;
+    // Always re-publish so SB catches mid-zoom even if it missed the first post.
     PMFloatNotifySBMotionHold(YES);
     if (PMIsTargetProcess()) {
         // SB already has keepalive; just force it on for the motion window.
@@ -560,11 +574,16 @@ static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottl
 
 static void PMFloatArmEx(NSString *event, BOOL requireVisible, BOOL unthrottled) {
     if (!PMFloatFeatureEnabled()) return;
-    if (requireVisible && !PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return;
+    // Plugin process: never require marker-based visibility scan.
+    if (requireVisible && !PMFloatIsPluginProcess()
+        && !PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return;
     BOOL alreadyArmed = PMFloatIsArmed() && PMFloatWindowConfirmed;
     PMFloatWindowConfirmed = YES;
-    PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
+    // Zoom/shrink can exceed 4s; keep hold for full gesture + settle.
+    PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + (unthrottled ? 6.00 : 4.00);
     PMFloatApplyDisplayFrameRateSourceEx(event, unthrottled);
+    // Geometry frames must re-hold every time. Skipping when alreadyArmed left
+    // mid-animation with expired SB keepalive / stale Darwin state → whole zoom 60.
     if (unthrottled || !alreadyArmed) {
         PMFloatMotionHoldStart();
         if (PMIsTargetProcess()) PMFloatKickKeepAliveNow();
