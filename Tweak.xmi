@@ -11,7 +11,7 @@
 #define TWEAK_NAME @"ProMotion120"
 #define TARGET_FPS 120
 // Diagnostic disk probes permanently off in release path (1.0.27 watchdog lesson).
-#define PM_SCOPEPROBE_VERSION @"1.0.31"
+#define PM_SCOPEPROBE_VERSION @"1.0.32"
 #define PM_ENABLE_DIAGNOSTIC_PROBES 0
 #define PM_ENABLE_FLOAT_ZOOM_PROBE 0
 

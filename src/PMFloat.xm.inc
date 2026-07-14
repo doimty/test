@@ -221,14 +221,13 @@ static void PMFloatKickKeepAliveNow(void);
 @end
 @implementation PMFloatMotionHoldTarget
 - (void)pm_floatTick:(__unused CADisplayLink *)link {
-    if (!PMFloatMotionHoldLayer) return;
     static BOOL toggle = NO;
     toggle = !toggle;
-    // Near-invisible dirty flip (was alpha 0.11–0.14, showed as a top strip).
-    PMFloatMotionHoldLayer.opacity = toggle ? 0.02f : 0.01f;
-    CGFloat y = toggle ? 0.0 : 1.0;
-    PMFloatMotionHoldLayer.position = CGPointMake(CGRectGetMidX(PMFloatMotionHoldLayer.bounds),
-                                                 y + CGRectGetMidY(PMFloatMotionHoldLayer.bounds));
+    // Optional off-screen dirty only; never on-screen strip.
+    if (PMFloatMotionHoldLayer) {
+        PMFloatMotionHoldLayer.opacity = toggle ? 0.01f : 0.005f;
+        PMFloatMotionHoldLayer.position = CGPointMake(0.5, toggle ? 0.5 : 1.5);
+    }
     if ([link respondsToSelector:@selector(setPreferredFrameRateRange:)]) {
         [link setPreferredFrameRateRange:PMForce120Range()];
     }
@@ -280,19 +279,18 @@ static void PMFloatMotionHoldStart(void) {
         return;
     }
     @try {
+        // Off-screen host only. No status-bar / full-width UIWindow.
         if (!PMFloatMotionHoldWindow) {
-            CGRect screen = [UIScreen mainScreen].bounds;
-            CGFloat w = MAX(screen.size.width, screen.size.height);
-            PMFloatMotionHoldWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, 1.0)];
-            PMFloatMotionHoldWindow.windowLevel = 2001.0;
+            PMFloatMotionHoldWindow = [[UIWindow alloc] initWithFrame:CGRectMake(-20, -20, 1, 1)];
+            PMFloatMotionHoldWindow.windowLevel = -9999.0;
             PMFloatMotionHoldWindow.userInteractionEnabled = NO;
             PMFloatMotionHoldWindow.opaque = NO;
             PMFloatMotionHoldWindow.backgroundColor = [UIColor clearColor];
             PMFloatMotionHoldWindow.hidden = NO;
             PMFloatMotionHoldLayer = [CALayer layer];
-            PMFloatMotionHoldLayer.frame = CGRectMake(0, 0, w, 1.0);
+            PMFloatMotionHoldLayer.frame = CGRectMake(0, 0, 1, 1);
             PMFloatMotionHoldLayer.backgroundColor = [UIColor colorWithWhite:0 alpha:1].CGColor;
-            PMFloatMotionHoldLayer.opacity = 0.02f;
+            PMFloatMotionHoldLayer.opacity = 0.01f;
             [PMFloatMotionHoldWindow.layer addSublayer:PMFloatMotionHoldLayer];
         } else {
             PMFloatMotionHoldWindow.hidden = NO;
