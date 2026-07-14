@@ -227,7 +227,7 @@ static void PMFloatCaptureWindowInfoForView(UIView *view) {
     }
 }
 
-static void PMFloatRecordRange(NSString *event, CAFrameRateRange range) {
+__attribute__((unused)) static void PMFloatRecordRange(NSString *event, CAFrameRateRange range) {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     (void)event; (void)range;
     return;

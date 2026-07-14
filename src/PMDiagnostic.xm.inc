@@ -387,7 +387,7 @@ static void PMJankRecordPropertyAnimator(NSString *event) {
     PMJankRecordActivity(event ?: @"UIViewPropertyAnimator", @"UIViewPropertyAnimator", YES);
 }
 
-static void PMJankRecordDisplayLinkTarget(NSString *targetClass) {
+__attribute__((unused)) static void PMJankRecordDisplayLinkTarget(NSString *targetClass) {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     return;
 #endif
