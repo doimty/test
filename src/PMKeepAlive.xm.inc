@@ -320,7 +320,6 @@ static void PMGlobalSBApplyForced(NSString *reason) {
             PMSetFrameRateRangeDirect(PMGlobalSBDisplaySource);
             PMGlobalSBApplyCount += 1;
             PMGlobalLastApply = now;
-            PMFPSRecordGlobalApply(@"globalSBApply", reason ?: @"unknown");
         }
     } @catch (NSException *exc) { }
 }

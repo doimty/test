@@ -26,7 +26,6 @@
                         // Do NOT cancel — token must stay alive for state to persist
                     }
                 } @catch (__unused NSException *e) {}
-                PMFloatProbeInjectedCount += 1;
                 // Initialize persistent 120Hz source after main display is ready
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     PMAppEnsurePersistentSource();

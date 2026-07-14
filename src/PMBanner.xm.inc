@@ -70,7 +70,6 @@ static void PMApplyDisplayFrameRateSource(NSString *source) {
         // Re-apply the single SB owner. Do not allocate a 2nd source.
         PMGlobalSBApply(source ?: @"banner.reapply");
         PMBannerLastSourceApplyAt = now;
-        PMFPSRecordSourceApply(@"bannerDisplaySource", source ?: @"unknown");
     } @catch (__unused NSException *e) {
     }
 }

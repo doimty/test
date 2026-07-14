@@ -11,8 +11,7 @@
 #define TWEAK_NAME @"ProMotion120"
 #define TARGET_FPS 120
 #define PM_SCOPEPROBE_VERSION @"1.0.9"
-// Build tag only (do not bump Package Version for hygiene): 1.0.9+clean1
-#define PM_ENABLE_DIAGNOSTIC_PROBES 0
+// Build tag only (do not bump Package Version for hygiene): 1.0.9+clean2
 
 #ifndef __IPHONE_15_0
 typedef struct {
@@ -40,7 +39,7 @@ typedef struct {
 // Banner lifecycle (depends on PMUtility for PMIsTargetProcess, etc.).
 #include "src/PMBanner.xm.inc"
 
-// Diagnostics (disabled by PM_ENABLE_DIAGNOSTIC_PROBES 0).
+// Probe/jank/fpsprobe implementations removed (1.0.9+clean2).
 #include "src/PMDiagnostic.xm.inc"
 
 // Keepalive for injection-blocked foreground apps.

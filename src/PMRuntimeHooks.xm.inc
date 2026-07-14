@@ -129,7 +129,6 @@ static void repl_CADynamicFrameRateSource_setPreferredFrameRateRange(id self, SE
         if (PMFloatIsEligibleNow() || PMIsAppProcessEligible()) PMSetHighFrameRateReasonDirect(self);
         appliedRange = PMForce120Range();
     }
-    PMFPSRecordRange(@"CADynamicFrameRateSource.setPreferredFrameRateRange", @"dynamicSource", range, appliedRange);
     if (orig_CADynamicFrameRateSource_setPreferredFrameRateRange) orig_CADynamicFrameRateSource_setPreferredFrameRateRange(self, _cmd, appliedRange);
 }
 
