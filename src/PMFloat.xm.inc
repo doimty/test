@@ -256,10 +256,19 @@ static BOOL PMFloatIsFloatingWindow(UIWindow *window) {
     return PMStringHasFloatingViewMarker(windowClass) || PMStringHasFloatingViewMarker(rootClass);
 }
 
+static void PMFloatInvalidateVisibleCache(void) {
+    PMFloatVisibleCacheAt = 0;
+    PMFloatVisibleCache = NO;
+}
+
 static BOOL PMFloatAnyFloatingWindowVisible(void) {
     if (!PMFloatFeatureEnabled()) return NO;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (PMFloatVisibleCacheAt > 0 && (now - PMFloatVisibleCacheAt) < 0.25) return PMFloatVisibleCache;
+    // Positive hits may reuse briefly. Negative results must not stick:
+    // a 0.25s false NO blocks Arm/PreArm/keepalive and causes shrink 60Hz flash.
+    if (PMFloatVisibleCache && PMFloatVisibleCacheAt > 0 && (now - PMFloatVisibleCacheAt) < 0.05) {
+        return YES;
+    }
     BOOL visible = NO;
     @try {
         Class UIApplicationClass = NSClassFromString(@"UIApplication");
@@ -276,7 +285,8 @@ static BOOL PMFloatAnyFloatingWindowVisible(void) {
 #pragma clang diagnostic pop
             }
             for (UIWindow *window in windows) {
-                if (!window.hidden && PMFloatIsFloatingWindow(window)) {
+                // Include alpha-weak windows; shrink may briefly hide.
+                if (PMFloatIsFloatingWindow(window) && (!window.hidden || window.alpha > 0.01)) {
                     visible = YES;
                     PMFloatLastWindowClass = [PMClassName(window) copy];
                     PMFloatLastRootViewControllerClass = [PMClassName(window.rootViewController) copy];
@@ -286,15 +296,34 @@ static BOOL PMFloatAnyFloatingWindowVisible(void) {
         }
     } @catch (__unused NSException *e) {
     }
-    PMFloatVisibleCache = visible;
-    PMFloatVisibleCacheAt = now;
+    // Only cache positive visibility. Misses re-scan next call.
+    if (visible) {
+        PMFloatVisibleCache = YES;
+        PMFloatVisibleCacheAt = now;
+    } else {
+        PMFloatVisibleCache = NO;
+        PMFloatVisibleCacheAt = 0;
+    }
     return visible;
+}
+
+static BOOL PMFloatViewLooksFloating(UIView *view) {
+    if (!view) return NO;
+    if (PMStringHasFloatingViewMarker(PMClassName(view))) return YES;
+    @try {
+        if (PMStringHasFloatingViewMarker(PMClassName(view.nextResponder))) return YES;
+    } @catch (__unused NSException *e) {}
+    return NO;
 }
 
 static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
     if (!PMFloatFeatureEnabled()) return NO;
     if (PMFloatIsFloatingWindow(window)) return YES;
-    if (!PMFloatAnyFloatingWindowVisible()) return NO;
+    // nil window during detach/shrink: still arm if any float window is up or confirmed.
+    if (!window) {
+        return PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed();
+    }
+    if (!PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return NO;
     NSString *windowClass = PMClassName(window);
     NSString *rootClass = @"";
     @try { rootClass = PMClassName(window.rootViewController); } @catch (__unused NSException *e) {}
@@ -303,22 +332,52 @@ static BOOL PMFloatShouldArmForWindow(UIWindow *window) {
 }
 
 static void PMFloatReleaseIfExpired(NSUInteger session);
+static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottled);
+
+static void PMFloatKickKeepAliveNow(void) {
+    if (!PMIsTargetProcess()) return;
+    @try {
+        // Don't wait for 0.15s eval timer on shrink first frame.
+        PMSBKeepAliveEvaluate();
+        if (PMSBKeepAliveLink) {
+            PMSBKeepAliveLink.paused = NO;
+            PMSBKeepAliveNeeded = YES;
+            PMSBKeepAliveHoldUntil = CFAbsoluteTimeGetCurrent() + 2.0;
+            PMSBKeepAliveApplyLinkRange();
+        }
+        PMSBForceMainDisplayHighMode();
+        PMGlobalSBApplyForced(@"float.kick.keepalive");
+    } @catch (__unused NSException *e) {}
+}
 
 static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
-    if (!PMFloatIsEligibleNow()) return;
+    PMFloatApplyDisplayFrameRateSourceEx(event, NO);
+}
+
+static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottled) {
+    if (!PMFloatIsEligibleNow() && !unthrottled) return;
+    // Geometry first-frame path may call before eligible is fully latched.
+    if (unthrottled) {
+        PMFloatWindowConfirmed = YES;
+        if (!PMFloatIsArmed()) PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
+    } else if (!PMFloatIsEligibleNow()) {
+        return;
+    }
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    // Geometry/transform bursts need sub-frame re-votes; keep a very short floor only.
-    if (PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.016) return;
+    // Default ~1 frame floor; shrink/zoom paths pass unthrottled.
+    if (!unthrottled && PMFloatLastSourceApplyAt > 0 && (now - PMFloatLastSourceApplyAt) < 0.016) return;
     @try {
         // Single-owner: no Float DynamicSource. SB re-applies Global;
         // injected apps re-apply App persistent source.
         if (PMIsTargetProcess()) {
-            // Forced: resize/zoom must not wait on 0.20s throttled Global apply.
             PMGlobalSBApplyForced(event ?: @"float.reapply");
             PMSBForceMainDisplayHighMode();
         } else {
             PMAppEnsurePersistentSource();
+            // Unthrottled: call refresh twice after ensure; second path still
+            // helps if system cleared reasons between create and first apply.
             PMAppRefreshPersistentSource();
+            if (unthrottled) PMAppRefreshPersistentSource();
         }
         PMFloatSourceApplyCount += 1;
         PMFloatLastSourceApplyAt = now;
@@ -327,17 +386,14 @@ static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
     }
 }
 
-static void PMFloatArm(NSString *event) {
-    // Gate: only floating-view package / floating windows may arm Float.
-    // Menu/alert hooks in ordinary apps must not stack a second DynamicSource on
-    // top of PMAppPersistentFrameRateSource.
-    if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
+static void PMFloatArmEx(NSString *event, BOOL requireVisible, BOOL unthrottled) {
+    if (!PMFloatFeatureEnabled()) return;
+    if (requireVisible && !PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return;
     BOOL alreadyArmed = PMFloatIsArmed() && PMFloatWindowConfirmed;
     PMFloatWindowConfirmed = YES;
-    // Resize/zoom fires geometry hooks every frame. Extend hold + re-vote only;
-    // do not spin a new expire session each mutation.
     PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
-    PMFloatApplyDisplayFrameRateSource(event);
+    PMFloatApplyDisplayFrameRateSourceEx(event, unthrottled);
+    if (unthrottled) PMFloatKickKeepAliveNow();
     if (alreadyArmed) return;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
@@ -346,19 +402,36 @@ static void PMFloatArm(NSString *event) {
     });
 }
 
+static void PMFloatArm(NSString *event) {
+    // Gate: only floating-view package / floating windows may arm Float.
+    PMFloatArmEx(event, YES, NO);
+}
+
+static void PMFloatArmGeometry(NSString *event) {
+    // Shrink/zoom: do not require fresh visible scan; unthrottled re-vote.
+    PMFloatInvalidateVisibleCache();
+    PMFloatArmEx(event, NO, YES);
+}
+
 static void PMFloatArmForWindow(UIWindow *window, NSString *event) {
     if (!PMFloatShouldArmForWindow(window)) return;
     if (window) {
         PMFloatLastWindowClass = [PMClassName(window) copy];
         PMFloatLastRootViewControllerClass = [PMClassName(window.rootViewController) copy];
     }
-    PMFloatArm(event);
+    BOOL geometry = event && ([event containsString:@"setFrame"] || [event containsString:@"setBounds"] || [event containsString:@"setTransform"] || [event containsString:@"setPosition"] || [event containsString:@"addAnimation"] || [event containsString:@"PropertyAnimator"] || [event containsString:@"statusBar"]);
+    if (geometry) PMFloatArmGeometry(event);
+    else PMFloatArm(event);
 }
 
 static void PMFloatArmForView(UIView *view, NSString *event) {
     if (!view || !PMFloatFeatureEnabled()) return;
     UIWindow *window = nil;
     @try { window = view.window; } @catch (__unused NSException *e) {}
+    if (!window && (PMFloatViewLooksFloating(view) || PMFloatWindowConfirmed || PMFloatIsArmed() || PMFloatAnyFloatingWindowVisible())) {
+        PMFloatArmGeometry(event ?: @"UIView.nilWindow");
+        return;
+    }
     PMFloatArmForWindow(window, event);
 }
 
@@ -372,7 +445,19 @@ static void PMFloatArmForLayer(CALayer *layer, NSString *event) {
         }
     } @catch (__unused NSException *e) {
     }
-    if (PMFloatAnyFloatingWindowVisible()) PMFloatArm(event);
+    if (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed()) {
+        PMFloatArmGeometry(event ?: @"CALayer");
+    }
+}
+
+// Post-%orig re-vote so the commit frame itself carries Forced Global / mode pin.
+static void PMFloatReassertAfterGeometry(NSString *event) {
+    if (!PMFloatFeatureEnabled()) return;
+    if (!(PMFloatWindowConfirmed || PMFloatIsArmed() || PMFloatAnyFloatingWindowVisible())) return;
+    PMFloatWindowConfirmed = YES;
+    if (!PMFloatIsArmed()) PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
+    PMFloatApplyDisplayFrameRateSourceEx(event ?: @"geometry.post", YES);
+    PMFloatKickKeepAliveNow();
 }
 
 static BOOL PMFloatRectLooksLikeCollapsedCapsule(CGRect rect) {
@@ -389,19 +474,12 @@ static BOOL PMFloatWindowLooksLikeStatusShrinkWindow(UIWindow *window) {
 }
 
 static void PMFloatPreArm(NSString *reason) {
-    if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
+    if (!PMFloatFeatureEnabled()) return;
+    if (!PMFloatAnyFloatingWindowVisible() && !PMFloatWindowConfirmed && !PMFloatIsArmed()) return;
     PMFloatLastPreArmReason = [reason copy] ?: @"";
-    BOOL alreadyArmed = PMFloatIsArmed() && PMFloatWindowConfirmed;
-    PMFloatWindowConfirmed = YES;
-    PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
-    PMFloatApplyDisplayFrameRateSource(reason ?: @"prearm");
+    // Geometry/animation prearm: unthrottled first-frame re-vote.
+    PMFloatArmGeometry(reason ?: @"prearm");
     PMFloatWriteState(@"floatPreArm", reason ?: @"", YES);
-    if (alreadyArmed) return;
-    PMFloatSession += 1;
-    NSUInteger session = PMFloatSession;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.00 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        PMFloatReleaseIfExpired(session);
-    });
 }
 
 static NSString *PMFloatDisplayLinkTargetClass(id link) {

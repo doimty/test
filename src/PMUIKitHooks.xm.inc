@@ -92,6 +92,7 @@
         } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIWindow.setFrame.post");
     return;
 #endif
     if (PMFloatFeatureEnabled()) {
@@ -107,6 +108,7 @@
         PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setFrame");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIWindow.setFrame.post");
 }
 
 - (void)setBounds:(CGRect)bounds {
@@ -115,6 +117,7 @@
         @try { PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIWindow.setBounds.post");
     return;
 #endif
     if (PMFloatFeatureEnabled()) {
@@ -163,6 +166,7 @@
         } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIView.setFrame.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setFrame", frame, NO);
@@ -189,6 +193,7 @@
         @try { PMFloatArmForView((UIView *)self, @"UIView.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIView.setBounds.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordViewMutation((UIView *)self, @"UIView.setBounds", bounds, YES);
@@ -265,34 +270,37 @@
 - (void)startAnimation {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
-    // Resize/zoom float windows commonly use property animators in SB.
-    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
-        PMFloatArm(@"UIViewPropertyAnimator.startAnimation");
+    if (PMFloatFeatureEnabled() && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
+        PMFloatArmGeometry(@"UIViewPropertyAnimator.startAnimation");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIViewPropertyAnimator.startAnimation.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimation");
     if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
-    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
-        PMFloatArm(@"UIViewPropertyAnimator.startAnimation");
+    if (PMFloatFeatureEnabled() && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
+        PMFloatArmGeometry(@"UIViewPropertyAnimator.startAnimation");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIViewPropertyAnimator.startAnimation.post");
 }
 
 - (void)startAnimationAfterDelay:(NSTimeInterval)delay {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
-    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
-        PMFloatArm(@"UIViewPropertyAnimator.startAnimationAfterDelay");
+    if (PMFloatFeatureEnabled() && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
+        PMFloatArmGeometry(@"UIViewPropertyAnimator.startAnimationAfterDelay");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIViewPropertyAnimator.startAnimationAfterDelay.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordPropertyAnimator(@"UIViewPropertyAnimator.startAnimationAfterDelay");
-    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
-        PMFloatArm(@"UIViewPropertyAnimator.startAnimationAfterDelay");
+    if (PMFloatFeatureEnabled() && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
+        PMFloatArmGeometry(@"UIViewPropertyAnimator.startAnimationAfterDelay");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIViewPropertyAnimator.startAnimationAfterDelay.post");
 }
 
 %end
@@ -307,14 +315,18 @@
     if (PMFloatFeatureEnabled()) {
         @try {
             NSString *floatKey = [key copy] ?: @"";
-            if (PMFloatAnyFloatingWindowVisible() && ([floatKey isEqualToString:@"opacity"] || [floatKey containsString:@"position"] || [floatKey containsString:@"bounds"] || [floatKey containsString:@"transform"])) {
+            BOOL geometryKey = ([floatKey isEqualToString:@"opacity"] || [floatKey containsString:@"position"] || [floatKey containsString:@"bounds"] || [floatKey containsString:@"transform"] || [floatKey containsString:@"frame"] || [floatKey containsString:@"size"] || [floatKey containsString:@"scale"]);
+            if (geometryKey && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
                 PMFloatPreArm([NSString stringWithFormat:@"CALayer.addAnimation.%@", floatKey ?: @""]);
             }
             PMFloatArmForLayer((CALayer *)self, @"CALayer.addAnimation");
-            if (PMFloatIsEligibleNow() && animation) PMApplyToCAObjectDirect(animation);
+            if (animation && (PMFloatIsEligibleNow() || PMFloatWindowConfirmed || PMFloatIsArmed() || PMFloatAnyFloatingWindowVisible())) {
+                PMApplyToCAObjectDirect(animation);
+            }
         } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.addAnimation.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerAnimation((CALayer *)self, animation, key);
@@ -324,13 +336,17 @@
         PMFloatLastAnimationClass = [PMClassName(animation) copy];
         PMFloatLastAnimationKey = [key copy] ?: @"";
         PMFloatWriteState(@"CALayer.addAnimation", PMFloatLastAnimationKey ?: @"", NO);
-        if (PMFloatAnyFloatingWindowVisible() && ([PMFloatLastAnimationKey isEqualToString:@"opacity"] || [PMFloatLastAnimationKey containsString:@"position"] || [PMFloatLastAnimationKey containsString:@"bounds"] || [PMFloatLastAnimationKey containsString:@"transform"])) {
+        BOOL geometryKey = ([PMFloatLastAnimationKey isEqualToString:@"opacity"] || [PMFloatLastAnimationKey containsString:@"position"] || [PMFloatLastAnimationKey containsString:@"bounds"] || [PMFloatLastAnimationKey containsString:@"transform"] || [PMFloatLastAnimationKey containsString:@"frame"] || [PMFloatLastAnimationKey containsString:@"size"] || [PMFloatLastAnimationKey containsString:@"scale"]);
+        if (geometryKey && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
             PMFloatPreArm([NSString stringWithFormat:@"CALayer.addAnimation.%@", PMFloatLastAnimationKey ?: @""]);
         }
         PMFloatArmForLayer((CALayer *)self, @"CALayer.addAnimation");
-        if (PMFloatIsEligibleNow() && animation) PMApplyToCAObjectDirect(animation);
+        if (animation && (PMFloatIsEligibleNow() || PMFloatWindowConfirmed || PMFloatIsArmed() || PMFloatAnyFloatingWindowVisible())) {
+            PMApplyToCAObjectDirect(animation);
+        }
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.addAnimation.post");
 }
 
 - (void)setBounds:(CGRect)bounds {
@@ -339,6 +355,7 @@
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds"); } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setBounds.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setBounds");
@@ -350,6 +367,7 @@
         PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setBounds.post");
 }
 
 - (void)setPosition:(CGPoint)position {
@@ -358,6 +376,7 @@
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition"); } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setPosition.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setPosition");
@@ -369,6 +388,7 @@
         PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setPosition.post");
 }
 
 - (void)setTransform:(CATransform3D)transform {
@@ -377,6 +397,7 @@
         @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform"); } @catch (__unused NSException *e) {}
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setTransform.post");
     return;
 #endif
     if (PMIsTargetProcess()) PMJankRecordLayerMutation((CALayer *)self, @"CALayer.setTransform");
@@ -387,6 +408,7 @@
         PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform");
     }
     %orig;
+    if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setTransform.post");
 }
 
 %end
