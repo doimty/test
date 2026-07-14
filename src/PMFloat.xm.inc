@@ -135,6 +135,7 @@ __attribute__((unused)) static NSMutableDictionary *PMFloatLoadRoot(void) {
     return root;
 }
 
+#if PM_ENABLE_FLOAT_ZOOM_PROBE || PM_ENABLE_DIAGNOSTIC_PROBES
 static uint64_t PMFloatReadMotionHoldNotifyState(void) {
     static int token = -1;
     @try {
@@ -149,6 +150,8 @@ static uint64_t PMFloatReadMotionHoldNotifyState(void) {
 }
 
 // Shared snapshot writer used by full diagnostic probes and the zoom-only probe.
+// WARNING: never call from hot UIView.setFrame paths without heavy throttling.
+// 1.0.27 zoomprobe1 wrote too often and tripped respring/watchdog.
 static void PMFloatWriteStateSnapshot(NSString *event, NSString *note, BOOL includeWindows) {
     if (!PMFloatFeatureEnabled()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -183,10 +186,8 @@ static void PMFloatWriteStateSnapshot(NSString *event, NSString *note, BOOL incl
         state[@"sourceActive"] = @NO;
         state[@"windowConfirmed"] = @(PMFloatWindowConfirmed);
         state[@"armUntil"] = @(PMFloatArmUntil);
-        // Avoid calling later static helpers from this early writer.
         state[@"armedNow"] = @((PMFloatArmUntil > 0) && (now < PMFloatArmUntil));
         state[@"motionHoldNotify"] = @(PMFloatReadMotionHoldNotifyState());
-        // floatVisible omitted here: PMFloatAnyFloatingWindowVisible is defined later.
         state[@"counts"] = @{
             @"injected": @(PMFloatProbeInjectedCount),
             @"windowSetFrame": @(PMFloatWindowSetFrameCount),
@@ -214,9 +215,13 @@ static void PMFloatWriteStateSnapshot(NSString *event, NSString *note, BOOL incl
         [root writeToFile:PMFloatProbeLogPath() atomically:YES];
     }
 }
+#endif
 
 static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
-#if PM_ENABLE_FLOAT_ZOOM_PROBE
+#if !(PM_ENABLE_FLOAT_ZOOM_PROBE || PM_ENABLE_DIAGNOSTIC_PROBES)
+    (void)event; (void)note; (void)force;
+    return;
+#elif PM_ENABLE_FLOAT_ZOOM_PROBE
     // Focused zoom probe: SB + floating-view only, throttled disk writes.
     if (!PMFloatFeatureEnabled()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -224,10 +229,6 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
     @try {
         PMFloatWriteStateSnapshot(event, note, force);
     } @catch (__unused NSException *e) {}
-    return;
-#elif !PM_ENABLE_DIAGNOSTIC_PROBES
-    (void)event; (void)note; (void)force;
-    return;
 #else
     // Full diagnostic path (menu/edit limited) — kept for future WeChat work.
     if (!PMFloatFeatureEnabled()) return;
