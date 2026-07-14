@@ -30,5 +30,15 @@
   P1 was closed by the prerm retry/warning behavior. Added the requested CPU
   coverage for full-to-low, low-to-off, and old-process/new-process restore.
 - All local tests, source checks, rootless build, and package extraction checks
-  pass. Roothide delivery remains gated on a macOS cloud build with a clean ABI
-  warning scan.
+  pass.
+- Source commit: `470b2ed7ed85f17aa0f1c17db447c0526c8ff009`.
+- Pushed branch: `public-test/insulation/0.1.37-clean3`.
+- macOS Actions run `29352313379` passed rootless and roothide jobs.
+- Full log scan: zero incompatible-arm64e warnings, zero compiler errors, zero
+  failed-build markers. The 16 `-multiply_defined is obsolete` warnings are
+  linker-option deprecations, not ABI warnings.
+- Cloud package verifier passed both artifacts. Retired runtime/restart
+  notification strings are absent; ordered mode notification and executable
+  `prerm` are present.
+- Rootless SHA256: `be3d964b5e456f4b3833602f583cbf608a554b1b98d9a75a8341f645136d2374`.
+- Roothide SHA256: `acc743f3aaf54452d151c1e96ad4e81ca8b88fbde80628491355ea6d886c1c47`.
