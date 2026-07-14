@@ -224,7 +224,8 @@ static void PMFloatKickKeepAliveNow(void);
     if (!PMFloatMotionHoldLayer) return;
     static BOOL toggle = NO;
     toggle = !toggle;
-    PMFloatMotionHoldLayer.opacity = toggle ? 0.14f : 0.11f;
+    // Near-invisible dirty flip (was alpha 0.11–0.14, showed as a top strip).
+    PMFloatMotionHoldLayer.opacity = toggle ? 0.02f : 0.01f;
     CGFloat y = toggle ? 0.0 : 1.0;
     PMFloatMotionHoldLayer.position = CGPointMake(CGRectGetMidX(PMFloatMotionHoldLayer.bounds),
                                                  y + CGRectGetMidY(PMFloatMotionHoldLayer.bounds));
@@ -282,15 +283,16 @@ static void PMFloatMotionHoldStart(void) {
         if (!PMFloatMotionHoldWindow) {
             CGRect screen = [UIScreen mainScreen].bounds;
             CGFloat w = MAX(screen.size.width, screen.size.height);
-            PMFloatMotionHoldWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, 2.0)];
+            PMFloatMotionHoldWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, 1.0)];
             PMFloatMotionHoldWindow.windowLevel = 2001.0;
             PMFloatMotionHoldWindow.userInteractionEnabled = NO;
             PMFloatMotionHoldWindow.opaque = NO;
             PMFloatMotionHoldWindow.backgroundColor = [UIColor clearColor];
             PMFloatMotionHoldWindow.hidden = NO;
             PMFloatMotionHoldLayer = [CALayer layer];
-            PMFloatMotionHoldLayer.frame = CGRectMake(0, 0, w, 2.0);
-            PMFloatMotionHoldLayer.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+            PMFloatMotionHoldLayer.frame = CGRectMake(0, 0, w, 1.0);
+            PMFloatMotionHoldLayer.backgroundColor = [UIColor colorWithWhite:0 alpha:1].CGColor;
+            PMFloatMotionHoldLayer.opacity = 0.02f;
             [PMFloatMotionHoldWindow.layer addSublayer:PMFloatMotionHoldLayer];
         } else {
             PMFloatMotionHoldWindow.hidden = NO;

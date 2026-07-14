@@ -81,7 +81,8 @@ static CGColorRef PMSBDirtyColorB = NULL;
 // when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
 
 static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
-static const CGFloat PMSBKeepAliveStripH = 4.0;
+// 1px + near-zero alpha: still dirties the compositor without a visible top bar.
+static const CGFloat PMSBKeepAliveStripH = 1.0;
 
 static void PMSBKeepAliveAttachScene(void) {
     if (!PMSBKeepAliveWindow) return;
@@ -171,12 +172,12 @@ static void PMSBForceMainDisplayHighMode(void) {
     toggle = !toggle;
     tick += 1;
 
-    // Dual dirty: position + color. Stronger alpha so DPPMS cannot settle at 80.
+    // Dual dirty: position + color. Alpha kept ~0 so the strip is not visible;
+    // geometry/color flip still produces a real layer commit for DPPMS.
     CGFloat y = toggle ? 0.0 : 1.0;
     PMSBDirtyLayer.position = CGPointMake(CGRectGetMidX(PMSBDirtyLayer.bounds), y + CGRectGetMidY(PMSBDirtyLayer.bounds));
     PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
-    // Force a real content commit (not just geometry) every frame.
-    PMSBDirtyLayer.opacity = toggle ? 0.12f : 0.10f;
+    PMSBDirtyLayer.opacity = toggle ? 0.02f : 0.01f;
 
     PMSBKeepAliveApplyLinkRange();
     PMGlobalSBApplyForced(@"keepalive.tick");
@@ -276,8 +277,8 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // Full-width strip. Higher opacity than 1.0.20 (0.02) so DPPMS cannot
-        // settle the classic 80Hz compromise against dense 60Hz app content.
+        // Full-width 1px strip under status bar. Opaque alpha removed: was
+        // visible as a top haze when keepalive ran for blocked apps.
         CGRect screen = [UIScreen mainScreen].bounds;
         CGFloat w = MAX(screen.size.width, screen.size.height);
         PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, PMSBKeepAliveStripH)];
@@ -292,7 +293,7 @@ static void PMSBInstallKeepAliveLink(void) {
 
         PMSBDirtyLayer = [CALayer layer];
         PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
-        PMSBDirtyLayer.opacity           = 0.12f;
+        PMSBDirtyLayer.opacity           = 0.02f;
         PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
         PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
