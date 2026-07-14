@@ -81,7 +81,11 @@ static CGColorRef PMSBDirtyColorB = NULL;
 // when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
 
 static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
-static const CGFloat PMSBKeepAliveStripH = 4.0;
+// 1.0.35-off1 experiment: host OFFSCREEN (user requested try). 1.0.32 previously
+// dropped SB ~18Hz on this device — keep DisplayLink+Global+mode pin; no visible strip.
+static const CGFloat PMSBKeepAliveStripH = 1.0;
+static const CGFloat PMSBKeepAliveOffX = -20.0;
+static const CGFloat PMSBKeepAliveOffY = -20.0;
 
 static void PMSBKeepAliveAttachScene(void) {
     if (!PMSBKeepAliveWindow) return;
@@ -222,12 +226,14 @@ static void PMSBKeepAliveEvaluate(void) {
         if (PMSBKeepAliveWindow) {
             PMSBKeepAliveAttachScene();
             PMSBKeepAliveWindow.hidden = NO;
-            CGRect screen = [UIScreen mainScreen].bounds;
-            CGFloat w = MAX(screen.size.width, screen.size.height);
-            if (fabs(PMSBKeepAliveWindow.bounds.size.width - w) > 0.5 ||
-                fabs(PMSBKeepAliveWindow.bounds.size.height - PMSBKeepAliveStripH) > 0.5) {
-                PMSBKeepAliveWindow.frame = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
-                PMSBDirtyLayer.frame = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
+            // Stay offscreen; do not re-expand to full-width status-bar strip.
+            CGRect want = CGRectMake(PMSBKeepAliveOffX, PMSBKeepAliveOffY, PMSBKeepAliveStripH, PMSBKeepAliveStripH);
+            if (fabs(PMSBKeepAliveWindow.frame.origin.x - want.origin.x) > 0.5 ||
+                fabs(PMSBKeepAliveWindow.frame.origin.y - want.origin.y) > 0.5 ||
+                fabs(PMSBKeepAliveWindow.bounds.size.width - want.size.width) > 0.5 ||
+                fabs(PMSBKeepAliveWindow.bounds.size.height - want.size.height) > 0.5) {
+                PMSBKeepAliveWindow.frame = want;
+                PMSBDirtyLayer.frame = CGRectMake(0, 0, PMSBKeepAliveStripH, PMSBKeepAliveStripH);
             }
             if (PMSBDirtyLayer && PMSBDirtyLayer.superlayer == nil) {
                 [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
@@ -253,13 +259,12 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBDirtyColorB = CGColorCreate(cs, cB);
         CGColorSpaceRelease(cs);
 
-        // Full-width strip. Higher opacity than 1.0.20 (0.02) so DPPMS cannot
-        // settle the classic 80Hz compromise against dense 60Hz app content.
-        CGRect screen = [UIScreen mainScreen].bounds;
-        CGFloat w = MAX(screen.size.width, screen.size.height);
-        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, w, PMSBKeepAliveStripH)];
+        // EXPERIMENT 1.0.35-off1: offscreen 1x1 host (no visible top strip).
+        // Demand relies on CADisplayLink range + Global DynamicSource + mode pin.
+        // If SB drops ~18Hz again, roll back to 1.0.34 on-screen strip.
+        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(PMSBKeepAliveOffX, PMSBKeepAliveOffY, PMSBKeepAliveStripH, PMSBKeepAliveStripH)];
         PMSBKeepAliveAttachScene();
-        PMSBKeepAliveWindow.windowLevel              = 1000.0; // status-bar band: stays in composition
+        PMSBKeepAliveWindow.windowLevel              = -9999.0; // intentionally out of visible stack
         PMSBKeepAliveWindow.hidden                   = NO;
         PMSBKeepAliveWindow.userInteractionEnabled    = NO;
         PMSBKeepAliveWindow.opaque                    = NO;
@@ -268,7 +273,7 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveWindow.layer.masksToBounds       = YES;
 
         PMSBDirtyLayer = [CALayer layer];
-        PMSBDirtyLayer.frame             = CGRectMake(0, 0, w, PMSBKeepAliveStripH);
+        PMSBDirtyLayer.frame             = CGRectMake(0, 0, PMSBKeepAliveStripH, PMSBKeepAliveStripH);
         PMSBDirtyLayer.opacity           = 0.12f;
         PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
         PMSBDirtyLayer.allowsGroupOpacity = NO;
