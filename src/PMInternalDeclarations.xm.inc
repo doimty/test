@@ -14,3 +14,8 @@ static void PMSBKeepAliveApplyLinkRange(void);
 // App-process persistent source.
 static void PMAppEnsurePersistentSource(void);
 static void PMAppRefreshPersistentSource(void);
+
+// Floating-window arming (used from keepalive / UIKit hooks).
+static BOOL PMFloatFeatureEnabled(void);
+static BOOL PMFloatAnyFloatingWindowVisible(void);
+static void PMFloatArm(NSString *event);

@@ -4,10 +4,11 @@
     if (!PMIsTargetProcess()) {
         // App processes: refresh persistent source on VC transitions
         PMAppRefreshPersistentSource();
-        // SpringBoard: arm Float if floating window visible
-        if (PMFloatAnyFloatingWindowVisible()) {
-            PMFloatArm(@"vc.presentation");
-        }
+    }
+    // SpringBoard + floating-view package: arm Float when float windows are up.
+    // Previously this arm sat inside !PMIsTargetProcess, so SB never armed here.
+    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
+        PMFloatArm(@"vc.presentation");
     }
     %orig;
 }
@@ -16,6 +17,9 @@
     %orig;
     // Re-affirm 120Hz after VC transitions in app processes
     if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
+    if (PMFloatFeatureEnabled() && PMFloatAnyFloatingWindowVisible()) {
+        PMFloatArm(@"vc.didAppear");
+    }
 }
 
 - (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {

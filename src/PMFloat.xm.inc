@@ -325,16 +325,17 @@ static void PMFloatApplyDisplayFrameRateSource(NSString *event) {
 }
 
 static void PMFloatArm(NSString *event) {
-    // Gate: only floating-view package / floating windows may create Float source.
+    // Gate: only floating-view package / floating windows may arm Float.
     // Menu/alert hooks in ordinary apps must not stack a second DynamicSource on
     // top of PMAppPersistentFrameRateSource.
     if (!PMFloatFeatureEnabled() || !PMFloatAnyFloatingWindowVisible()) return;
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
-    PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 1.60;
+    // Hold longer while float UI is live; expire path re-arms if still visible.
+    PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
     PMFloatApplyDisplayFrameRateSource(event);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.00 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         PMFloatReleaseIfExpired(session);
     });
 }
@@ -387,7 +388,7 @@ static void PMFloatPreArm(NSString *reason) {
     PMFloatWindowConfirmed = YES;
     PMFloatSession += 1;
     NSUInteger session = PMFloatSession;
-    PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 2.00;
+    PMFloatArmUntil = CFAbsoluteTimeGetCurrent() + 4.00;
     PMFloatApplyDisplayFrameRateSource(reason ?: @"prearm");
     PMFloatWriteState(@"floatPreArm", reason ?: @"", YES);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.00 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -415,9 +416,18 @@ static void (*orig_CADynamicFrameRateSource_setHighFrameRateReasons_count)(id, S
 static void PMFloatReleaseIfExpired(NSUInteger session) {
     if (session != PMFloatSession) return;
     if (PMFloatIsArmed()) {
+        // While armed, keep re-applying source; DynamicSource votes decay under idle float UI.
+        if (PMFloatAnyFloatingWindowVisible()) {
+            PMFloatApplyDisplayFrameRateSource(@"float.hold");
+        }
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             PMFloatReleaseIfExpired(session);
         });
+        return;
+    }
+    // Still visible after arm window: renew instead of dropping to 60/10Hz idle floor.
+    if (PMFloatAnyFloatingWindowVisible()) {
+        PMFloatArm(@"float.renew");
         return;
     }
     // Single-owner model: Float never owned a DynamicSource.

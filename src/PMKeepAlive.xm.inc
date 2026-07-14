@@ -202,6 +202,12 @@ static void PMSBKeepAliveEvaluate(void) {
     if (!PMSBKeepAliveLink) return;
     NSString *front = PMSBFrontmostBundleID();
     BOOL positive = (front != nil) && !PMSBIsAppHooked(front);
+    // Floating windows often sit over hooked apps (or in SB). Hooked-front
+    // keepalive pause then leaves only a soft DynamicSource vote, and DPPMS
+    // drops float UI to 60Hz or the 10Hz idle floor. Keep render proof alive
+    // while any floating window is visible.
+    BOOL floatVisible = PMFloatAnyFloatingWindowVisible();
+    if (floatVisible) positive = YES;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (positive) {
         // Hold 2s past last positive so frontmost nil / brief transitions don't pause mid-scroll.
