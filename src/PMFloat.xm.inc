@@ -135,19 +135,102 @@ __attribute__((unused)) static NSMutableDictionary *PMFloatLoadRoot(void) {
     return root;
 }
 
+static uint64_t PMFloatReadMotionHoldNotifyState(void) {
+    static int token = -1;
+    @try {
+        if (token < 0) notify_register_check("com.doimty.pm120.float.motionhold", &token);
+        if (token < 0) return 0;
+        uint64_t st = 0;
+        notify_get_state(token, &st);
+        return st;
+    } @catch (__unused NSException *e) {
+        return 0;
+    }
+}
+
+// Shared snapshot writer used by full diagnostic probes and the zoom-only probe.
+static void PMFloatWriteStateSnapshot(NSString *event, NSString *note, BOOL includeWindows) {
+    if (!PMFloatFeatureEnabled()) return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    PMFloatLastWriteTime = now;
+    PMFloatLastEvent = [event copy] ?: @"";
+    PMFloatLastNote = [note copy] ?: @"";
+    @synchronized([NSUserDefaults class]) {
+        NSMutableDictionary *root = PMFloatLoadRoot();
+        NSMutableDictionary *state = [NSMutableDictionary dictionary];
+        state[@"event"] = PMFloatLastEvent ?: @"";
+        state[@"note"] = PMFloatLastNote ?: @"";
+        state[@"timestamp"] = [[NSDate date] description];
+        state[@"probeMode"] = PM_ENABLE_FLOAT_ZOOM_PROBE ? @"zoomprobe1" : @"full";
+        state[@"lastWindowClass"] = PMFloatLastWindowClass ?: @"";
+        state[@"lastRootViewControllerClass"] = PMFloatLastRootViewControllerClass ?: @"";
+        state[@"lastViewClass"] = PMFloatLastViewClass ?: @"";
+        state[@"lastLayerClass"] = PMFloatLastLayerClass ?: @"";
+        state[@"lastAnimationClass"] = PMFloatLastAnimationClass ?: @"";
+        state[@"lastAnimationKey"] = PMFloatLastAnimationKey ?: @"";
+        state[@"lastDisplayLinkTargetClass"] = PMFloatLastDisplayLinkTargetClass ?: @"";
+        state[@"lastPreArmReason"] = PMFloatLastPreArmReason ?: @"";
+        state[@"lastFrame"] = PMFloatRectDict(PMFloatLastFrame);
+        state[@"lastBounds"] = PMFloatRectDict(PMFloatLastBounds);
+        state[@"lastPosition"] = PMFloatPointDict(PMFloatLastPosition);
+        state[@"lastRange"] = @{
+            @"minimum": @(PMFloatLastRangeMinimum),
+            @"preferred": @(PMFloatLastRangePreferred),
+            @"maximum": @(PMFloatLastRangeMaximum)
+        };
+        state[@"lastPreferredFPS"] = @(PMFloatLastPreferredFPS);
+        state[@"lastFrameInterval"] = @(PMFloatLastFrameInterval);
+        state[@"sourceActive"] = @NO;
+        state[@"windowConfirmed"] = @(PMFloatWindowConfirmed);
+        state[@"armUntil"] = @(PMFloatArmUntil);
+        // Avoid calling later static helpers from this early writer.
+        state[@"armedNow"] = @((PMFloatArmUntil > 0) && (now < PMFloatArmUntil));
+        state[@"motionHoldNotify"] = @(PMFloatReadMotionHoldNotifyState());
+        // floatVisible omitted here: PMFloatAnyFloatingWindowVisible is defined later.
+        state[@"counts"] = @{
+            @"injected": @(PMFloatProbeInjectedCount),
+            @"windowSetFrame": @(PMFloatWindowSetFrameCount),
+            @"windowSetBounds": @(PMFloatWindowSetBoundsCount),
+            @"viewSetFrame": @(PMFloatViewSetFrameCount),
+            @"viewSetBounds": @(PMFloatViewSetBoundsCount),
+            @"layerSetBounds": @(PMFloatLayerSetBoundsCount),
+            @"layerSetPosition": @(PMFloatLayerSetPositionCount),
+            @"layerSetTransform": @(PMFloatLayerSetTransformCount),
+            @"layerAddAnimation": @(PMFloatLayerAddAnimationCount),
+            @"animationRangeSet": @(PMFloatAnimationRangeSetCount),
+            @"displayLinkCreate": @(PMFloatDisplayLinkCreateCount),
+            @"displayLinkRangeSet": @(PMFloatDisplayLinkRangeSetCount),
+            @"displayLinkFPSSet": @(PMFloatDisplayLinkFPSSetCount),
+            @"displayLinkFrameIntervalSet": @(PMFloatDisplayLinkFrameIntervalSetCount),
+            @"preArmLowFPS": @(PMFloatPreArmLowFPSCount),
+            @"preArmInProcessManager": @(PMFloatPreArmInProcessManagerCount),
+            @"smallStatusBarArm": @(PMFloatSmallStatusBarArmCount),
+            @"sourceCreate": @0,
+            @"sourceApply": @(PMFloatSourceApplyCount),
+            @"sourceRelease": @(PMFloatSourceReleaseCount)
+        };
+        if (includeWindows) state[@"windows"] = PMFloatWindowSummary();
+        root[@"state"] = state;
+        [root writeToFile:PMFloatProbeLogPath() atomically:YES];
+    }
+}
+
 static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
-    // 1.0.6: telemetry plist writes fully disabled for release.
-    // The PMFloat* functional path (high-refresh arming) stays active;
-    // only the diagnostic writeToFile is suppressed to avoid disk I/O.
-#if !PM_ENABLE_DIAGNOSTIC_PROBES
+#if PM_ENABLE_FLOAT_ZOOM_PROBE
+    // Focused zoom probe: SB + floating-view only, throttled disk writes.
+    if (!PMFloatFeatureEnabled()) return;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (!force && PMFloatLastWriteTime > 0 && (now - PMFloatLastWriteTime) < 0.12) return;
+    @try {
+        PMFloatWriteStateSnapshot(event, note, force);
+    } @catch (__unused NSException *e) {}
+    return;
+#elif !PM_ENABLE_DIAGNOSTIC_PROBES
     (void)event; (void)note; (void)force;
     return;
 #else
-    // DISABLED in 45+nologall: prevents SIGSEGV crashes from inProcessAnimationManager
-    // Re-enable for menu/edit-menu diagnosis in WeChat/Filza (limited writes only)
-    // Skip if not in a target bundle
+    // Full diagnostic path (menu/edit limited) — kept for future WeChat work.
     if (!PMFloatFeatureEnabled()) return;
-    // Only write for menu/edit events to keep telemetry minimal
     if (!force && ![event containsString:@"editMenu"]
         && ![event containsString:@"menu"]
         && ![event containsString:@"popover"]
@@ -156,63 +239,33 @@ static void PMFloatWriteState(NSString *event, NSString *note, BOOL force) {
         && ![event containsString:@"Popover"]) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (!force && PMFloatLastWriteTime > 0 && (now - PMFloatLastWriteTime) < 0.20) return;
-    PMFloatLastWriteTime = now;
-    PMFloatLastEvent = [event copy] ?: @"";
-    PMFloatLastNote = [note copy] ?: @"";
-    @synchronized([NSUserDefaults class]) {
-        NSMutableDictionary *root = PMFloatLoadRoot();
-        root[@"state"] = @{
-            @"event": PMFloatLastEvent ?: @"",
-            @"note": PMFloatLastNote ?: @"",
-            @"timestamp": [[NSDate date] description],
-            @"lastWindowClass": PMFloatLastWindowClass ?: @"",
-            @"lastRootViewControllerClass": PMFloatLastRootViewControllerClass ?: @"",
-            @"lastViewClass": PMFloatLastViewClass ?: @"",
-            @"lastLayerClass": PMFloatLastLayerClass ?: @"",
-            @"lastAnimationClass": PMFloatLastAnimationClass ?: @"",
-            @"lastAnimationKey": PMFloatLastAnimationKey ?: @"",
-            @"lastDisplayLinkTargetClass": PMFloatLastDisplayLinkTargetClass ?: @"",
-            @"lastPreArmReason": PMFloatLastPreArmReason ?: @"",
-            @"lastFrame": PMFloatRectDict(PMFloatLastFrame),
-            @"lastBounds": PMFloatRectDict(PMFloatLastBounds),
-            @"lastPosition": PMFloatPointDict(PMFloatLastPosition),
-            @"lastRange": @{
-                @"minimum": @(PMFloatLastRangeMinimum),
-                @"preferred": @(PMFloatLastRangePreferred),
-                @"maximum": @(PMFloatLastRangeMaximum)
-            },
-            @"lastPreferredFPS": @(PMFloatLastPreferredFPS),
-            @"lastFrameInterval": @(PMFloatLastFrameInterval),
-            @"sourceActive": @NO,
-            @"windowConfirmed": @(PMFloatWindowConfirmed),
-            @"armUntil": @(PMFloatArmUntil),
-            @"counts": @{
-                @"injected": @(PMFloatProbeInjectedCount),
-                @"windowSetFrame": @(PMFloatWindowSetFrameCount),
-                @"windowSetBounds": @(PMFloatWindowSetBoundsCount),
-                @"viewSetFrame": @(PMFloatViewSetFrameCount),
-                @"viewSetBounds": @(PMFloatViewSetBoundsCount),
-                @"layerSetBounds": @(PMFloatLayerSetBoundsCount),
-                @"layerSetPosition": @(PMFloatLayerSetPositionCount),
-                @"layerSetTransform": @(PMFloatLayerSetTransformCount),
-                @"layerAddAnimation": @(PMFloatLayerAddAnimationCount),
-                @"animationRangeSet": @(PMFloatAnimationRangeSetCount),
-                @"displayLinkCreate": @(PMFloatDisplayLinkCreateCount),
-                @"displayLinkRangeSet": @(PMFloatDisplayLinkRangeSetCount),
-                @"displayLinkFPSSet": @(PMFloatDisplayLinkFPSSetCount),
-                @"displayLinkFrameIntervalSet": @(PMFloatDisplayLinkFrameIntervalSetCount),
-                @"preArmLowFPS": @(PMFloatPreArmLowFPSCount),
-                @"preArmInProcessManager": @(PMFloatPreArmInProcessManagerCount),
-                @"smallStatusBarArm": @(PMFloatSmallStatusBarArmCount),
-                @"sourceCreate": @0,
-                @"sourceApply": @(PMFloatSourceApplyCount),
-                @"sourceRelease": @(PMFloatSourceReleaseCount)
-            },
-            @"windows": PMFloatWindowSummary()
-        };
-        [root writeToFile:PMFloatProbeLogPath() atomically:YES];
+    @try {
+        PMFloatWriteStateSnapshot(event, note, YES);
+    } @catch (__unused NSException *e) {}
+#endif
+}
+
+// Always-safe counter bump for float geometry hooks when full diagnostic branch is off.
+static void PMFloatProbeNoteGeometry(NSString *kind, NSString *cls) {
+#if PM_ENABLE_FLOAT_ZOOM_PROBE
+    if (!PMFloatFeatureEnabled()) return;
+    if ([kind containsString:@"UIWindow.setFrame"]) PMFloatWindowSetFrameCount += 1;
+    else if ([kind containsString:@"UIWindow.setBounds"]) PMFloatWindowSetBoundsCount += 1;
+    else if ([kind containsString:@"UIView.setFrame"]) PMFloatViewSetFrameCount += 1;
+    else if ([kind containsString:@"UIView.setBounds"]) PMFloatViewSetBoundsCount += 1;
+    else if ([kind containsString:@"CALayer.setBounds"]) PMFloatLayerSetBoundsCount += 1;
+    else if ([kind containsString:@"CALayer.setPosition"]) PMFloatLayerSetPositionCount += 1;
+    else if ([kind containsString:@"CALayer.setTransform"]) PMFloatLayerSetTransformCount += 1;
+    else if ([kind containsString:@"CALayer.addAnimation"]) PMFloatLayerAddAnimationCount += 1;
+    if (cls.length) {
+        if ([kind containsString:@"UIWindow"]) PMFloatLastWindowClass = [cls copy];
+        else if ([kind containsString:@"UIView"]) PMFloatLastViewClass = [cls copy];
+        else if ([kind containsString:@"CALayer"]) PMFloatLastLayerClass = [cls copy];
     }
-#endif // PM_ENABLE_DIAGNOSTIC_PROBES
+    PMFloatWriteState(kind, cls ?: @"", NO);
+#else
+    (void)kind; (void)cls;
+#endif
 }
 
 static void PMFloatCaptureWindowInfoForView(UIView *view) {
@@ -499,7 +552,7 @@ static void PMFloatApplyDisplayFrameRateSourceEx(NSString *event, BOOL unthrottl
         }
         PMFloatSourceApplyCount += 1;
         PMFloatLastSourceApplyAt = now;
-        PMFloatWriteState(@"floatSource.apply", event ?: @"", NO);
+        PMFloatWriteState(@"floatSource.apply", event ?: @"", YES);
     } @catch (__unused NSException *e) {
     }
 }

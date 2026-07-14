@@ -85,6 +85,7 @@
     // Float windows often live in SpringBoard; arm on SB + floating-view package.
     if (PMFloatFeatureEnabled()) {
         @try {
+            PMFloatProbeNoteGeometry(@"UIWindow.setFrame", PMClassName(self));
             if (PMFloatWindowLooksLikeStatusShrinkWindow((UIWindow *)self) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
                 PMFloatPreArm(@"UIWindow.statusBar.smallFrame");
             }
@@ -114,7 +115,10 @@
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (PMFloatFeatureEnabled()) {
-        @try { PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds"); } @catch (__unused NSException *e) {}
+        @try {
+            PMFloatProbeNoteGeometry(@"UIWindow.setBounds", PMClassName(self));
+            PMFloatArmForWindow((UIWindow *)self, @"UIWindow.setBounds");
+        } @catch (__unused NSException *e) {}
     }
     %orig;
     if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIWindow.setBounds.post");
@@ -159,6 +163,7 @@
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (PMFloatFeatureEnabled()) {
         @try {
+            PMFloatProbeNoteGeometry(@"UIView.setFrame", PMClassName(self));
             if (PMFloatWindowLooksLikeStatusShrinkWindow(((UIView *)self).window) && PMFloatRectLooksLikeCollapsedCapsule(frame) && PMFloatAnyFloatingWindowVisible()) {
                 PMFloatPreArm(@"UIView.statusBar.smallFrame");
             }
@@ -190,7 +195,10 @@
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (PMFloatFeatureEnabled()) {
-        @try { PMFloatArmForView((UIView *)self, @"UIView.setBounds"); } @catch (__unused NSException *e) {}
+        @try {
+            PMFloatProbeNoteGeometry(@"UIView.setBounds", PMClassName(self));
+            PMFloatArmForView((UIView *)self, @"UIView.setBounds");
+        } @catch (__unused NSException *e) {}
     }
     %orig;
     if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"UIView.setBounds.post");
@@ -271,6 +279,7 @@
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (!PMIsTargetProcess()) PMAppRefreshPersistentSource();
     if (PMFloatFeatureEnabled() && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
+        PMFloatProbeNoteGeometry(@"UIViewPropertyAnimator.startAnimation", @"PropertyAnimator");
         PMFloatArmGeometry(@"UIViewPropertyAnimator.startAnimation");
     }
     %orig;
@@ -315,6 +324,8 @@
     if (PMFloatFeatureEnabled()) {
         @try {
             NSString *floatKey = [key copy] ?: @"";
+            PMFloatLastAnimationKey = floatKey;
+            PMFloatProbeNoteGeometry(@"CALayer.addAnimation", PMClassName(self));
             BOOL geometryKey = ([floatKey isEqualToString:@"opacity"] || [floatKey containsString:@"position"] || [floatKey containsString:@"bounds"] || [floatKey containsString:@"transform"] || [floatKey containsString:@"frame"] || [floatKey containsString:@"size"] || [floatKey containsString:@"scale"]);
             if (geometryKey && (PMFloatAnyFloatingWindowVisible() || PMFloatWindowConfirmed || PMFloatIsArmed())) {
                 PMFloatPreArm([NSString stringWithFormat:@"CALayer.addAnimation.%@", floatKey ?: @""]);
@@ -352,7 +363,10 @@
 - (void)setBounds:(CGRect)bounds {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (PMFloatFeatureEnabled()) {
-        @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds"); } @catch (__unused NSException *e) {}
+        @try {
+            PMFloatProbeNoteGeometry(@"CALayer.setBounds", PMClassName(self));
+            PMFloatArmForLayer((CALayer *)self, @"CALayer.setBounds");
+        } @catch (__unused NSException *e) {}
     }
     %orig;
     if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setBounds.post");
@@ -373,7 +387,10 @@
 - (void)setPosition:(CGPoint)position {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (PMFloatFeatureEnabled()) {
-        @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition"); } @catch (__unused NSException *e) {}
+        @try {
+            PMFloatProbeNoteGeometry(@"CALayer.setPosition", PMClassName(self));
+            PMFloatArmForLayer((CALayer *)self, @"CALayer.setPosition");
+        } @catch (__unused NSException *e) {}
     }
     %orig;
     if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setPosition.post");
@@ -394,7 +411,10 @@
 - (void)setTransform:(CATransform3D)transform {
 #if !PM_ENABLE_DIAGNOSTIC_PROBES
     if (PMFloatFeatureEnabled()) {
-        @try { PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform"); } @catch (__unused NSException *e) {}
+        @try {
+            PMFloatProbeNoteGeometry(@"CALayer.setTransform", PMClassName(self));
+            PMFloatArmForLayer((CALayer *)self, @"CALayer.setTransform");
+        } @catch (__unused NSException *e) {}
     }
     %orig;
     if (PMFloatFeatureEnabled()) PMFloatReassertAfterGeometry(@"CALayer.setTransform.post");
