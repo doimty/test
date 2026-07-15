@@ -61,9 +61,16 @@ jobs:
       - name: Build package
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
-          bash -n layout/DEBIAN/postinst layout/DEBIAN/prerm scripts/check-objc-port.sh scripts/test-insulationctl-args.sh scripts/test-insulation-cpu-state.sh scripts/test-clean3-native-state-contract.sh scripts/test-clean3-mode-notification-contract.sh scripts/verify-insulationctl-package.sh
+          bash -n layout/DEBIAN/postinst layout/DEBIAN/postrm scripts/check-objc-port.sh scripts/test-insulationctl-args.sh scripts/test-insulation-cpu-state.sh scripts/test-insulation-apply-schedule.sh scripts/test-clean3-native-state-contract.sh scripts/test-clean3-mode-notification-contract.sh scripts/test-clean3-contract-search.sh scripts/test-package-power-init-contract.sh scripts/test-simple-uninstall-contract.sh scripts/verify-insulationctl-package.sh
           scripts/check-objc-port.sh
           scripts/test-insulationctl-args.sh
+          scripts/test-insulation-cpu-state.sh
+          scripts/test-insulation-apply-schedule.sh
+          scripts/test-clean3-native-state-contract.sh
+          scripts/test-clean3-mode-notification-contract.sh
+          scripts/test-clean3-contract-search.sh
+          scripts/test-package-power-init-contract.sh
+          scripts/test-simple-uninstall-contract.sh
           make clean SDKVERSION=16.5
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME}" SDKVERSION=16.5
           deb="$(ls packages/*.deb | head -n 1)"

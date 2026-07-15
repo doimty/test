@@ -1,0 +1,11 @@
+#!/bin/bash
+
+case "${1:-}" in
+  remove|purge|disappear)
+    killall thermalmonitord 2>/dev/null || true
+    ;;
+  upgrade|failed-upgrade|abort-install|abort-upgrade)
+    ;;
+esac
+
+exit 0

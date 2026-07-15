@@ -128,18 +128,3 @@ int insulationResetSunlightOverride(void) {
     };
     return insulationResetThermalKeys(keys, sizeof(keys) / sizeof(keys[0]));
 }
-
-int insulationResetAllNativeThermalState(void) {
-    const CFStringRef keys[] = {
-        CFSTR("engageBehavior"),
-        CFSTR("engageBehaviorPersistentlyEnabled"),
-        CFSTR("OSThermalNotificationEnabled"),
-        CFSTR("OSThermalNotificationPersistentlyEnabled"),
-        CFSTR("hipOverride"),
-        CFSTR("hipPersistentlyEnabled"),
-        CFSTR("simulateHip"),
-        CFSTR("sunlightOverride"),
-        CFSTR("sunlightOverridePersistentlyEnabled"),
-    };
-    return insulationResetThermalKeys(keys, sizeof(keys) / sizeof(keys[0]));
-}

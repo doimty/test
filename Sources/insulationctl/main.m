@@ -14,7 +14,6 @@
 #import <unistd.h>
 
 #import "InsulationCtlArgs.h"
-#import "InsulationNativeState.h"
 
 static NSString *const InsulationCtlPrefsKey = @"thermalPowerMode";
 static NSString *const InsulationCtlPrefsBasePath = @"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
@@ -225,15 +224,6 @@ int main(int argc, const char *argv[]) {
 
         if (parsed.action == INSULATION_CTL_ACTION_HELP) {
             InsulationCtlPrintUsage(stdout);
-            return INSULATION_CTL_EXIT_OK;
-        }
-
-        if (parsed.action == INSULATION_CTL_ACTION_RESET_NATIVE) {
-            int status = insulationResetAllNativeThermalState();
-            if (status != 0) {
-                fprintf(stderr, "insulationctl: failed to reset native thermal state: %d\n", status);
-                return INSULATION_CTL_EXIT_IO;
-            }
             return INSULATION_CTL_EXIT_OK;
         }
 

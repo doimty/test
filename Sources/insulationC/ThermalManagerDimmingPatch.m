@@ -379,11 +379,11 @@ static void hook_CommonProduct_thermalUpdatesToWatchdogEnabled(id self, SEL _cmd
 
 static IMP orig_PackagePowerCC_initWithParams = NULL;
 static id hook_PackagePowerCC_initWithParams(id self, SEL _cmd, id params) {
+    if (!orig_PackagePowerCC_initWithParams) return self;
     id patchedParams = params;
     if (insulationThermalPatchAggressiveFullPowerEnabled() && [params isKindOfClass:[NSDictionary class]]) {
         patchedParams = insulationThermalPatchPatchFullPowerConfigObject(params, nil);
     }
-    if (!orig_PackagePowerCC_initWithParams) return self;
     return ((id (*)(id, SEL, id))orig_PackagePowerCC_initWithParams)(self, _cmd, patchedParams);
 }
 

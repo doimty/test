@@ -42,3 +42,36 @@
   `prerm` are present.
 - Rootless SHA256: `be3d964b5e456f4b3833602f583cbf608a554b1b98d9a75a8341f645136d2374`.
 - Roothide SHA256: `acc743f3aaf54452d151c1e96ad4e81ca8b88fbde80628491355ea6d886c1c47`.
+
+## 2026-07-15 simple uninstall rollback
+
+- User device validation accepted Clean3/Clean4 installed behavior but rejected
+  the explicit uninstall cleanup premise as over-constrained. The proven product
+  contract is payload removal followed by replacing the injected daemon.
+- Clean4 branch `692c1317cce9032153e172df432735c7f00236a8` is abandoned and remains
+  untouched as historical evidence.
+- New branch `fix/insulation-0.1.37-simple-uninstall` starts from Clean3 evidence
+  commit `86bbc6e9ae17a0e470ef37db63642255cb8b43f9`.
+- Plan and confirmed public test seams: `docs/simple-uninstall-plan.md`.
+- Scope: remove uninstall-only native reset/CLI/prerm behavior, add non-blocking
+  post-removal process replacement, and preserve independent scheduler,
+  absence-search, and null-IMP fixes without marker/nonce/disabled-latch code.
+- TDD red/green evidence closed for maintainer-script behavior, retired CLI
+  parsing, direct/Soon generation behavior, missing-`rg` false passes, and the
+  `PackagePowerCC.initWithParams:` original-IMP guard ordering.
+- Production removal contract is now only an executable `postrm`: remove,
+  purge, and disappear request one best-effort `killall thermalmonitord`;
+  upgrade, abort, and no-argument paths do nothing. `prerm` is absent.
+- Removed the uninstall-only reset-all API and hidden CLI action while retaining
+  the per-subsystem native cleanup used by installed off/low mode handling.
+- Added the host-tested `InsulationApplySchedule` model; direct applies preserve
+  the active Soon token and a new Soon batch supersedes the old batch.
+- Source checks, shell syntax, all host contracts, `git diff --check`, forbidden
+  lifecycle-string scan, and two independent read-only reviews passed with no
+  actionable P0/P1/P2 findings.
+- Clean local rootless smoke package passed extraction and maintainer-script
+  execution checks: `com.be-huge.insulation_0.1.37_iphoneos-arm64.deb`, SHA256
+  `d8b05320e927b98502b85dedc8cb4ddbd5413a6ec7da4ef01fa9b166203183f3`.
+- The local toolchain still emits incompatible-arm64e ABI warnings while merging
+  universal intermediates. This is compile evidence only and is not a Roothide
+  delivery artifact; macOS cloud logs remain mandatory before Roothide delivery.

@@ -6,8 +6,12 @@ cd "$ROOT"
 
 scripts/test-insulationctl-args.sh
 scripts/test-insulation-cpu-state.sh
+scripts/test-insulation-apply-schedule.sh
 scripts/test-clean3-native-state-contract.sh
 scripts/test-clean3-mode-notification-contract.sh
+scripts/test-clean3-contract-search.sh
+scripts/test-package-power-init-contract.sh
+scripts/test-simple-uninstall-contract.sh
 
 fail=0
 expected_version="$(awk -F': ' 'tolower($1) == "version" { print $2; exit }' control)"
@@ -36,9 +40,16 @@ section "Source layout"
 check_file "CLI parser header" Sources/insulationctl/InsulationCtlArgs.h
 check_file "CLI parser source" Sources/insulationctl/InsulationCtlArgs.c
 check_file "CLI main" Sources/insulationctl/main.m
-check_file "native-state cleanup" Sources/insulationC/InsulationNativeState.m
+check_file "installed native-state cleanup" Sources/insulationC/InsulationNativeState.m
 check_file "CPU state model" Sources/insulationC/InsulationCPUState.c
-check_file "pre-removal cleanup" layout/DEBIAN/prerm
+check_file "apply schedule model" Sources/insulationC/InsulationApplySchedule.c
+check_file "post-removal process replacement" layout/DEBIAN/postrm
+if [[ -e layout/DEBIAN/prerm ]]; then
+  echo "FAIL: simple uninstall must not package a prerm transaction" >&2
+  fail=1
+else
+  echo "OK: no prerm transaction"
+fi
 check_symlink "short command layout" layout/usr/bin/ins insulationctl
 
 if ! grep -q '^TOOL_NAME = insulationctl$' Makefile; then
@@ -115,6 +126,7 @@ for deb in "$@"; do
   ins_path="$(find "$tmp/root" -path '*/usr/bin/ins' -type l | head -n 1)"
   postinst="$tmp/control/postinst"
   prerm="$tmp/control/prerm"
+  postrm="$tmp/control/postrm"
 
   if [[ -n "$ctl_path" ]]; then
     echo "OK: package contains ${ctl_path#$tmp/root}"
@@ -137,11 +149,67 @@ for deb in "$@"; do
     fail=1
   fi
 
-  if [[ -x "$prerm" ]] && grep -Fq -- '--reset-native-state' "$prerm"; then
-    echo "OK: package prerm invokes native-state cleanup"
-  else
-    echo "FAIL: package prerm missing, non-executable, or does not invoke cleanup" >&2
+  if [[ -e "$prerm" ]]; then
+    echo "FAIL: package contains a pre-removal transaction" >&2
     fail=1
+  else
+    echo "OK: package contains no pre-removal transaction"
+  fi
+
+  if [[ -x "$postrm" ]]; then
+    mock_bin="$tmp/mock-bin"
+    events="$tmp/postrm-events"
+    mkdir -p "$mock_bin"
+    cat >"$mock_bin/killall" <<'EOF'
+#!/usr/bin/env bash
+printf 'kill %s\n' "$*" >>"$INSULATION_UNINSTALL_TEST_LOG"
+[[ "${INSULATION_KILL_FAIL:-0}" != "1" ]]
+EOF
+    chmod +x "$mock_bin/killall"
+
+    postrm_ok=1
+    for action in remove purge disappear; do
+      : >"$events"
+      if ! PATH="$mock_bin:$PATH" INSULATION_UNINSTALL_TEST_LOG="$events" "$postrm" "$action" ||
+         [[ "$(cat "$events")" != "kill thermalmonitord" ]]; then
+        echo "FAIL: package postrm does not request one process replacement for $action" >&2
+        postrm_ok=0
+      fi
+    done
+
+    : >"$events"
+    if ! PATH="$mock_bin:$PATH" INSULATION_UNINSTALL_TEST_LOG="$events" INSULATION_KILL_FAIL=1 "$postrm" remove ||
+       [[ "$(cat "$events")" != "kill thermalmonitord" ]]; then
+      echo "FAIL: package postrm blocks removal when process replacement fails" >&2
+      postrm_ok=0
+    fi
+
+    for action in upgrade failed-upgrade abort-install abort-upgrade; do
+      : >"$events"
+      if ! PATH="$mock_bin:$PATH" INSULATION_UNINSTALL_TEST_LOG="$events" "$postrm" "$action" ||
+         [[ -s "$events" ]]; then
+        echo "FAIL: package postrm performs process control for $action" >&2
+        postrm_ok=0
+      fi
+    done
+
+    if [[ "$postrm_ok" == "1" ]]; then
+      echo "OK: package postrm has best-effort simple-uninstall behavior"
+    else
+      fail=1
+    fi
+  else
+    echo "FAIL: package postrm missing or non-executable" >&2
+    fail=1
+  fi
+
+  if grep -R -a -F -q -- '--reset-native-state' "$tmp/root" "$tmp/control" ||
+     grep -R -a -F -q -- 'INSULATION_CTL_ACTION_RESET_NATIVE' "$tmp/root" "$tmp/control" ||
+     grep -R -a -F -q -- 'insulationResetAllNativeThermalState' "$tmp/root" "$tmp/control"; then
+    echo "FAIL: package contains uninstall-only native reset interfaces" >&2
+    fail=1
+  else
+    echo "OK: package contains no uninstall-only native reset interfaces"
   fi
 
   if grep -R -a -F -q -- 'com.be-huge.insulation.runtimeState' "$tmp/root" ||
@@ -170,6 +238,13 @@ for deb in "$@"; do
         fail=1
       else
         echo "OK: insulationctl has no libroothide.dylib dependency"
+      fi
+      if grep -q 'SystemConfiguration\.framework' "$libs"; then
+        echo "FAIL: insulationctl still links uninstall-only SystemConfiguration" >&2
+        cat "$libs" >&2
+        fail=1
+      else
+        echo "OK: insulationctl has no SystemConfiguration dependency"
       fi
     else
       echo "FAIL: no otool available to inspect insulationctl dependencies" >&2

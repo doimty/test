@@ -10,7 +10,6 @@ int insulationResetThermalMitigations(void);
 int insulationResetHIP(void);
 int insulationResetSimulateHIP(void);
 int insulationResetSunlightOverride(void);
-int insulationResetAllNativeThermalState(void);
 
 #ifdef __cplusplus
 }

@@ -4,6 +4,7 @@
 
 #import <dispatch/dispatch.h>
 #import <Foundation/Foundation.h>
+#import "../insulationC/include/InsulationApplySchedule.h"
 #import "../insulationC/include/InsulationCPUState.h"
 #import "../insulationC/include/Tweak.h"
 
@@ -11,7 +12,9 @@ static NSDictionary *InsulationPrefs;
 static BOOL InsulationIsApplying;
 static BOOL InsulationApplyPending;
 static NSString *InsulationApplyPendingSource;
-static uint64_t InsulationSoonGeneration;
+static InsulationApplyScheduleState InsulationApplySchedule = {
+    .generation = 0,
+};
 static InsulationCPUState InsulationCPUPerformanceState = {
     .hasAppliedMode = false,
     .appliedMode = InsulationCPUModeOff,
@@ -473,12 +476,14 @@ static void InsulationExecutePuppetEventLocked(NSString *source) {
 void InsulationExecutePuppetEventWithSource(NSString *source) {
     dispatch_queue_t queue = InsulationApplyQueue();
     if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
-        ++InsulationSoonGeneration;
+        (void)InsulationApplyScheduleStep(&InsulationApplySchedule,
+                                          InsulationApplyScheduleEventDirectApply);
         InsulationExecutePuppetEventLocked(source);
         return;
     }
     dispatch_sync(queue, ^{
-        ++InsulationSoonGeneration;
+        (void)InsulationApplyScheduleStep(&InsulationApplySchedule,
+                                          InsulationApplyScheduleEventDirectApply);
         InsulationExecutePuppetEventLocked(source);
     });
 }
@@ -493,10 +498,12 @@ void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
     dispatch_queue_t queue = InsulationApplyQueue();
     __block uint64_t generation = 0;
     if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
-        generation = ++InsulationSoonGeneration;
+        generation = InsulationApplyScheduleStep(&InsulationApplySchedule,
+                                                  InsulationApplyScheduleEventBeginSoon);
     } else {
         dispatch_sync(queue, ^{
-            generation = ++InsulationSoonGeneration;
+            generation = InsulationApplyScheduleStep(&InsulationApplySchedule,
+                                                      InsulationApplyScheduleEventBeginSoon);
         });
     }
 
@@ -505,7 +512,7 @@ void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([delay doubleValue] * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
             dispatch_async(queue, ^{
-                if (generation != InsulationSoonGeneration) {
+                if (!InsulationApplyScheduleAccepts(&InsulationApplySchedule, generation)) {
                     return;
                 }
                 InsulationExecutePuppetEventLocked(resolvedSource);
