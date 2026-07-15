@@ -1,9 +1,11 @@
 #import "InsulationDebug.h"
 #import "InsulationPowerHelper.h"
 #import "InsulationProbe.h"
+#import "InsulationRemovalGuard.h"
 
 #import <dispatch/dispatch.h>
 #import <Foundation/Foundation.h>
+#import "../insulationC/include/InsulationApplySchedule.h"
 #import "../insulationC/include/InsulationCPUState.h"
 #import "../insulationC/include/Tweak.h"
 
@@ -11,7 +13,9 @@ static NSDictionary *InsulationPrefs;
 static BOOL InsulationIsApplying;
 static BOOL InsulationApplyPending;
 static NSString *InsulationApplyPendingSource;
-static uint64_t InsulationSoonGeneration;
+static InsulationApplyScheduleState InsulationApplySchedule = {
+    .generation = 0,
+};
 static InsulationCPUState InsulationCPUPerformanceState = {
     .hasAppliedMode = false,
     .appliedMode = InsulationCPUModeOff,
@@ -98,10 +102,13 @@ BOOL InsulationPreventDimmingEnabled(void) {
 }
 
 BOOL InsulationDisplayDimmingBypassEnabled(void) {
-    return InsulationBoolPref(@"thermalPreventDimmingEnabled", NO);
+    return !InsulationRemovalIsDisabled() && InsulationBoolPref(@"thermalPreventDimmingEnabled", NO);
 }
 
 NSString *InsulationPowerMode(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return @"off";
+    }
     NSString *mode = InsulationPrefValue(@"thermalPowerMode");
     if ([mode isEqualToString:@"fullPower"] || [mode isEqualToString:@"lowPower"] || [mode isEqualToString:@"off"]) {
         return mode;
@@ -132,13 +139,16 @@ BOOL InsulationPowerMitigationsDisabled(void) {
 }
 
 BOOL InsulationCPURestoreActive(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return NO;
+    }
     @synchronized (InsulationStateLock()) {
         return InsulationCPUPerformanceState.pendingRestoreCount > 0;
     }
 }
 
 BOOL InsulationApplyInProgress(void) {
-    return InsulationIsApplying;
+    return !InsulationRemovalIsDisabled() && InsulationIsApplying;
 }
 
 BOOL InsulationCPULimitEnabled(void) {
@@ -175,6 +185,9 @@ unsigned InsulationUnrestrictedPowerLimitUInt32(void) {
 }
 
 int InsulationFullCPUPower(int power) {
+    if (InsulationRemovalIsDisabled()) {
+        return power;
+    }
     @synchronized (InsulationStateLock()) {
         if (power > 0) {
             InsulationObservedCPUPowerMax = MAX(InsulationObservedCPUPowerMax, power);
@@ -184,7 +197,7 @@ int InsulationFullCPUPower(int power) {
 }
 
 void InsulationNoteComponentPowerCandidate(int power) {
-    if (power <= 0) {
+    if (InsulationRemovalIsDisabled() || power <= 0) {
         return;
     }
     @synchronized (InsulationStateLock()) {
@@ -197,6 +210,9 @@ int InsulationBacklightThermalPowerFloor(void) {
 }
 
 int InsulationMaxComponentPower(int power, int mitigationType) {
+    if (InsulationRemovalIsDisabled()) {
+        return power;
+    }
     NSNumber *key = @(mitigationType);
     int typedMax = 0;
     int globalMax = 0;
@@ -231,6 +247,9 @@ int InsulationMitigationPowerFloor(int power) {
 }
 
 int InsulationLimitedCPUPower(int power) {
+    if (InsulationRemovalIsDisabled()) {
+        return power;
+    }
     if (power > 0) {
         @synchronized (InsulationStateLock()) {
             InsulationObservedCPUPowerMax = MAX(InsulationObservedCPUPowerMax, power);
@@ -243,24 +262,36 @@ int InsulationLimitedCPUPower(int power) {
 }
 
 void InsulationSetCommonProductObject(CommonProduct *product) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     @synchronized (InsulationStateLock()) {
         InsulationCommonProductObject = product;
     }
 }
 
 void InsulationSetMitigationControllerObject(MitigationController *controller) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     @synchronized (InsulationStateLock()) {
         InsulationMitigationControllerObject = controller;
     }
 }
 
 static CommonProduct *InsulationCommonProductSnapshot(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return nil;
+    }
     @synchronized (InsulationStateLock()) {
         return InsulationCommonProductObject;
     }
 }
 
 static MitigationController *InsulationMitigationControllerSnapshot(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return nil;
+    }
     @synchronized (InsulationStateLock()) {
         return InsulationMitigationControllerObject;
     }
@@ -416,6 +447,9 @@ static void InsulationApplyThermalTuningPreferences(void) {
 }
 
 static void InsulationExecutePuppetEventLocked(NSString *source) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     if (InsulationIsApplying) {
         // Coalesce: remember latest request and run once more after current apply finishes.
         InsulationApplyPending = YES;
@@ -462,7 +496,7 @@ static void InsulationExecutePuppetEventLocked(NSString *source) {
             InsulationProbeEvent(@"apply.finished");
         }
 
-        if (!InsulationApplyPending) {
+        if (InsulationRemovalIsDisabled() || !InsulationApplyPending) {
             break;
         }
         activeSource = InsulationApplyPendingSource ?: @"pending";
@@ -471,15 +505,22 @@ static void InsulationExecutePuppetEventLocked(NSString *source) {
 }
 
 void InsulationExecutePuppetEventWithSource(NSString *source) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     dispatch_queue_t queue = InsulationApplyQueue();
     if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
-        ++InsulationSoonGeneration;
-        InsulationExecutePuppetEventLocked(source);
+        if (!InsulationRemovalIsDisabled()) {
+            (void)InsulationApplyScheduleStep(&InsulationApplySchedule, InsulationApplyScheduleEventDirectApply);
+            InsulationExecutePuppetEventLocked(source);
+        }
         return;
     }
     dispatch_sync(queue, ^{
-        ++InsulationSoonGeneration;
-        InsulationExecutePuppetEventLocked(source);
+        if (!InsulationRemovalIsDisabled()) {
+            (void)InsulationApplyScheduleStep(&InsulationApplySchedule, InsulationApplyScheduleEventDirectApply);
+            InsulationExecutePuppetEventLocked(source);
+        }
     });
 }
 
@@ -488,15 +529,18 @@ void InsulationExecutePuppetEvent(void) {
 }
 
 void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     // Keep InsulationRestoreEventCount in sync with this schedule (4 delayed applies).
     // Generation reads and writes stay on the apply queue to avoid cross-thread races.
     dispatch_queue_t queue = InsulationApplyQueue();
     __block uint64_t generation = 0;
     if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
-        generation = ++InsulationSoonGeneration;
+        generation = InsulationApplyScheduleStep(&InsulationApplySchedule, InsulationApplyScheduleEventBeginSoon);
     } else {
         dispatch_sync(queue, ^{
-            generation = ++InsulationSoonGeneration;
+            generation = InsulationApplyScheduleStep(&InsulationApplySchedule, InsulationApplyScheduleEventBeginSoon);
         });
     }
 
@@ -505,7 +549,8 @@ void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([delay doubleValue] * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
             dispatch_async(queue, ^{
-                if (generation != InsulationSoonGeneration) {
+                if (InsulationRemovalIsDisabled() ||
+                    !InsulationApplyScheduleAccepts(&InsulationApplySchedule, generation)) {
                     return;
                 }
                 InsulationExecutePuppetEventLocked(resolvedSource);
@@ -516,4 +561,41 @@ void InsulationExecutePuppetEventSoonWithSource(NSString *source) {
 
 void InsulationExecutePuppetEventSoon(void) {
     InsulationExecutePuppetEventSoonWithSource(@"soon");
+}
+
+void InsulationCancelPuppetEventSoon(void) {
+    dispatch_queue_t queue = InsulationApplyQueue();
+    if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
+        (void)InsulationApplyScheduleStep(&InsulationApplySchedule, InsulationApplyScheduleEventCancelSoon);
+        return;
+    }
+    dispatch_sync(queue, ^{
+        (void)InsulationApplyScheduleStep(&InsulationApplySchedule, InsulationApplyScheduleEventCancelSoon);
+    });
+}
+
+void InsulationPreparePuppetEventsForRemoval(void) {
+    InsulationRemovalLatchDisabled();
+    dispatch_queue_t queue = InsulationApplyQueue();
+    void (^prepare)(void) = ^{
+        (void)InsulationApplyScheduleStep(&InsulationApplySchedule, InsulationApplyScheduleEventCancelSoon);
+        InsulationApplyPending = NO;
+        InsulationApplyPendingSource = nil;
+        InsulationIsApplying = NO;
+        @synchronized (InsulationStateLock()) {
+            InsulationCPUPerformanceState = InsulationCPUStateInitial();
+            InsulationLastForcedCommonProductThermal = NO;
+            InsulationOwnedDarwinThermalPressure = NO;
+            InsulationObservedCPUPowerMax = 0;
+            InsulationObservedComponentPowerGlobalMax = 0;
+            [InsulationObservedComponentPowerMax removeAllObjects];
+            InsulationCommonProductObject = nil;
+            InsulationMitigationControllerObject = nil;
+        }
+    };
+    if (dispatch_get_specific(InsulationApplyQueueSpecificKey())) {
+        prepare();
+    } else {
+        dispatch_sync(queue, prepare);
+    }
 }

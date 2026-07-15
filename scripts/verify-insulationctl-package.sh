@@ -6,8 +6,13 @@ cd "$ROOT"
 
 scripts/test-insulationctl-args.sh
 scripts/test-insulation-cpu-state.sh
+scripts/test-insulation-apply-schedule.sh
+scripts/test-insulation-removal-protocol.sh
 scripts/test-clean3-native-state-contract.sh
+scripts/test-clean3-contract-search.sh
 scripts/test-clean3-mode-notification-contract.sh
+scripts/test-clean4-removal-contract.sh
+scripts/test-clean4-disabled-path-contract.sh
 
 fail=0
 expected_version="$(awk -F': ' 'tolower($1) == "version" { print $2; exit }' control)"
@@ -38,7 +43,10 @@ check_file "CLI parser source" Sources/insulationctl/InsulationCtlArgs.c
 check_file "CLI main" Sources/insulationctl/main.m
 check_file "native-state cleanup" Sources/insulationC/InsulationNativeState.m
 check_file "CPU state model" Sources/insulationC/InsulationCPUState.c
+check_file "removal protocol" Sources/insulationC/InsulationRemovalProtocol.c
+check_file "removal guard" Sources/insulationObjC/InsulationRemovalGuard.m
 check_file "pre-removal cleanup" layout/DEBIAN/prerm
+check_file "post-removal restart" layout/DEBIAN/postrm
 check_symlink "short command layout" layout/usr/bin/ins insulationctl
 
 if ! grep -q '^TOOL_NAME = insulationctl$' Makefile; then
@@ -115,6 +123,7 @@ for deb in "$@"; do
   ins_path="$(find "$tmp/root" -path '*/usr/bin/ins' -type l | head -n 1)"
   postinst="$tmp/control/postinst"
   prerm="$tmp/control/prerm"
+  postrm="$tmp/control/postrm"
 
   if [[ -n "$ctl_path" ]]; then
     echo "OK: package contains ${ctl_path#$tmp/root}"
@@ -137,10 +146,19 @@ for deb in "$@"; do
     fail=1
   fi
 
-  if [[ -x "$prerm" ]] && grep -Fq -- '--reset-native-state' "$prerm"; then
-    echo "OK: package prerm invokes native-state cleanup"
+  if [[ -x "$prerm" ]] &&
+     grep -Fq -- '--prepare-removal' "$prerm" &&
+     grep -Fq -- '--reset-native-state' "$prerm"; then
+    echo "OK: package prerm prepares daemon shutdown before native-state cleanup"
   else
-    echo "FAIL: package prerm missing, non-executable, or does not invoke cleanup" >&2
+    echo "FAIL: package prerm missing, non-executable, or lacks ordered removal commands" >&2
+    fail=1
+  fi
+
+  if [[ -x "$postrm" ]]; then
+    echo "OK: package contains executable postrm"
+  else
+    echo "FAIL: package postrm missing or non-executable" >&2
     fail=1
   fi
 

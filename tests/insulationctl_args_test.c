@@ -36,10 +36,13 @@ static void expect_help(const char *label, int argc, const char *const argv[]) {
     CHECK(result.action == INSULATION_CTL_ACTION_HELP, label);
 }
 
-static void expect_reset_native(const char *label, int argc, const char *const argv[]) {
+static void expect_internal_action(const char *label,
+                                   int argc,
+                                   const char *const argv[],
+                                   InsulationCtlAction action) {
     InsulationCtlParseResult result = parse(argc, argv);
     CHECK(result.exitCode == INSULATION_CTL_EXIT_OK, label);
-    CHECK(result.action == INSULATION_CTL_ACTION_RESET_NATIVE, label);
+    CHECK(result.action == action, label);
 }
 
 static void expect_set(const char *label,
@@ -114,7 +117,19 @@ int main(void) {
     expect_set("fullPower alias", 2, full_power, INSULATION_CTL_MODE_FULL_POWER, false, false, "max", "fullPower");
 
     const char *reset_native[] = {"insulationctl", "--reset-native-state"};
-    expect_reset_native("internal native-state reset", 2, reset_native);
+    expect_internal_action("internal native-state reset", 2, reset_native, INSULATION_CTL_ACTION_RESET_NATIVE);
+
+    const char *prepare_removal[] = {"insulationctl", "--prepare-removal"};
+    expect_internal_action("internal removal preparation", 2, prepare_removal, INSULATION_CTL_ACTION_PREPARE_REMOVAL);
+
+    const char *clear_marker[] = {"insulationctl", "--clear-removal-marker"};
+    expect_internal_action("internal marker clear", 2, clear_marker, INSULATION_CTL_ACTION_CLEAR_REMOVAL_MARKER);
+
+    const char *prepare_with_action[] = {"insulationctl", "--prepare-removal", "status"};
+    expect_usage_error("removal preparation rejects another action", 3, prepare_with_action);
+
+    const char *clear_with_quiet[] = {"insulationctl", "--clear-removal-marker", "--quiet"};
+    expect_usage_error("marker clear rejects quiet", 3, clear_with_quiet);
 
     const char *reset_native_with_action[] = {"insulationctl", "--reset-native-state", "status"};
     expect_usage_error("native-state reset rejects another action", 3, reset_native_with_action);

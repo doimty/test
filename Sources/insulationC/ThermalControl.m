@@ -1,4 +1,5 @@
 #import "include/Tweak.h"
+#import "../insulationObjC/InsulationRemovalGuard.h"
 
 #import <CoreFoundation/CoreFoundation.h>
 #import <Foundation/Foundation.h>
@@ -71,6 +72,9 @@ static uint64_t insulationDarwinPressureValue(int pressure) {
 }
 
 int insulationSetDarwinThermalPressure(int pressure) {
+    if (InsulationRemovalIsDisabled()) {
+        return NOTIFY_STATUS_OK;
+    }
     int token = 0;
     const char *name = insulationThermalPressureNotifyName();
     if (name == NULL || notify_register_check(name, &token) != NOTIFY_STATUS_OK) {
@@ -132,6 +136,9 @@ static int insulationSaveThermalPrefs(SCPreferencesRef prefs) {
 }
 
 static int insulationSetThermalBool(CFStringRef key, CFStringRef persistKey, bool enable, bool persist) {
+    if (InsulationRemovalIsDisabled()) {
+        return kSCStatusOK;
+    }
     SCPreferencesRef prefs = insulationThermalPrefs();
     if (prefs == NULL) {
         return kSCStatusFailed;

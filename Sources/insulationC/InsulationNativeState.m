@@ -33,6 +33,26 @@ static int insulationNativeSCError(InsulationNativeSCErrorFn errorFn) {
     return errorFn != NULL ? errorFn() : kSCStatusFailed;
 }
 
+static int insulationVerifyThermalKeysAbsent(InsulationNativeSCPreferencesCreateFn create,
+                                             InsulationNativeSCPreferencesGetValueFn getValue,
+                                             const CFStringRef *keys,
+                                             size_t count) {
+    SCPreferencesRef verifyPrefs = create(kCFAllocatorDefault,
+                                          CFSTR("insulation-native-state-verify"),
+                                          CFSTR("OSThermalStatus.plist"));
+    if (verifyPrefs == NULL) {
+        return kSCStatusFailed;
+    }
+    for (size_t index = 0; index < count; index++) {
+        if (getValue(verifyPrefs, keys[index]) != NULL) {
+            CFRelease(verifyPrefs);
+            return kSCStatusFailed;
+        }
+    }
+    CFRelease(verifyPrefs);
+    return kSCStatusOK;
+}
+
 static int insulationResetThermalKeys(const CFStringRef *keys, size_t count) {
     InsulationNativeSCPreferencesCreateFn create =
         (InsulationNativeSCPreferencesCreateFn)insulationNativeSCSymbol("SCPreferencesCreate");
@@ -72,7 +92,7 @@ static int insulationResetThermalKeys(const CFStringRef *keys, size_t count) {
 
     if (!changed) {
         CFRelease(prefs);
-        return kSCStatusOK;
+        return insulationVerifyThermalKeysAbsent(create, getValue, keys, count);
     }
 
     if (!commit(prefs)) {
@@ -87,7 +107,7 @@ static int insulationResetThermalKeys(const CFStringRef *keys, size_t count) {
     }
 
     CFRelease(prefs);
-    return kSCStatusOK;
+    return insulationVerifyThermalKeysAbsent(create, getValue, keys, count);
 }
 
 int insulationResetOSNotifEnabled(void) {

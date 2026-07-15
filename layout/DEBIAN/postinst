@@ -12,6 +12,33 @@ fix_existing_prefs_owner() {
   done
 }
 
+resolve_insulationctl() {
+  local resolved=""
+  resolved="$(command -v insulationctl 2>/dev/null || true)"
+  if [ -n "$resolved" ] && [ -x "$resolved" ]; then
+    printf '%s\n' "$resolved"
+    return 0
+  fi
+
+  for tool in \
+    /usr/bin/insulationctl \
+    /var/jb/usr/bin/insulationctl \
+    /var/containers/Bundle/Application/.jbroot-*/usr/bin/insulationctl; do
+    if [ -x "$tool" ]; then
+      printf '%s\n' "$tool"
+      return 0
+    fi
+  done
+  return 1
+}
+
 fix_existing_prefs_owner
+
+tool="$(resolve_insulationctl || true)"
+if [ -z "$tool" ] || ! "$tool" --clear-removal-marker; then
+  echo "insulation: failed to clear the removal marker; package remains disabled" >&2
+  exit 1
+fi
+
 killall thermalmonitord 2>/dev/null || true
 exit 0

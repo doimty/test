@@ -15,6 +15,7 @@
 
 #import "InsulationCtlArgs.h"
 #import "InsulationNativeState.h"
+#import "../insulationObjC/InsulationRemovalGuard.h"
 
 static NSString *const InsulationCtlPrefsKey = @"thermalPowerMode";
 static NSString *const InsulationCtlPrefsBasePath = @"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
@@ -228,10 +229,36 @@ int main(int argc, const char *argv[]) {
             return INSULATION_CTL_EXIT_OK;
         }
 
+        BOOL internalAction = parsed.action == INSULATION_CTL_ACTION_RESET_NATIVE ||
+                              parsed.action == INSULATION_CTL_ACTION_PREPARE_REMOVAL ||
+                              parsed.action == INSULATION_CTL_ACTION_CLEAR_REMOVAL_MARKER;
+        if (internalAction && geteuid() != 0) {
+            fprintf(stderr, "insulationctl: internal lifecycle actions require root\n");
+            return INSULATION_CTL_EXIT_IO;
+        }
+
         if (parsed.action == INSULATION_CTL_ACTION_RESET_NATIVE) {
             int status = insulationResetAllNativeThermalState();
             if (status != 0) {
                 fprintf(stderr, "insulationctl: failed to reset native thermal state: %d\n", status);
+                return INSULATION_CTL_EXIT_IO;
+            }
+            return INSULATION_CTL_EXIT_OK;
+        }
+
+        if (parsed.action == INSULATION_CTL_ACTION_PREPARE_REMOVAL) {
+            NSError *error = nil;
+            if (!InsulationRemovalPrepareAndWait(&error)) {
+                fprintf(stderr, "insulationctl: failed to prepare removal: %s\n", [InsulationCtlNSErrorDescription(error) UTF8String]);
+                return INSULATION_CTL_EXIT_IO;
+            }
+            return INSULATION_CTL_EXIT_OK;
+        }
+
+        if (parsed.action == INSULATION_CTL_ACTION_CLEAR_REMOVAL_MARKER) {
+            NSError *error = nil;
+            if (!InsulationRemovalClearMarker(&error)) {
+                fprintf(stderr, "insulationctl: failed to clear removal marker: %s\n", [InsulationCtlNSErrorDescription(error) UTF8String]);
                 return INSULATION_CTL_EXIT_IO;
             }
             return INSULATION_CTL_EXIT_OK;

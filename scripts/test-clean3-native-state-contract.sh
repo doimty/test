@@ -62,8 +62,10 @@ for key in \
   check_contains "$source" "CFSTR(\"$key\")" "native reset covers $key"
 done
 
+check_contains "$prerm" "--prepare-removal" "pre-removal script quiesces and exits the injected daemon"
 check_contains "$prerm" "--reset-native-state" "pre-removal script invokes shared reset"
-check_contains "$prerm" "killall thermalmonitord" "pre-removal script restarts thermalmonitord"
+check_absent "$prerm" "killall thermalmonitord" "pre-removal script does not restart a daemon before payload deletion"
+check_contains "$source" "insulationVerifyThermalKeysAbsent" "native reset verifies every key is absent"
 check_contains "$power_helper" "insulationResetThermalMitigations();" "off/low removes mitigation override keys"
 check_absent "$power_helper" "else if (InsulationLastThermalMitigationsDisabled)" "mitigation cleanup no longer depends on process-local Last"
 check_absent "$power_helper" "insulationSetOSNotifNative()" "disabled notification override deletes keys"
@@ -76,14 +78,12 @@ trap 'rm -rf "$prerm_test_dir"' EXIT
 mkdir -p "$prerm_test_dir/bin"
 cat >"$prerm_test_dir/bin/insulationctl" <<'EOF'
 #!/bin/bash
-printf 'reset %s\n' "$*" >>"$INSULATION_PRERM_TEST_LOG"
-[[ "${INSULATION_RESET_FAIL:-0}" != "1" ]]
+printf 'ctl %s\n' "$*" >>"$INSULATION_PRERM_TEST_LOG"
+if [[ "${1:-}" == "--reset-native-state" && "${INSULATION_RESET_FAIL:-0}" == "1" ]]; then
+  exit 1
+fi
 EOF
-cat >"$prerm_test_dir/bin/killall" <<'EOF'
-#!/bin/bash
-printf 'kill %s\n' "$*" >>"$INSULATION_PRERM_TEST_LOG"
-EOF
-chmod +x "$prerm_test_dir/bin/insulationctl" "$prerm_test_dir/bin/killall"
+chmod +x "$prerm_test_dir/bin/insulationctl"
 
 : >"$prerm_test_dir/events"
 PATH="$prerm_test_dir/bin:$PATH" INSULATION_PRERM_TEST_LOG="$prerm_test_dir/events" "$prerm" upgrade
@@ -96,18 +96,20 @@ fi
 
 : >"$prerm_test_dir/events"
 PATH="$prerm_test_dir/bin:$PATH" INSULATION_PRERM_TEST_LOG="$prerm_test_dir/events" "$prerm" remove
-if grep -Fxq 'reset --reset-native-state' "$prerm_test_dir/events" && grep -Fxq 'kill thermalmonitord' "$prerm_test_dir/events"; then
-  echo "OK: package removal resets state before daemon restart"
+printf '%s\n' 'ctl --prepare-removal' 'ctl --reset-native-state' >"$prerm_test_dir/expected"
+if cmp -s "$prerm_test_dir/expected" "$prerm_test_dir/events"; then
+  echo "OK: package removal exits the daemon before verified native cleanup"
 else
-  echo "FAIL: package removal did not reset state and restart daemon" >&2
+  echo "FAIL: package removal lifecycle is out of order" >&2
   fail=1
 fi
 
 : >"$prerm_test_dir/events"
-if PATH="$prerm_test_dir/bin:$PATH" INSULATION_PRERM_TEST_LOG="$prerm_test_dir/events" INSULATION_RESET_FAIL=1 "$prerm" remove 2>"$prerm_test_dir/stderr" &&
-   grep -Fq 'native thermal-state cleanup failed' "$prerm_test_dir/stderr" &&
-   grep -Fxq 'kill thermalmonitord' "$prerm_test_dir/events"; then
-  echo "OK: cleanup failure is visible but does not block removal"
+if PATH="$prerm_test_dir/bin:$PATH" INSULATION_PRERM_TEST_LOG="$prerm_test_dir/events" INSULATION_RESET_FAIL=1 "$prerm" remove 2>"$prerm_test_dir/stderr"; then
+  echo "FAIL: cleanup failure did not block removal" >&2
+  fail=1
+elif grep -Fq 'native thermal-state cleanup failed' "$prerm_test_dir/stderr"; then
+  echo "OK: cleanup failure is visible and blocks removal"
 else
   echo "FAIL: cleanup failure contract is broken" >&2
   fail=1

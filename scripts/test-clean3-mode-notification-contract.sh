@@ -19,12 +19,22 @@ check_contains() {
 check_absent_tree() {
   local needle="$1"
   local label="$2"
+  local matches=""
+  local status=0
   shift 2
-  if ! rg -n --fixed-strings "$needle" "$@" >/dev/null; then
+  if matches="$(grep -RFn -- "$needle" "$@" 2>&1)"; then
+    echo "FAIL: $label" >&2
+    printf '%s\n' "$matches" >&2
+    fail=1
+    return
+  else
+    status=$?
+  fi
+  if [[ "$status" == "1" ]]; then
     echo "OK: $label"
   else
-    echo "FAIL: $label" >&2
-    rg -n --fixed-strings "$needle" "$@" >&2 || true
+    echo "FAIL: $label (search failed with status $status)" >&2
+    printf '%s\n' "$matches" >&2
     fail=1
   fi
 }

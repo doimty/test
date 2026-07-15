@@ -4,6 +4,7 @@
 #import "include/Tweak.h"
 #import "../insulationObjC/InsulationDebug.h"
 #import "../insulationObjC/InsulationProbe.h"
+#import "../insulationObjC/InsulationRemovalGuard.h"
 
 // Match PowerHelper/CLI: resolve through jbroot/rootlessPath so roothide and
 // rootless both read the same prefs file the control plane writes.
@@ -63,11 +64,17 @@ static void insulationThermalPatchRefreshPrefsIfNeeded(void) {
 }
 
 static BOOL insulationThermalPatchPreventDimmingEnabled(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return NO;
+    }
     insulationThermalPatchRefreshPrefsIfNeeded();
     return cachedPreventDimmingEnabled;
 }
 
 static BOOL insulationThermalPatchFullPowerEnabled(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return NO;
+    }
     insulationThermalPatchRefreshPrefsIfNeeded();
     return cachedFullPowerEnabled;
 }
@@ -379,11 +386,14 @@ static void hook_CommonProduct_thermalUpdatesToWatchdogEnabled(id self, SEL _cmd
 
 static IMP orig_PackagePowerCC_initWithParams = NULL;
 static id hook_PackagePowerCC_initWithParams(id self, SEL _cmd, id params) {
+    if (!orig_PackagePowerCC_initWithParams) return self;
+    if (InsulationRemovalIsDisabled()) {
+        return ((id (*)(id, SEL, id))orig_PackagePowerCC_initWithParams)(self, _cmd, params);
+    }
     id patchedParams = params;
     if (insulationThermalPatchAggressiveFullPowerEnabled() && [params isKindOfClass:[NSDictionary class]]) {
         patchedParams = insulationThermalPatchPatchFullPowerConfigObject(params, nil);
     }
-    if (!orig_PackagePowerCC_initWithParams) return self;
     return ((id (*)(id, SEL, id))orig_PackagePowerCC_initWithParams)(self, _cmd, patchedParams);
 }
 
@@ -392,6 +402,7 @@ static id hook_PackagePowerCC_initWithParams(id self, SEL _cmd, id params) {
 static IMP orig_MitigationController_powerSaveActive = NULL;
 static BOOL hook_MitigationController_powerSaveActive(id self, SEL _cmd) {
     BOOL original = orig_MitigationController_powerSaveActive ? ((BOOL (*)(id, SEL))orig_MitigationController_powerSaveActive)(self, _cmd) : NO;
+    if (InsulationRemovalIsDisabled()) return original;
     BOOL patched = insulationThermalPatchAggressiveFullPowerEnabled() ? NO : original;
     InsulationProbeRecordSetter(@"powerSaveActive", original ? 1 : 0, patched ? 1 : 0);
     return patched;
@@ -400,6 +411,7 @@ static BOOL hook_MitigationController_powerSaveActive(id self, SEL _cmd) {
 static IMP orig_MitigationController_CPULevel = NULL;
 static int hook_MitigationController_CPULevel(id self, SEL _cmd) {
     int original = orig_MitigationController_CPULevel ? ((int (*)(id, SEL))orig_MitigationController_CPULevel)(self, _cmd) : 0;
+    if (InsulationRemovalIsDisabled()) return original;
     int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? 0 : original;
     InsulationProbeRecordSetter(@"CPULevel", original, patched);
     return patched;
@@ -408,6 +420,7 @@ static int hook_MitigationController_CPULevel(id self, SEL _cmd) {
 static IMP orig_MitigationController_DVD1Level = NULL;
 static int hook_MitigationController_DVD1Level(id self, SEL _cmd) {
     int original = orig_MitigationController_DVD1Level ? ((int (*)(id, SEL))orig_MitigationController_DVD1Level)(self, _cmd) : 0;
+    if (InsulationRemovalIsDisabled()) return original;
     int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? 0 : original;
     InsulationProbeRecordSetter(@"DVD1Level", original, patched);
     return patched;
@@ -416,6 +429,7 @@ static int hook_MitigationController_DVD1Level(id self, SEL _cmd) {
 static IMP orig_MitigationController_SGXLevel = NULL;
 static int hook_MitigationController_SGXLevel(id self, SEL _cmd) {
     int original = orig_MitigationController_SGXLevel ? ((int (*)(id, SEL))orig_MitigationController_SGXLevel)(self, _cmd) : 0;
+    if (InsulationRemovalIsDisabled()) return original;
     int patched = insulationThermalPatchAggressiveFullPowerEnabled() ? 0 : original;
     InsulationProbeRecordSetter(@"SGXLevel", original, patched);
     return patched;
@@ -423,14 +437,18 @@ static int hook_MitigationController_SGXLevel(id self, SEL _cmd) {
 
 static IMP orig_MitigationController_getPackagePowerZoneMetric = NULL;
 static int hook_MitigationController_getPackagePowerZoneMetric(id self, SEL _cmd) {
-    if (insulationThermalPatchAggressiveFullPowerEnabled()) return 0;
     if (!orig_MitigationController_getPackagePowerZoneMetric) return 0;
+    if (InsulationRemovalIsDisabled()) {
+        return ((int (*)(id, SEL))orig_MitigationController_getPackagePowerZoneMetric)(self, _cmd);
+    }
+    if (insulationThermalPatchAggressiveFullPowerEnabled()) return 0;
     return ((int (*)(id, SEL))orig_MitigationController_getPackagePowerZoneMetric)(self, _cmd);
 }
 
 static IMP orig_MitigationController_getCPUTargetPower = NULL;
 static int hook_MitigationController_getCPUTargetPower(id self, SEL _cmd) {
     int original = orig_MitigationController_getCPUTargetPower ? ((int (*)(id, SEL))orig_MitigationController_getCPUTargetPower)(self, _cmd) : 0;
+    if (InsulationRemovalIsDisabled()) return original;
     // Probe-only: record target getters without changing the control-loop read value.
     InsulationProbeRecordSetter(@"getCPUTargetPower", original, original);
     return original;
@@ -439,6 +457,7 @@ static int hook_MitigationController_getCPUTargetPower(id self, SEL _cmd) {
 static IMP orig_MitigationController_getGPUTargetPower = NULL;
 static int hook_MitigationController_getGPUTargetPower(id self, SEL _cmd) {
     int original = orig_MitigationController_getGPUTargetPower ? ((int (*)(id, SEL))orig_MitigationController_getGPUTargetPower)(self, _cmd) : 0;
+    if (InsulationRemovalIsDisabled()) return original;
     InsulationProbeRecordSetter(@"getGPUTargetPower", original, original);
     return original;
 }
@@ -446,6 +465,7 @@ static int hook_MitigationController_getGPUTargetPower(id self, SEL _cmd) {
 static IMP orig_MitigationController_getPackageCPUPowerTarget = NULL;
 static int hook_MitigationController_getPackageCPUPowerTarget(id self, SEL _cmd) {
     int original = orig_MitigationController_getPackageCPUPowerTarget ? ((int (*)(id, SEL))orig_MitigationController_getPackageCPUPowerTarget)(self, _cmd) : 0;
+    if (InsulationRemovalIsDisabled()) return original;
     InsulationProbeRecordSetter(@"getPackageCPUPowerTarget", original, original);
     return original;
 }
@@ -453,6 +473,7 @@ static int hook_MitigationController_getPackageCPUPowerTarget(id self, SEL _cmd)
 static IMP orig_MitigationController_getPackageGPUPowerTarget = NULL;
 static int hook_MitigationController_getPackageGPUPowerTarget(id self, SEL _cmd) {
     int original = orig_MitigationController_getPackageGPUPowerTarget ? ((int (*)(id, SEL))orig_MitigationController_getPackageGPUPowerTarget)(self, _cmd) : 0;
+    if (InsulationRemovalIsDisabled()) return original;
     InsulationProbeRecordSetter(@"getPackageGPUPowerTarget", original, original);
     return original;
 }
@@ -460,6 +481,9 @@ static int hook_MitigationController_getPackageGPUPowerTarget(id self, SEL _cmd)
 /* ── Installation ──────────────────────────────────── */
 
 static void insulationInstallThermalManagerPatch(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     Class commonProduct = objc_getClass("CommonProduct");
     if (commonProduct) {
         Method m = class_getInstanceMethod(commonProduct, @selector(thermalPressureLevel));
@@ -560,6 +584,7 @@ static void insulationInstallThermalManagerPatch(void) {
 __attribute__((constructor))
 static void insulationThermalManagerPatchEntry(void) {
     if (!insulationThermalPatchIsThermalmonitord()) return;
+    if (InsulationRemovalInitializeFromMarker()) return;
     insulationMarkProcessStart();
     insulationInstallThermalManagerPatch();
 }

@@ -34,5 +34,7 @@ void InsulationExecutePuppetEvent(void);
 void InsulationExecutePuppetEventWithSource(NSString *_Nullable source);
 void InsulationExecutePuppetEventSoon(void);
 void InsulationExecutePuppetEventSoonWithSource(NSString *_Nullable source);
+void InsulationCancelPuppetEventSoon(void);
+void InsulationPreparePuppetEventsForRemoval(void);
 
 NS_ASSUME_NONNULL_END

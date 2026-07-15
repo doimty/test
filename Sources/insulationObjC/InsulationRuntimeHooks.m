@@ -8,6 +8,7 @@
 #import "InsulationDictHelper.h"
 #import "InsulationPowerHelper.h"
 #import "InsulationProbe.h"
+#import "InsulationRemovalGuard.h"
 #import "../insulationC/include/Tweak.h"
 
 static id (*Orig_NSDictionary_dictionaryWithContentsOfFile)(Class self, SEL _cmd, id path);
@@ -49,6 +50,9 @@ static void *InsulationLastObservedMitigationControllerPtr;
 
 static id Insulation_NSDictionary_dictionaryWithContentsOfFile(Class self, SEL _cmd, id path) {
     id result = Orig_NSDictionary_dictionaryWithContentsOfFile ? Orig_NSDictionary_dictionaryWithContentsOfFile(self, _cmd, path) : nil;
+    if (InsulationRemovalIsDisabled()) {
+        return result;
+    }
     if ([path isKindOfClass:[NSString class]] && [(NSString *)path containsString:@"/System/Library/ThermalMonitor/"]) {
         if ([result isKindOfClass:[NSDictionary class]]) {
             return InsulationPatchThermalPlist((NSDictionary *)result);
@@ -91,6 +95,9 @@ static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacemen
 
 static id Insulation_CommonProduct_initProduct(id self, SEL _cmd, id arg) {
     id result = Orig_CommonProduct_initProduct(self, _cmd, arg);
+    if (InsulationRemovalIsDisabled()) {
+        return result;
+    }
     InsulationSetCommonProductObject((CommonProduct *)self);
     // Probe27: isolate probe-line CommonProduct behavior. Direct apply only, no delayed soon replay.
     InsulationExecutePuppetEventWithSource(@"commonProduct.initProduct");
@@ -98,6 +105,10 @@ static id Insulation_CommonProduct_initProduct(id self, SEL _cmd, id arg) {
 }
 
 static void Insulation_CommonProduct_tryTakeAction(id self, SEL _cmd) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_CommonProduct_tryTakeAction(self, _cmd);
+        return;
+    }
     CommonProduct *product = (CommonProduct *)self;
     BOOL bypass = InsulationThermalDimmingBypassActive();
     if (bypass) {
@@ -109,6 +120,10 @@ static void Insulation_CommonProduct_tryTakeAction(id self, SEL _cmd) {
 }
 
 static void Insulation_CommonProduct_suppressWhenDimmingActive(id self, SEL _cmd, void (*original)(id, SEL)) {
+    if (InsulationRemovalIsDisabled()) {
+        original(self, _cmd);
+        return;
+    }
     BOOL bypass = InsulationThermalDimmingBypassActive();
     if (bypass) {
         // Probe27: bypass without apply. Tests CommonProduct replay removal independently from setter changes.
@@ -138,6 +153,9 @@ static void Insulation_CommonProduct_updatePowerzoneTelemetry(id self, SEL _cmd)
 
 
 static void InsulationRecordMitigationSetter(id self, NSString *name, NSInteger originalValue, NSInteger patchedValue) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     if (self) {
         InsulationSetMitigationControllerObject((MitigationController *)self);
     }
@@ -151,6 +169,10 @@ static void InsulationRecordMitigationSetter(id self, NSString *name, NSInteger 
 }
 
 static void Insulation_MitigationController_setPowerSaveActive(id self, SEL _cmd, BOOL active) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setPowerSaveActive(self, _cmd, active);
+        return;
+    }
     if (InsulationPowerMitigationsDisabled() || InsulationCPURestoreActive()) {
         InsulationSetMitigationControllerObject((MitigationController *)self);
         InsulationProbeRecordSetterDetails(@"setPowerSaveActive", active ? 1 : 0, 0, @{
@@ -178,6 +200,10 @@ static void Insulation_MitigationController_setPowerSaveActive(id self, SEL _cmd
 }
 
 static void Insulation_MitigationController_setCPMSMitigationsEnabled(id self, SEL _cmd, BOOL enabled) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setCPMSMitigationsEnabled(self, _cmd, enabled);
+        return;
+    }
     BOOL patched = InsulationPowerMitigationsDisabled() ? NO : enabled;
     InsulationSetMitigationControllerObject((MitigationController *)self);
     InsulationProbeRecordSetterDetails(@"setCPMSMitigationsEnabled", enabled ? 1 : 0, patched ? 1 : 0, @{
@@ -187,6 +213,10 @@ static void Insulation_MitigationController_setCPMSMitigationsEnabled(id self, S
 }
 
 static void Insulation_MitigationController_setCPULevel(id self, SEL _cmd, int level) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setCPULevel(self, _cmd, level);
+        return;
+    }
     BOOL disabled = InsulationPowerMitigationsDisabled();
     int patched = disabled ? 0 : InsulationLimitedCPULevel(level);
     InsulationRecordMitigationSetter(self, @"setCPULevel", level, patched);
@@ -194,6 +224,10 @@ static void Insulation_MitigationController_setCPULevel(id self, SEL _cmd, int l
 }
 
 static void Insulation_MitigationController_setCPULowPowerTarget(id self, SEL _cmd, int power) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setCPULowPowerTarget(self, _cmd, power);
+        return;
+    }
     // Cold-start repair guard: do not clear target/floor/zone to 0 in fullPower.
     // Stablebase used high unrestricted target semantics here; probe17's zeroing path
     // is correlated with startup repair state.
@@ -203,6 +237,10 @@ static void Insulation_MitigationController_setCPULowPowerTarget(id self, SEL _c
 }
 
 static void Insulation_MitigationController_setCPUPowerCeilingFromDecisionSource(id self, SEL _cmd, int power, int source) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setCPUPowerCeilingFromDecisionSource(self, _cmd, power, source);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : InsulationLimitedCPUPower(power);
     InsulationSetMitigationControllerObject((MitigationController *)self);
     InsulationProbeRecordSetterDetails(@"setCPUPowerCeiling", power, patched, @{
@@ -213,30 +251,50 @@ static void Insulation_MitigationController_setCPUPowerCeilingFromDecisionSource
 }
 
 static void Insulation_MitigationController_setCPUPowerCeilingForDVD1Contributor(id self, SEL _cmd, int power, int contributor) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setCPUPowerCeilingForDVD1Contributor(self, _cmd, power, contributor);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : InsulationLimitedCPUPower(power);
     InsulationRecordMitigationSetter(self, @"setCPUPowerCeilingForDVD1Contributor", power, patched);
     Orig_MitigationController_setCPUPowerCeilingForDVD1Contributor(self, _cmd, patched, contributor);
 }
 
 static void Insulation_MitigationController_setCPUPowerFloorFromDecisionSource(id self, SEL _cmd, int power, int source) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setCPUPowerFloorFromDecisionSource(self, _cmd, power, source);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : InsulationMitigationPowerFloor(power);
     InsulationRecordMitigationSetter(self, @"setCPUPowerFloor", power, patched);
     Orig_MitigationController_setCPUPowerFloorFromDecisionSource(self, _cmd, patched, source);
 }
 
 static void Insulation_MitigationController_setCPUPowerZoneTarget(id self, SEL _cmd, int power) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setCPUPowerZoneTarget(self, _cmd, power);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : InsulationLimitedCPUPower(power);
     InsulationRecordMitigationSetter(self, @"setCPUPowerZoneTarget", power, patched);
     Orig_MitigationController_setCPUPowerZoneTarget(self, _cmd, patched);
 }
 
 static void Insulation_MitigationController_setDVD1Level(id self, SEL _cmd, int level) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setDVD1Level(self, _cmd, level);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? 0 : level;
     InsulationRecordMitigationSetter(self, @"setDVD1Level", level, patched);
     Orig_MitigationController_setDVD1Level(self, _cmd, patched);
 }
 
 static void Insulation_MitigationController_setGPUPowerCeilingFromDecisionSource(id self, SEL _cmd, int power, int source) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setGPUPowerCeilingFromDecisionSource(self, _cmd, power, source);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationSetMitigationControllerObject((MitigationController *)self);
     InsulationProbeRecordSetterDetails(@"setGPUPowerCeiling", power, patched, @{
@@ -247,30 +305,50 @@ static void Insulation_MitigationController_setGPUPowerCeilingFromDecisionSource
 }
 
 static void Insulation_MitigationController_setGPUPowerFloorFromDecisionSource(id self, SEL _cmd, int power, int source) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setGPUPowerFloorFromDecisionSource(self, _cmd, power, source);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationRecordMitigationSetter(self, @"setGPUPowerFloor", power, patched);
     Orig_MitigationController_setGPUPowerFloorFromDecisionSource(self, _cmd, patched, source);
 }
 
 static void Insulation_MitigationController_setGPUPowerZoneTarget(id self, SEL _cmd, int power) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setGPUPowerZoneTarget(self, _cmd, power);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationRecordMitigationSetter(self, @"setGPUPowerZoneTarget", power, patched);
     Orig_MitigationController_setGPUPowerZoneTarget(self, _cmd, patched);
 }
 
 static void Insulation_MitigationController_setSGXLevel(id self, SEL _cmd, int level) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setSGXLevel(self, _cmd, level);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? 0 : level;
     InsulationRecordMitigationSetter(self, @"setSGXLevel", level, patched);
     Orig_MitigationController_setSGXLevel(self, _cmd, patched);
 }
 
 static void Insulation_MitigationController_setMaxGraphicsDrivePowerTarget(id self, SEL _cmd, int power) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setMaxGraphicsDrivePowerTarget(self, _cmd, power);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationRecordMitigationSetter(self, @"setMaxGraphicsDrivePowerTarget", power, patched);
     Orig_MitigationController_setMaxGraphicsDrivePowerTarget(self, _cmd, patched);
 }
 
 static void Insulation_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty(id self, SEL _cmd, int power, BOOL useLegacyPath, id property) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setMaxCPUPowerTarget_useLegacyPath_setProperty(self, _cmd, power, useLegacyPath, property);
+        return;
+    }
     // Cold-start repair guard: never lower the system-provided max CPU target.
     // Probe telemetry showed thermalmonitord requesting 65000 while probe17 clamped it to 50000.
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
@@ -285,6 +363,10 @@ static void Insulation_MitigationController_setMaxCPUPowerTarget_useLegacyPath_s
 }
 
 static void Insulation_MitigationController_setPackagePowerBudgetDirect_withDetails(id self, SEL _cmd, int power, unsigned long long details) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setPackagePowerBudgetDirect_withDetails(self, _cmd, power, details);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationSetMitigationControllerObject((MitigationController *)self);
     InsulationProbeRecordSetterDetails(@"setPackagePowerBudgetDirect", power, patched, @{
@@ -295,6 +377,10 @@ static void Insulation_MitigationController_setPackagePowerBudgetDirect_withDeta
 }
 
 static void Insulation_MitigationController_setPackagePowerCeilingFromDecisionSource(id self, SEL _cmd, int power, int source) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setPackagePowerCeilingFromDecisionSource(self, _cmd, power, source);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationSetMitigationControllerObject((MitigationController *)self);
     InsulationProbeRecordSetterDetails(@"setPackagePowerCeiling", power, patched, @{
@@ -305,18 +391,30 @@ static void Insulation_MitigationController_setPackagePowerCeilingFromDecisionSo
 }
 
 static void Insulation_MitigationController_setPackagePowerFloorFromDecisionSource(id self, SEL _cmd, int power, int source) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setPackagePowerFloorFromDecisionSource(self, _cmd, power, source);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationRecordMitigationSetter(self, @"setPackagePowerFloor", power, patched);
     Orig_MitigationController_setPackagePowerFloorFromDecisionSource(self, _cmd, patched, source);
 }
 
 static void Insulation_MitigationController_setMaxPackagePower(id self, SEL _cmd, int power) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setMaxPackagePower(self, _cmd, power);
+        return;
+    }
     int patched = InsulationPowerMitigationsDisabled() ? MAX(power, InsulationUnrestrictedPowerLimit()) : power;
     InsulationRecordMitigationSetter(self, @"setMaxPackagePower", power, patched);
     Orig_MitigationController_setMaxPackagePower(self, _cmd, patched);
 }
 
 static void Insulation_MitigationController_setPackageLowPowerTarget(id self, SEL _cmd) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setPackageLowPowerTarget(self, _cmd);
+        return;
+    }
     if (InsulationPowerMitigationsDisabled()) {
         InsulationRecordMitigationSetter(self, @"setPackageLowPowerTarget", 1, 0);
         return;
@@ -326,6 +424,10 @@ static void Insulation_MitigationController_setPackageLowPowerTarget(id self, SE
 }
 
 static void Insulation_MitigationController_setPackagePowerZoneTarget(id self, SEL _cmd) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_setPackagePowerZoneTarget(self, _cmd);
+        return;
+    }
     if (InsulationPowerMitigationsDisabled()) {
         InsulationRecordMitigationSetter(self, @"setPackagePowerZoneTarget", 1, 0);
         return;
@@ -337,6 +439,9 @@ static void Insulation_MitigationController_setPackagePowerZoneTarget(id self, S
 // Update hooks capture the live MitigationController object. Low-power mode needs that
 // object for direct setPowerSaveActive:/setCPULevel: writes after a thermalmonitord restart.
 static BOOL InsulationCaptureMitigationControllerIfChanged(id self) {
+    if (InsulationRemovalIsDisabled()) {
+        return NO;
+    }
     void *ptr = (__bridge void *)self;
     InsulationSetMitigationControllerObject((MitigationController *)self);
     if (!ptr || ptr == InsulationLastObservedMitigationControllerPtr) {
@@ -347,7 +452,7 @@ static BOOL InsulationCaptureMitigationControllerIfChanged(id self) {
 }
 
 static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
-    if (!changed) {
+    if (InsulationRemovalIsDisabled() || !changed) {
         return;
     }
     // Cold-start repair guard: restore stablebase cadence for new MitigationController.
@@ -361,6 +466,10 @@ static void InsulationApplyAfterMitigationControllerCapture(BOOL changed) {
 }
 
 static void Insulation_MitigationController_updateCPU(id self, SEL _cmd) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_updateCPU(self, _cmd);
+        return;
+    }
     BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
     InsulationProbeRecordMitigationUpdate(@"updateCPU", changed);
     Orig_MitigationController_updateCPU(self, _cmd);
@@ -368,6 +477,10 @@ static void Insulation_MitigationController_updateCPU(id self, SEL _cmd) {
 }
 
 static void Insulation_MitigationController_updateGPU(id self, SEL _cmd) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_updateGPU(self, _cmd);
+        return;
+    }
     BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
     InsulationProbeRecordMitigationUpdate(@"updateGPU", changed);
     Orig_MitigationController_updateGPU(self, _cmd);
@@ -375,6 +488,10 @@ static void Insulation_MitigationController_updateGPU(id self, SEL _cmd) {
 }
 
 static void Insulation_MitigationController_updatePackage(id self, SEL _cmd) {
+    if (InsulationRemovalIsDisabled()) {
+        Orig_MitigationController_updatePackage(self, _cmd);
+        return;
+    }
     BOOL changed = InsulationCaptureMitigationControllerIfChanged(self);
     InsulationProbeRecordMitigationUpdate(@"updatePackage", changed);
     Orig_MitigationController_updatePackage(self, _cmd);
@@ -453,6 +570,9 @@ static void InsulationInstallMitigationControllerUpdateHooks(void) {
 }
 
 void InsulationRuntimeHooksInstall(void) {
+    if (InsulationRemovalIsDisabled()) {
+        return;
+    }
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         InsulationInstallNSDictionaryHooks();

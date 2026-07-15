@@ -1,5 +1,6 @@
 #import "InsulationDictHelper.h"
 #import "InsulationPowerHelper.h"
+#import "InsulationRemovalGuard.h"
 
 static NSNumber *InsulationIntValue(id value) {
     if ([value isKindOfClass:[NSNumber class]]) {
@@ -230,6 +231,9 @@ static id InsulationRecursivelyPatchThermalObject(id object, NSString *keyHint) 
 }
 
 NSDictionary *InsulationPatchThermalPlist(NSDictionary *dict) {
+    if (InsulationRemovalIsDisabled()) {
+        return dict;
+    }
     // check-objc-port compatibility token: InsulationFullPowerModeEnabled()
     // check-objc-port compatibility token: InsulationPreventDimmingEnabled()
     BOOL bypassActive = InsulationThermalDimmingBypassActive();

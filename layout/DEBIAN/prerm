@@ -1,19 +1,19 @@
 #!/bin/bash
 
-reset_native_thermal_state() {
+resolve_insulationctl() {
   local resolved=""
   resolved="$(command -v insulationctl 2>/dev/null || true)"
   if [ -n "$resolved" ] && [ -x "$resolved" ]; then
-    if "$resolved" --reset-native-state >/dev/null 2>&1; then
-      return 0
-    fi
+    printf '%s\n' "$resolved"
+    return 0
   fi
 
   for tool in \
     /usr/bin/insulationctl \
     /var/jb/usr/bin/insulationctl \
     /var/containers/Bundle/Application/.jbroot-*/usr/bin/insulationctl; do
-    if [ -x "$tool" ] && "$tool" --reset-native-state >/dev/null 2>&1; then
+    if [ -x "$tool" ]; then
+      printf '%s\n' "$tool"
       return 0
     fi
   done
@@ -22,10 +22,19 @@ reset_native_thermal_state() {
 
 case "${1:-remove}" in
   remove|deconfigure)
-    if ! reset_native_thermal_state; then
-      echo "insulation: warning: native thermal-state cleanup failed" >&2
+    tool="$(resolve_insulationctl || true)"
+    if [ -z "$tool" ]; then
+      echo "insulation: removal helper is unavailable; aborting removal" >&2
+      exit 1
     fi
-    killall thermalmonitord 2>/dev/null || true
+    if ! "$tool" --prepare-removal; then
+      echo "insulation: daemon removal preparation failed; aborting removal" >&2
+      exit 1
+    fi
+    if ! "$tool" --reset-native-state; then
+      echo "insulation: native thermal-state cleanup failed; aborting removal" >&2
+      exit 1
+    fi
     ;;
   upgrade)
     ;;

@@ -23,6 +23,12 @@ static bool InsulationCtlIsHelpAction(const char *arg) {
     return strcmp(arg, "help") == 0 || strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0;
 }
 
+static bool InsulationCtlIsInternalAction(InsulationCtlAction action) {
+    return action == INSULATION_CTL_ACTION_RESET_NATIVE ||
+           action == INSULATION_CTL_ACTION_PREPARE_REMOVAL ||
+           action == INSULATION_CTL_ACTION_CLEAR_REMOVAL_MARKER;
+}
+
 static bool InsulationCtlModeFromArg(const char *arg, InsulationCtlMode *modeOut) {
     if (strcmp(arg, "off") == 0) {
         *modeOut = INSULATION_CTL_MODE_OFF;
@@ -68,11 +74,19 @@ int InsulationCtlParseArgs(int argc, const char *const argv[], InsulationCtlPars
             sawAction = true;
             continue;
         }
+        InsulationCtlAction internalAction = INSULATION_CTL_ACTION_ERROR;
         if (strcmp(arg, "--reset-native-state") == 0) {
+            internalAction = INSULATION_CTL_ACTION_RESET_NATIVE;
+        } else if (strcmp(arg, "--prepare-removal") == 0) {
+            internalAction = INSULATION_CTL_ACTION_PREPARE_REMOVAL;
+        } else if (strcmp(arg, "--clear-removal-marker") == 0) {
+            internalAction = INSULATION_CTL_ACTION_CLEAR_REMOVAL_MARKER;
+        }
+        if (internalAction != INSULATION_CTL_ACTION_ERROR) {
             if (sawAction || result->raw || result->quiet) {
-                return InsulationCtlSetUsageError(result, "native-state reset cannot be combined with other arguments");
+                return InsulationCtlSetUsageError(result, "internal action cannot be combined with other arguments");
             }
-            result->action = INSULATION_CTL_ACTION_RESET_NATIVE;
+            result->action = internalAction;
             sawAction = true;
             continue;
         }
@@ -97,8 +111,8 @@ int InsulationCtlParseArgs(int argc, const char *const argv[], InsulationCtlPars
         return InsulationCtlSetUsageError(result, "unknown action or mode");
     }
 
-    if (result->action == INSULATION_CTL_ACTION_RESET_NATIVE && (result->raw || result->quiet)) {
-        return InsulationCtlSetUsageError(result, "native-state reset cannot be combined with other arguments");
+    if (InsulationCtlIsInternalAction(result->action) && (result->raw || result->quiet)) {
+        return InsulationCtlSetUsageError(result, "internal action cannot be combined with other arguments");
     }
 
     result->exitCode = INSULATION_CTL_EXIT_OK;
