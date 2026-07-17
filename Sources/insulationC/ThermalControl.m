@@ -34,8 +34,9 @@ bool insulationIsThermalmonitordProcess(void) {
 }
 
 bool insulationFullPowerBootGuardActive(void) {
-    insulationMarkProcessStart();
-    return (CFAbsoluteTimeGetCurrent() - InsulationProcessStartTime) < InsulationFullPowerBootGuardDuration;
+    // Boot guard disabled: pure MAX semantics means we never set values
+    // lower than the system's own values, so startup calibration is safe.
+    return false;
 }
 
 double insulationFullPowerBootGuardDurationSeconds(void) {
