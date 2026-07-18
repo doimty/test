@@ -13,6 +13,8 @@
                 });
             }
             if (!PMIsTargetProcess()) {
+                // Telegram diagnostic probe
+                PMTGProbeInit();
                 // Register Darwin notification state so SpringBoard knows
                 // this app has our hooks injected (skip keepalive)
                 @try {

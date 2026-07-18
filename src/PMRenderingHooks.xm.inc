@@ -5,6 +5,7 @@
 
 + (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
     CADisplayLink *link = %orig;
+    if (PMTGProbeEnabled) PMTGProbeDisplayLinkCreated(target, link);
     if (!PMIsTargetProcess()) {
         NSString *targetClass = PMClassName(target);
         if (link && targetClass.length > 0) {
@@ -21,6 +22,7 @@
 }
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
+    if (PMTGProbeEnabled) PMTGProbeRangeSet(range, @"CADisplayLink");
     if (!PMIsTargetProcess()) {
         if (PMFloatAnyFloatingWindowVisible() && ((range.preferred > 0 && range.preferred < TARGET_FPS) || (range.maximum > 0 && range.maximum < TARGET_FPS))) {
             PMFloatPreArm(@"CADisplayLink.lowRange");
@@ -64,6 +66,7 @@
 %hook CAAnimation
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
+    if (PMTGProbeEnabled) PMTGProbeRangeSet(range, @"CAAnimation");
     if (PMDeviceSupports120Hz()) {
         PMSetHighFrameRateReasonDirect(self);
         %orig(PMForce120Range());
@@ -91,6 +94,7 @@
 %hook CAMetalDrawable
 
 - (void)presentAfterMinimumDuration:(CFTimeInterval)duration {
+    if (PMTGProbeEnabled) PMTGProbeMetalPresent(@"presentAfterMinDuration");
     if (PMDeviceSupports120Hz()) {
         %orig(1.0 / TARGET_FPS);
     } else {
@@ -103,6 +107,7 @@
 %hook MTLCommandBuffer
 
 - (void)presentDrawable:(id)drawable afterMinimumDuration:(CFTimeInterval)minimumDuration {
+    if (PMTGProbeEnabled) PMTGProbeMetalPresent(@"cmdBuf.presentAfterMinDuration");
     if (PMDeviceSupports120Hz()) {
         %orig(drawable, 1.0 / TARGET_FPS);
     } else {

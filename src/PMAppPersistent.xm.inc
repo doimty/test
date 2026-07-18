@@ -47,6 +47,7 @@ static void PMAppRefreshPersistentSource(void) {
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMAppLastRefreshAt > 0 && (now - PMAppLastRefreshAt) < PMAppRefreshMinInterval) return;
     PMAppLastRefreshAt = now;
+    if (PMTGProbeEnabled) PMTGProbeSourceRefresh(@"refresh");
     @try {
         PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
         PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
