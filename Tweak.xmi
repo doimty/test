@@ -42,9 +42,6 @@ typedef struct {
 // Probe/jank/fpsprobe implementations removed (1.0.9+clean2).
 #include "src/PMDiagnostic.xm.inc"
 
-// Telegram chat diagnostic probe (temporary).
-#include "src/PMTelegramProbe.xm.inc"
-
 // Keepalive for injection-blocked foreground apps.
 #include "src/PMKeepAlive.xm.inc"
 
@@ -53,6 +50,9 @@ typedef struct {
 
 // App-process persistent DynamicSource owner.
 #include "src/PMAppPersistent.xm.inc"
+
+// Telegram chat diagnostic probe (temporary, needs PMAppPersistentFrameRateSource).
+#include "src/PMTelegramProbe.xm.inc"
 
 // Logos hook layers. Tweak.xmi is C-preprocessed before Logos.
 #include "src/PMSystemHooks.xm.inc"

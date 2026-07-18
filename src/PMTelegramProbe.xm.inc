@@ -27,12 +27,12 @@ static void PMTGProbeInit(void) {
     PMTGProbeEnabled = YES;
     PMTGProbeQueue = dispatch_queue_create("pm120.tgprobe", DISPATCH_QUEUE_SERIAL);
     PMTGProbeCounts = [NSMutableDictionary new];
-    PMTGProbeState = [NSMutableDictionary dictionaryWithDictionary:@{
+    PMTGProbeState = [@{
         @"bundleID": [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown",
         @"version": PM_SCOPEPROBE_VERSION ?: @"unknown",
         @"probeMode": @"tgchat1",
         @"pid": @(getpid()),
-    }];
+    } mutableCopy];
 }
 
 static void PMTGProbeIncrement(NSString *key) {
@@ -59,7 +59,7 @@ static void PMTGProbeWrite(void) {
         NSMutableDictionary *out = [PMTGProbeState mutableCopy];
         out[@"counts"] = [PMTGProbeCounts copy];
         out[@"timestamp"] = [[NSDate date] description];
-        out[@"persistentSourceAlive"] = @(PMAppPersistentFrameRateSource != nil);
+        out[@"persistentSourceAlive"] = @(PMAppPersistentFrameRateSource != nil ? YES : NO);
         [out writeToFile:PMTGProbePath atomically:YES];
     });
 }
