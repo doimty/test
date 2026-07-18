@@ -47,7 +47,7 @@ static void PMAppRefreshPersistentSource(void) {
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMAppLastRefreshAt > 0 && (now - PMAppLastRefreshAt) < PMAppRefreshMinInterval) return;
     PMAppLastRefreshAt = now;
-    if (PMTGProbeEnabled) PMTGProbeSourceRefresh(@"refresh");
+    if (PMTGProbeEnabled) PMTGProbeSourceRefresh(@"persistentRefresh");
     @try {
         PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
         PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
@@ -68,5 +68,6 @@ static BOOL PMAppScrollViewIsMoving(UIScrollView *scrollView) {
 
 static void PMAppScrollArm(__unused NSString *event) {
     if (PMIsTargetProcess()) return;
+    if (PMTGProbeEnabled) PMTGProbeSourceRefresh(event);
     PMAppRefreshPersistentSource();
 }

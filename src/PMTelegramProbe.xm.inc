@@ -10,7 +10,7 @@ static NSMutableDictionary *PMTGProbeCounts = nil;
 static dispatch_queue_t PMTGProbeQueue = nil;
 static CFAbsoluteTime PMTGProbeLastWrite = 0;
 static const CFTimeInterval PMTGProbeWriteInterval = 2.0;
-static BOOL PMTGProbeEnabled = NO;
+// PMTGProbeEnabled declared in PMInternalDeclarations.xm.inc
 
 static BOOL PMIsTelegramProcess(void) {
     static BOOL checked = NO, isTG = NO;
@@ -29,7 +29,7 @@ static void PMTGProbeInit(void) {
     PMTGProbeCounts = [NSMutableDictionary new];
     PMTGProbeState = [@{
         @"bundleID": [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown",
-        @"version": PM_SCOPEPROBE_VERSION ?: @"unknown",
+        @"version": PM_SCOPEPROBE_VERSION,
         @"probeMode": @"tgchat1",
         @"pid": @(getpid()),
     } mutableCopy];
