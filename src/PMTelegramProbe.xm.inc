@@ -4,7 +4,7 @@
 
 #import <objc/runtime.h>
 
-static NSString * const PMTGProbePath = @"/var/mobile/Library/Preferences/com.promotion120.tgprobe.plist";
+static NSString * const PMTGProbePath = @"/var/tmp/com.promotion120.tgprobe.plist";
 static NSMutableDictionary *PMTGProbeState = nil;
 static NSMutableDictionary *PMTGProbeCounts = nil;
 static dispatch_queue_t PMTGProbeQueue = nil;
@@ -16,7 +16,15 @@ static BOOL PMIsTelegramProcess(void) {
     static BOOL checked = NO, isTG = NO;
     if (!checked) {
         NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
-        isTG = [bid isEqualToString:@"ph.telegra.Telegraph"];
+        // Match any Telegram variant (Telegraph, Nicegram, etc.)
+        isTG = [bid containsString:@"telegra"] || [bid containsString:@"telegram"] || [bid containsString:@"Telegram"] || [bid containsString:@"nicegram"];
+        if (!isTG) {
+            // Fallback: log the bundle ID so we know what it is
+            NSMutableDictionary *info = [NSMutableDictionary new];
+            info[@"rejectedBundleID"] = bid ?: @"nil";
+            info[@"timestamp"] = [[NSDate date] description];
+            [info writeToFile:@"/var/tmp/com.promotion120.tgprobe.rejected.plist" atomically:YES];
+        }
         checked = YES;
     }
     return isTG;
