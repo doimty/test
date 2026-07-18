@@ -1,9 +1,8 @@
-THEOS_PACKAGE_SCHEME ?= rootless
+THEOS_PACKAGE_SCHEME = roothide
+ARCHS = arm64e
 TARGET := iphone:clang:latest:15.0
 
 include $(THEOS)/makefiles/common.mk
-
-export ARCHS = arm64 arm64e
 
 TWEAK_NAME = ProMotion120
 ProMotion120_FILES = Tweak.xmi
