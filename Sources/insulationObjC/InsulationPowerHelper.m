@@ -15,7 +15,7 @@ static NSString *InsulationLastCPUPerformanceMode;
 static BOOL InsulationLastThermalMitigationsDisabled;
 static BOOL InsulationHasNormalizedThermalMitigationsState;
 static BOOL InsulationLastForcedCommonProductThermal;
-static BOOL InsulationOwnedDarwinThermalPressure;
+static BOOL InsulationOwnedDarwinThermalPressure __attribute__((unused));
 static int InsulationPendingFullCPURestoreCount;
 static int InsulationObservedCPUPowerMax;
 static const int InsulationUnrestrictedPowerTarget = 65000;
@@ -428,27 +428,27 @@ static void InsulationExecutePuppetEventLocked(NSString *source) {
         InsulationIsApplying = YES;
         @try {
             InsulationReloadPreferences();
+            // activeSource is always retained for coalesce trailing apply; probe may be compiled out.
             InsulationProbeRecordApply(InsulationPowerMode(), insulationFullPowerBootGuardActive(), activeSource);
+            (void)activeSource;
 
             CommonProduct *product = InsulationCommonProductSnapshot();
             if (InsulationThermalDimmingBypassActive()) {
-                // EXP-D: Aggressive pressure handling (match 0.0.13)
-                // Always set nominal and zero pressure, no "light" cap
                 [product putDeviceInThermalSimulationMode:@"nominal"];
                 [product putDeviceInLowTempSimulationMode:@"nominal"];
                 InsulationLastForcedCommonProductThermal = YES;
-                int ret = insulationSetDarwinThermalPressure(0);
-                InsulationOwnedDarwinThermalPressure = YES;
-                INSULATION_LOG(@"insulation dimming bypass thermal state nominal -> Darwin pressure 0 (%d)", ret);
-                (void)ret;
-            } else if (InsulationLastForcedCommonProductThermal || InsulationOwnedDarwinThermalPressure) {
+                // Darwin pressure broadcast removed: insulationSetDarwinThermalPressure(0)
+                // was the root cause of "battery needs service" at startup.
+                // The system-wide Darwin notification com.apple.system.thermalpressurelevel
+                // is subscribed by batteryhealthd; forcing it to 0 while gas gauge reads
+                // real high temperature creates an impossible pattern that triggers the
+                // battery health anomaly detector. Simulation mode (process-internal) is safe.
+                INSULATION_LOG(@"insulation dimming bypass thermal state nominal");
+            } else if (InsulationLastForcedCommonProductThermal) {
                 [product putDeviceInThermalSimulationMode:@"off"];
                 [product putDeviceInLowTempSimulationMode:@"off"];
                 InsulationLastForcedCommonProductThermal = NO;
-                // Stop owning Darwin pressure. True sensor value cannot be reconstructed; we only
-                // drop ownership so thermalmonitord can publish again on the next real update.
-                InsulationOwnedDarwinThermalPressure = NO;
-                INSULATION_LOG(@"insulation native/lowPower thermal state: released CommonProduct simulation + Darwin ownership");
+                INSULATION_LOG(@"insulation native/lowPower thermal state: released CommonProduct simulation");
             } else {
                 INSULATION_LOG(@"insulation native/lowPower thermal state: leaving system pressure untouched");
             }
