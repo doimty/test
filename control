@@ -4,7 +4,7 @@ Author: doimty
 Description: Force global 120Hz ProMotion, bypass the 80Hz system cap. iPhone 13 Pro and above only.
 Depends: mobilesubstrate
 Maintainer: doimty
-Architecture: iphoneos-arm64
+Architecture: iphoneos-arm64e
 Section: Tweaks
 Version: 1.0.9+tgprobe1
 Tag: supports::roothide
