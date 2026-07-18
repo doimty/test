@@ -347,7 +347,7 @@ static void hook_CommonProduct_setThermalState(id self, SEL _cmd, int state) {
     if (!orig_CommonProduct_setThermalState) return;
     int patched = state;
     if (insulationThermalPatchAggressiveFullPowerEnabled()) {
-        if (state != 0) return;
+        patched = 0;  // Force state=0 but still call original so Darwin pressure publishes 0.
     } else if (insulationThermalPatchDimmingBypassActive()) {
         patched = (int)insulationThermalPatchCapPressureLevel(state);
     }
