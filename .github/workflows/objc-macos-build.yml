@@ -2,6 +2,17 @@ name: ObjC macOS Build
 
 on:
   workflow_dispatch:
+    inputs:
+      cpms_probe:
+        description: 'Enable CPMS pass-through probe (INSULATION_CPMS_PROBE_ENABLED=1)'
+        type: boolean
+        required: false
+        default: false
+      package_buildname:
+        description: 'Package build name suffix (e.g., cpmsprobe1)'
+        type: string
+        required: false
+        default: ''
   push:
     branches:
       - objc-macos-build
@@ -20,6 +31,8 @@ jobs:
       THEOS: ${{ github.workspace }}/theos
       THEOS_PACKAGE_SCHEME: ${{ matrix.scheme }}
       FINALPACKAGE: 1
+      INSULATION_CPMS_PROBE_ENABLED: ${{ inputs.cpms_probe == true && '1' || '0' }}
+      PACKAGE_BUILDNAME: ${{ inputs.package_buildname || '' }}
 
     steps:
       - name: Checkout
