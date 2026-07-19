@@ -347,7 +347,7 @@ static void hook_CommonProduct_setThermalState(id self, SEL _cmd, int state) {
     if (!orig_CommonProduct_setThermalState) return;
     int patched = state;
     if (insulationThermalPatchAggressiveFullPowerEnabled()) {
-        patched = 0;  // Force state=0 but still call original so Darwin pressure publishes 0.
+        if (state != 0) return;  // Block non-zero states (matches Swift 0.0.13 + ObjC 0.1.37 behavior)
     } else if (insulationThermalPatchDimmingBypassActive()) {
         patched = (int)insulationThermalPatchCapPressureLevel(state);
     }

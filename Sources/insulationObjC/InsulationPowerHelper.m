@@ -15,7 +15,7 @@ static NSString *InsulationLastCPUPerformanceMode;
 static BOOL InsulationLastThermalMitigationsDisabled;
 static BOOL InsulationHasNormalizedThermalMitigationsState;
 static BOOL InsulationLastForcedCommonProductThermal;
-static BOOL InsulationOwnedDarwinThermalPressure __attribute__((unused));
+static BOOL InsulationOwnedDarwinThermalPressure;
 static int InsulationPendingFullCPURestoreCount;
 static int InsulationObservedCPUPowerMax;
 static const int InsulationUnrestrictedPowerTarget = 65000;
@@ -437,18 +437,23 @@ static void InsulationExecutePuppetEventLocked(NSString *source) {
                 [product putDeviceInThermalSimulationMode:@"nominal"];
                 [product putDeviceInLowTempSimulationMode:@"nominal"];
                 InsulationLastForcedCommonProductThermal = YES;
-                // Darwin pressure broadcast removed: insulationSetDarwinThermalPressure(0)
-                // was the root cause of "battery needs service" at startup.
-                // The system-wide Darwin notification com.apple.system.thermalpressurelevel
-                // is subscribed by batteryhealthd; forcing it to 0 while gas gauge reads
-                // real high temperature creates an impossible pattern that triggers the
-                // battery health anomaly detector. Simulation mode (process-internal) is safe.
-                INSULATION_LOG(@"insulation dimming bypass thermal state nominal");
-            } else if (InsulationLastForcedCommonProductThermal) {
+                // Restore Darwin pressure=0 broadcast after boot guard period.
+                // Swift 0.0.13 broadcast unconditionally without repair issues.
+                // Gate behind boot guard (0.25s) as safety margin for batteryhealthd calibration.
+                if (!insulationFullPowerBootGuardActive()) {
+                    int ret = insulationSetDarwinThermalPressure(0);
+                    InsulationOwnedDarwinThermalPressure = YES;
+                    INSULATION_LOG(@"insulation dimming bypass -> Darwin pressure 0 (%d)", ret);
+                    (void)ret;
+                } else {
+                    INSULATION_LOG(@"insulation dimming bypass thermal state nominal (boot guard, skipping Darwin broadcast)");
+                }
+            } else if (InsulationLastForcedCommonProductThermal || InsulationOwnedDarwinThermalPressure) {
                 [product putDeviceInThermalSimulationMode:@"off"];
                 [product putDeviceInLowTempSimulationMode:@"off"];
                 InsulationLastForcedCommonProductThermal = NO;
-                INSULATION_LOG(@"insulation native/lowPower thermal state: released CommonProduct simulation");
+                InsulationOwnedDarwinThermalPressure = NO;
+                INSULATION_LOG(@"insulation native/lowPower thermal state: released CommonProduct simulation + Darwin ownership");
             } else {
                 INSULATION_LOG(@"insulation native/lowPower thermal state: leaving system pressure untouched");
             }
