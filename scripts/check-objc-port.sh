@@ -105,6 +105,93 @@ for selector in "${required_selectors[@]}"; do
   fi
 done
 
+section "Targeted CPMS probe safety"
+python3 - "$ROOT" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+makefile = (root / "Makefile").read_text()
+runtime = (root / "Sources/insulationObjC/InsulationRuntimeHooks.m").read_text()
+probe = (root / "Sources/insulationObjC/InsulationCPMSProbe.m").read_text()
+errors = []
+
+checks = {
+    "probe defaults off": "INSULATION_CPMS_PROBE_ENABLED ?= 0" in makefile,
+    "disabled probe source is excluded": "! -name 'InsulationCPMSProbe.m'" in makefile,
+    "runtime install is compile-gated": re.search(
+        r"#if INSULATION_CPMS_PROBE_ENABLED\s+InsulationCPMSProbeInstall\(\);\s+#endif",
+        runtime,
+    ) is not None,
+    "max selector is exact": 'sel_registerName("getMaxPowerForComponent:")' in probe,
+    "min selector is exact": 'sel_registerName("getMinPowerForComponent:")' in probe,
+    "return ABI is checked": "InsulationCPMSProbeBaseType(returnType) == 'I'" in probe,
+    "self ABI is checked": "InsulationCPMSProbeBaseType(selfType) == '@'" in probe,
+    "selector ABI is checked": "InsulationCPMSProbeBaseType(selectorType) == ':'" in probe,
+    "argument ABI is checked": "InsulationCPMSProbeBaseType(componentType) == 'i'" in probe,
+    "argument count is checked": "argumentCount == 3" in probe,
+    "initial snapshot is asynchronous": "dispatch_after(dispatch_time(DISPATCH_TIME_NOW" in probe and "dispatch_sync(InsulationCPMSProbeQueue()" not in probe,
+    "class lookup retries are absolute and bounded": re.search(
+        r"InsulationCPMSProbeRetryOffsets\[\] = \{\s*0\.0,\s*0\.25,\s*1\.0,\s*3\.0\s*\}",
+        probe,
+    ) is not None and "attemptCount" in probe,
+    "write results are recorded": "InsulationCPMSProbeWriteSnapshotData" in probe and "writeResults" in probe and "snapshot write failed" in probe,
+    "partial install history is retained": "everInstalled" in probe and "InsulationCPMSProbeMaxEverInstalled" in probe,
+}
+for label, condition in checks.items():
+    if not condition:
+        errors.append(label)
+
+for selector in ("getMaxPowerForComponent", "getMinPowerForComponent"):
+    wrapper = re.search(
+        rf"static unsigned Insulation_CPMSProbe_{selector}\([^{{]+\) \{{(?P<body>.*?)\n\}}",
+        probe,
+        re.DOTALL,
+    )
+    if wrapper is None:
+        errors.append(f"{selector} wrapper is missing")
+        continue
+    body = wrapper.group("body")
+    original_call = f"Orig_CPMSProbe_{selector}(self, _cmd, component)"
+    if original_call not in body:
+        errors.append(f"{selector} does not call the original implementation")
+    if "return original;" not in body:
+        errors.append(f"{selector} does not return the original result")
+    record_position = body.find("InsulationCPMSProbeRecord")
+    if record_position >= 0 and body.find(original_call) > record_position:
+        errors.append(f"{selector} records before calling the original implementation")
+
+install_method = re.search(
+    r"static BOOL InsulationCPMSProbeInstallMethod\([^\{]+\) \{(?P<body>.*?)\n\}",
+    probe,
+    re.DOTALL,
+)
+if install_method is None:
+    errors.append("IMP install helper is missing")
+else:
+    install_body = install_method.group("body")
+    original_position = install_body.find("*originalOut = original;")
+    replacement_position = install_body.find("method_setImplementation(method, replacement)")
+    if original_position < 0 or replacement_position < 0 or original_position > replacement_position:
+        errors.append("original IMP is not published before method replacement")
+
+for forbidden in (
+    "InsulationPowerMitigationsDisabled",
+    "InsulationUnrestrictedPowerLimit",
+    "InsulationMaxComponentPower",
+    "InsulationPowerLimitValue",
+):
+    if forbidden in probe:
+        errors.append(f"probe contains behavior-changing helper: {forbidden}")
+
+if errors:
+    for error in errors:
+        print(f"FAIL: {error}", file=sys.stderr)
+    raise SystemExit(1)
+print("OK: CPMS probe is opt-in, ABI-gated, and pass-through")
+PY
+
 section "ObjC runtime risk scan"
 risky_objc_refs=$(grep -RInE '__weak|objc_msgSend|performSelector|NSClassFromString|dlsym|unsafe_unretained' Sources/insulationObjC InsulationPrefs/Sources/InsulationPrefsObjC InsulationPrefs/Sources/InsulationPrefsC || true)
 if [[ -z "$risky_objc_refs" ]]; then

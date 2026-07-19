@@ -8,6 +8,9 @@
 #import "InsulationDictHelper.h"
 #import "InsulationPowerHelper.h"
 #import "InsulationProbe.h"
+#if INSULATION_CPMS_PROBE_ENABLED
+#import "InsulationCPMSProbe.h"
+#endif
 #import "../insulationC/include/Tweak.h"
 
 static id (*Orig_NSDictionary_dictionaryWithContentsOfFile)(Class self, SEL _cmd, id path);
@@ -459,5 +462,8 @@ void InsulationRuntimeHooksInstall(void) {
         InsulationInstallCommonProductHooks();
         InsulationInstallMitigationControllerSetterHooks();
         InsulationInstallMitigationControllerUpdateHooks();
+#if INSULATION_CPMS_PROBE_ENABLED
+        InsulationCPMSProbeInstall();
+#endif
     });
 }
