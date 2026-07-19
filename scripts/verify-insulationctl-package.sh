@@ -8,6 +8,13 @@ scripts/test-insulationctl-args.sh
 
 fail=0
 expected_version="$(awk -F': ' 'tolower($1) == "version" { print $2; exit }' control)"
+expected_package_version="$expected_version"
+if [[ -n "$expected_version" && -n "${PACKAGE_BUILDNAME:-}" ]]; then
+  expected_package_version="${expected_version}+${PACKAGE_BUILDNAME}"
+fi
+# Debug: print effective expected version for cloud build traceability
+printf '::debug::expected_version=%s PACKAGE_BUILDNAME=%s expected_package_version=%s\n' \
+  "$expected_version" "${PACKAGE_BUILDNAME:-}" "$expected_package_version"
 section() { printf '\n== %s ==\n' "$1"; }
 check_file() {
   local label="$1" path="$2"
@@ -92,11 +99,24 @@ for deb in "$@"; do
   fi
 
   version="$(dpkg-deb -f "$deb" Version)"
-  if [[ "$version" != "$expected_version" ]]; then
-    echo "FAIL: $deb version is $version" >&2
-    fail=1
+  # When PACKAGE_BUILDNAME is set, the package version includes a + suffix.
+  # Use a prefix match: the expected version must be a prefix of the package version.
+  if [[ -n "${PACKAGE_BUILDNAME:-}" ]]; then
+    # Probe build: allow version+suffix, check prefix only
+    if [[ "$version" == "$expected_package_version"* ]]; then
+      echo "OK: $deb version $version (probe build, PACKAGE_BUILDNAME=$PACKAGE_BUILDNAME)"
+    else
+      echo "FAIL: $deb version is $version (expected prefix $expected_package_version)" >&2
+      fail=1
+    fi
   else
-    echo "OK: $deb version $version"
+    # Normal build: exact match required
+    if [[ "$version" != "$expected_package_version" ]]; then
+      echo "FAIL: $deb version is $version (expected $expected_package_version)" >&2
+      fail=1
+    else
+      echo "OK: $deb version $version"
+    fi
   fi
 
   tmp="$(mktemp -d)"
