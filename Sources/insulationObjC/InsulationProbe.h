@@ -14,7 +14,7 @@ void InsulationProbeRecordSelfHeal(NSString *reason);
 void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInteger patchedValue);
 void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue, NSInteger patchedValue, NSDictionary *details);
 void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed);
-void InsulationProbeRecordMethodDump(NSString *className, NSArray<NSString *> *methods);
+void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods);
 
 #else
 

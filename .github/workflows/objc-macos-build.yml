@@ -8,8 +8,13 @@ on:
         type: boolean
         required: false
         default: false
+      decision_probe:
+        description: 'Enable decision pass-through probe (INSULATION_PROBE_ENABLED=1)'
+        type: boolean
+        required: false
+        default: false
       package_buildname:
-        description: 'Package build name suffix (e.g., cpmsprobe1)'
+        description: 'Package build name suffix (e.g., decisionprobe1)'
         type: string
         required: false
         default: ''
@@ -32,6 +37,7 @@ jobs:
       THEOS_PACKAGE_SCHEME: ${{ matrix.scheme }}
       FINALPACKAGE: 1
       INSULATION_CPMS_PROBE_ENABLED: ${{ inputs.cpms_probe == true && '1' || '0' }}
+      INSULATION_PROBE_ENABLED: ${{ inputs.decision_probe == true && '1' || '0' }}
       PACKAGE_BUILDNAME: ${{ inputs.package_buildname || '' }}
 
     steps:

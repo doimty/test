@@ -13,6 +13,40 @@
 #endif
 #import "../insulationC/include/Tweak.h"
 
+#if INSULATION_PROBE_ENABLED
+static void InsulationRecordMitigationMethodInventory(Class cls) {
+    NSMutableArray<NSDictionary *> *inventory = [NSMutableArray array];
+    Class currentClass = cls;
+    NSUInteger depth = 0;
+    while (currentClass && currentClass != [NSObject class]) {
+        unsigned int methodCount = 0;
+        Method *methods = class_copyMethodList(currentClass, &methodCount);
+        for (unsigned int index = 0; index < methodCount; index++) {
+            SEL selector = method_getName(methods[index]);
+            const char *typeEncoding = method_getTypeEncoding(methods[index]);
+            [inventory addObject:@{
+                @"class": NSStringFromClass(currentClass) ?: @"<unknown>",
+                @"depth": @(depth),
+                @"selector": selector ? NSStringFromSelector(selector) : @"<unknown>",
+                @"typeEncoding": typeEncoding ? [NSString stringWithUTF8String:typeEncoding] : @"",
+            }];
+        }
+        free(methods);
+        currentClass = class_getSuperclass(currentClass);
+        depth += 1;
+    }
+
+    [inventory sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        NSComparisonResult classOrder = [left[@"class"] compare:right[@"class"]];
+        if (classOrder != NSOrderedSame) {
+            return classOrder;
+        }
+        return [left[@"selector"] compare:right[@"selector"]];
+    }];
+    InsulationProbeRecordMethodDump(@"MitigationController", inventory);
+}
+#endif
+
 static id (*Orig_NSDictionary_dictionaryWithContentsOfFile)(Class self, SEL _cmd, id path);
 
 
@@ -62,32 +96,42 @@ static id Insulation_NSDictionary_dictionaryWithContentsOfFile(Class self, SEL _
 
 
 static BOOL InsulationHookClassMethod(Class cls, SEL selector, IMP replacement, IMP *originalOut) {
+    __unused NSString *className = cls ? NSStringFromClass(cls) : @"<missing-class>";
+    __unused NSString *selectorName = selector ? NSStringFromSelector(selector) : @"<missing-selector>";
     if (!cls || !selector || !replacement || !originalOut) {
+        InsulationProbeRecordHookInstall(className, selectorName, NO);
         return NO;
     }
     Method method = class_getClassMethod(cls, selector);
     if (!method) {
-        INSULATION_LOG(@"insulation objc-port: missing class method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
+        INSULATION_LOG(@"insulation objc-port: missing class method %@ on %@", selectorName, className);
+        InsulationProbeRecordHookInstall(className, selectorName, NO);
         return NO;
     }
     *originalOut = method_getImplementation(method);
     method_setImplementation(method, replacement);
-    INSULATION_LOG(@"insulation objc-port: hooked class method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
+    INSULATION_LOG(@"insulation objc-port: hooked class method %@ on %@", selectorName, className);
+    InsulationProbeRecordHookInstall(className, selectorName, YES);
     return YES;
 }
 
 static BOOL InsulationHookInstanceMethod(Class cls, SEL selector, IMP replacement, IMP *originalOut) {
+    __unused NSString *className = cls ? NSStringFromClass(cls) : @"<missing-class>";
+    __unused NSString *selectorName = selector ? NSStringFromSelector(selector) : @"<missing-selector>";
     if (!cls || !selector || !replacement || !originalOut) {
+        InsulationProbeRecordHookInstall(className, selectorName, NO);
         return NO;
     }
     Method method = class_getInstanceMethod(cls, selector);
     if (!method) {
-        INSULATION_LOG(@"insulation objc-port: missing instance method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
+        INSULATION_LOG(@"insulation objc-port: missing instance method %@ on %@", selectorName, className);
+        InsulationProbeRecordHookInstall(className, selectorName, NO);
         return NO;
     }
     *originalOut = method_getImplementation(method);
     method_setImplementation(method, replacement);
-    INSULATION_LOG(@"insulation objc-port: hooked instance method %@ on %@", NSStringFromSelector(selector), NSStringFromClass(cls));
+    INSULATION_LOG(@"insulation objc-port: hooked instance method %@ on %@", selectorName, className);
+    InsulationProbeRecordHookInstall(className, selectorName, YES);
     return YES;
 }
 
@@ -462,6 +506,9 @@ void InsulationRuntimeHooksInstall(void) {
         InsulationInstallCommonProductHooks();
         InsulationInstallMitigationControllerSetterHooks();
         InsulationInstallMitigationControllerUpdateHooks();
+#if INSULATION_PROBE_ENABLED
+        InsulationRecordMitigationMethodInventory(objc_getClass("MitigationController"));
+#endif
 #if INSULATION_CPMS_PROBE_ENABLED
         InsulationCPMSProbeInstall();
 #endif
