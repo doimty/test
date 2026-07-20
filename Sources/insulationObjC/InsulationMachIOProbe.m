@@ -9,7 +9,7 @@
 #import <mach/mach_time.h>
 #import <substrate.h>
 #import <notify.h>
-#import <dlfcn.h>
+
 
 /* ── Ring buffer (lock-free, 256 entries, C-only hot path) ── */
 
@@ -199,26 +199,13 @@ void InsulationMachIOProbeInstall(void) {
     machio_ring_head = 0;
     machio_ring_count = 0;
     
-    /* Resolve symbols via dlsym (safe for MSHookFunction input, even on arm64e) */
-    void *scalarMethodPtr = dlsym(RTLD_DEFAULT, "IOConnectCallScalarMethod");
-    void *callMethodPtr = dlsym(RTLD_DEFAULT, "IOConnectCallMethod");
-    
-    BOOL scalarHooked = NO;
-    BOOL methodHooked = NO;
-    
-    if (scalarMethodPtr) {
-        MSHookFunction(scalarMethodPtr,
-                       (void *)hooked_IOConnectCallScalarMethod,
-                       (void **)&orig_IOConnectCallScalarMethod);
-        scalarHooked = YES;
-    }
-    
-    if (callMethodPtr) {
-        MSHookFunction(callMethodPtr,
-                       (void *)hooked_IOConnectCallMethod,
-                       (void **)&orig_IOConnectCallMethod);
-        methodHooked = YES;
-    }
+    /* Hook directly. Dylib links IOKit, all target processes have it. */
+    MSHookFunction((void *)IOConnectCallScalarMethod,
+                   (void *)hooked_IOConnectCallScalarMethod,
+                   (void **)&orig_IOConnectCallScalarMethod);
+    MSHookFunction((void *)IOConnectCallMethod,
+                   (void *)hooked_IOConnectCallMethod,
+                   (void **)&orig_IOConnectCallMethod);
     
     /* Register marker notification */
     CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenter();
@@ -237,8 +224,6 @@ void InsulationMachIOProbeInstall(void) {
             @"pid": @((int)[[NSProcessInfo processInfo] processIdentifier]),
             @"recordedAt": @([[NSDate date] timeIntervalSince1970]),
             @"event": @"startup",
-            @"scalarMethodHooked": @(scalarHooked),
-            @"callMethodHooked": @(methodHooked),
             @"entries": @[],
         };
         NSString *path = InsulationMachIOProbePlistPath();
