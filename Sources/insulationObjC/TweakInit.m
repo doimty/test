@@ -76,6 +76,11 @@ __attribute__((constructor)) static void InsulationObjCPortInit(void) {
     InsulationRuntimeHooksInstall();
     InsulationProbeMarkLoaded(@"hooks.installed");
 
+#if INSULATION_PROBE_ENABLED
+    InsulationProbeIOKitInstall();
+    InsulationProbeMarkLoaded(@"iokit.probe.installed");
+#endif
+
     CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenter();
     CFNotificationCenterAddObserver(center,
                                     NULL,

@@ -79,8 +79,8 @@ static NSMutableDictionary *InsulationProbeState(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"schemaVersion"] = @4;
-        state[@"probeVersion"] = @"decision-marker-1";
+        state[@"schemaVersion"] = @5;
+        state[@"probeVersion"] = @"decision-marker-2";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -428,6 +428,10 @@ void InsulationProbeRecordMarker(NSString *name) {
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
         NSUInteger markerSequence = [state[@"markerSequence"] unsignedIntegerValue] + 1;
         state[@"markerSequence"] = @(markerSequence);
+
+        /* Phase 4: snapshot IOKit ring buffer */
+        NSArray *iokitSnapshot = InsulationProbeIOKitSnapshot();
+
         NSDictionary *marker = @{
             @"time": @(now),
             @"monotonicSeconds": @(InsulationProbeMonotonicSeconds()),
@@ -440,11 +444,13 @@ void InsulationProbeRecordMarker(NSString *name) {
             @"lastSetter": [state[@"lastSetter"] copy] ?: @{},
             @"lastDirectCall": [state[@"lastDirectCall"] copy] ?: @{},
             @"lastApply": [state[@"lastApply"] copy] ?: @{},
+            @"iokitWrites": iokitSnapshot ?: @[],
         };
         InsulationProbeAppendBounded(state, @"markers", marker, InsulationProbeMarkerCapacity);
         state[@"lastMarker"] = marker;
         NSMutableDictionary *events = state[@"events"];
         InsulationProbeBump(events, @"marker.downclock");
+        InsulationProbeBump(events, @"iokitSnapshot.count");
         InsulationProbeDirtyGeneration++;
         if (!InsulationProbeWrite(state)) {
             InsulationProbeEnsureWriteScheduled();

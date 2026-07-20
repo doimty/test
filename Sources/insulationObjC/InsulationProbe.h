@@ -18,6 +18,10 @@ void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorNam
 void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods);
 void InsulationProbeRecordMarker(NSString *name);
 
+/* Phase 4: IOKit write probe (IORegistryEntrySetCFProperty/CFProperties) */
+void InsulationProbeIOKitInstall(void);
+NSArray *InsulationProbeIOKitSnapshot(void);
+
 #else
 
 #define InsulationProbeMarkLoaded(...) do { } while (0)
@@ -31,5 +35,7 @@ void InsulationProbeRecordMarker(NSString *name);
 #define InsulationProbeRecordHookInstall(...) do { } while (0)
 #define InsulationProbeRecordMethodDump(...) do { } while (0)
 #define InsulationProbeRecordMarker(...) do { } while (0)
+#define InsulationProbeIOKitInstall() do { } while (0)
+#define InsulationProbeIOKitSnapshot() nil
 
 #endif
