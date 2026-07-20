@@ -35,7 +35,7 @@ insulation_CFLAGS = -fobjc-arc -DINSULATION_PROBE_ENABLED=$(INSULATION_PROBE_ENA
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
 insulation_LDFLAGS += -lroothide
 endif
-insulation_FRAMEWORKS = SystemConfiguration
+insulation_FRAMEWORKS = SystemConfiguration CydiaSubstrate
 insulation_PRIVATE_FRAMEWORKS = IOKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk

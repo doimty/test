@@ -2,12 +2,9 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <IOKit/IOKitLib.h>
 #import <mach/mach_time.h>
+#import <substrate.h>
 #import "InsulationProbe.h"
 #import "../insulationC/include/Tweak.h"
-#import "../insulationC/include/fishhook.h"
-
-/* Resolver declared in insulationC (avoids using dlopen symbol lookup in ObjC) */
-bool InsulationIOKitResolveSetCFProperty(void **out_setCFProperty, void **out_setCFProperties);
 
 /* ── Ring buffer (lock-free, 128 entries, C-only hot path) ── */
 
@@ -29,7 +26,7 @@ static volatile uint32_t iokit_ring_head;
 static volatile uint32_t iokit_ring_count;
 static bool iokit_hooks_installed;
 
-/* ── Original function pointers ── */
+/* ── Original function pointers (set by MSHookFunction) ── */
 
 static kern_return_t (*orig_IORegistryEntrySetCFProperty)(io_registry_entry_t entry, CFStringRef key, CFTypeRef value);
 static kern_return_t (*orig_IORegistryEntrySetCFProperties)(io_registry_entry_t entry, CFTypeRef properties);
@@ -121,7 +118,7 @@ NSArray *InsulationProbeIOKitSnapshot(void) {
     return result;
 }
 
-/* ── Install hooks via fishhook ── */
+/* ── Install hooks via MSHookFunction ── */
 
 void InsulationProbeIOKitInstall(void) {
     if (iokit_hooks_installed) return;
@@ -132,25 +129,13 @@ void InsulationProbeIOKitInstall(void) {
     iokit_ring_head = 0;
     iokit_ring_count = 0;
 
-    /* Resolve original function pointers via C resolver (not using dlopen symbol lookup in ObjC) */
-    void *resolved_setCFProperty = NULL;
-    void *resolved_setCFProperties = NULL;
-    if (!InsulationIOKitResolveSetCFProperty(&resolved_setCFProperty, &resolved_setCFProperties)) {
-        NSLog(@"insulation: IOKit probe - symbol resolution failed for IORegistryEntrySetCFProperty/CFProperties");
-        return;
-    }
-    orig_IORegistryEntrySetCFProperty = (typeof(orig_IORegistryEntrySetCFProperty))resolved_setCFProperty;
-    orig_IORegistryEntrySetCFProperties = (typeof(orig_IORegistryEntrySetCFProperties))resolved_setCFProperties;
+    /* Hook IORegistryEntrySetCFProperty and IORegistryEntrySetCFProperties */
+    MSHookFunction((void *)IORegistryEntrySetCFProperty,
+                   (void *)hooked_IORegistryEntrySetCFProperty,
+                   (void **)&orig_IORegistryEntrySetCFProperty);
+    MSHookFunction((void *)IORegistryEntrySetCFProperties,
+                   (void *)hooked_IORegistryEntrySetCFProperties,
+                   (void **)&orig_IORegistryEntrySetCFProperties);
 
-    struct rebinding rebindings[] = {
-        {"IORegistryEntrySetCFProperty", (void *)hooked_IORegistryEntrySetCFProperty, (void **)&orig_IORegistryEntrySetCFProperty},
-        {"IORegistryEntrySetCFProperties", (void *)hooked_IORegistryEntrySetCFProperties, (void **)&orig_IORegistryEntrySetCFProperties},
-    };
-
-    int ret = rebind_symbols(rebindings, 2);
-    if (ret != 0) {
-        NSLog(@"insulation: IOKit probe - rebind_symbols failed: %d", ret);
-    } else {
-        NSLog(@"insulation: IOKit probe hooks installed (ring %d)", IOKIT_RING_SIZE);
-    }
+    NSLog(@"insulation: IOKit probe hooks installed via MSHookFunction (ring %d)", IOKIT_RING_SIZE);
 }
