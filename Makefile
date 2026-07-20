@@ -22,7 +22,6 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = insulation
 insulation_USE_MODULES = 0
-insulation_USE_SUBSTRATE = 1
 # General telemetry, targeted CPMS ABI probe, and decision probe are opt-in diagnostics.
 # CPMS package:  make package FINALPACKAGE=1 PACKAGE_BUILDNAME=cpmsprobe1 INSULATION_CPMS_PROBE_ENABLED=1
 # Decision probe: make package FINALPACKAGE=1 PACKAGE_BUILDNAME=decisionprobe4 INSULATION_PROBE_ENABLED=1

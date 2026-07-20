@@ -4,15 +4,15 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <IOKit/IOKitLib.h>
 #import <mach/mach_time.h>
-#import <substrate.h>
+#import <dlfcn.h>
 #import "InsulationProbe.h"
 #import "../insulationC/include/Tweak.h"
+#import "../insulationC/include/fishhook.h"
 
 /* ── Ring buffer (lock-free, 128 entries, C-only hot path) ── */
 
 #define IOKIT_RING_SIZE 128
 #define IOKIT_KEY_MAX    64
-#define IOKIT_VAL_STR_MAX 64
 
 struct iokit_write_entry {
     uint64_t   mono_time;       /* mach_continuous_time */
@@ -37,7 +37,6 @@ static kern_return_t (*orig_IORegistryEntrySetCFProperties)(io_registry_entry_t 
 /* ── Hooked implementations ── */
 
 static kern_return_t hooked_IORegistryEntrySetCFProperty(io_registry_entry_t entry, CFStringRef key, CFTypeRef value) {
-    /* Record before calling original - minimal work on hot path */
     uint32_t idx = __sync_fetch_and_add(&iokit_ring_head, 1) % IOKIT_RING_SIZE;
     struct iokit_write_entry *e = &iokit_ring[idx];
     e->mono_time = mach_continuous_time();
@@ -80,7 +79,6 @@ static kern_return_t hooked_IORegistryEntrySetCFProperties(io_registry_entry_t e
         CFDictionaryRef dict = (CFDictionaryRef)properties;
         CFIndex count = CFDictionaryGetCount(dict);
         e->val_int = (int64_t)count; /* record number of entries in bulk write */
-        /* Copy the first key for debugging */
         if (count > 0) {
             CFStringRef firstKey = NULL;
             CFDictionaryGetKeysAndValues(dict, (const void **)&firstKey, NULL);
@@ -100,8 +98,8 @@ static kern_return_t hooked_IORegistryEntrySetCFProperties(io_registry_entry_t e
 NSArray *InsulationProbeIOKitSnapshot(void) {
     uint32_t head = iokit_ring_head;
     uint32_t count = iokit_ring_count;
-    uint32_t start = (count > IOKIT_RING_SIZE) ? (head - IOKIT_RING_SIZE) : 0;
     uint32_t entries = (count > IOKIT_RING_SIZE) ? IOKIT_RING_SIZE : count;
+    uint32_t start = (count > IOKIT_RING_SIZE) ? (head - IOKIT_RING_SIZE) : 0;
 
     NSMutableArray *result = [NSMutableArray arrayWithCapacity:entries];
     for (uint32_t i = 0; i < entries; i++) {
@@ -123,7 +121,7 @@ NSArray *InsulationProbeIOKitSnapshot(void) {
     return result;
 }
 
-/* ── Install hooks ── */
+/* ── Install hooks via fishhook ── */
 
 void InsulationProbeIOKitInstall(void) {
     if (iokit_hooks_installed) return;
@@ -134,15 +132,24 @@ void InsulationProbeIOKitInstall(void) {
     iokit_ring_head = 0;
     iokit_ring_count = 0;
 
-    /* Hook IORegistryEntrySetCFProperty */
-    MSHookFunction((void *)IORegistryEntrySetCFProperty,
-                   (void *)hooked_IORegistryEntrySetCFProperty,
-                   (void **)&orig_IORegistryEntrySetCFProperty);
+    /* Resolve original function pointers via dlsym */
+    orig_IORegistryEntrySetCFProperty = dlsym(RTLD_DEFAULT, "IORegistryEntrySetCFProperty");
+    orig_IORegistryEntrySetCFProperties = dlsym(RTLD_DEFAULT, "IORegistryEntrySetCFProperties");
 
-    /* Hook IORegistryEntrySetCFProperties */
-    MSHookFunction((void *)IORegistryEntrySetCFProperties,
-                   (void *)hooked_IORegistryEntrySetCFProperties,
-                   (void **)&orig_IORegistryEntrySetCFProperties);
+    if (!orig_IORegistryEntrySetCFProperty || !orig_IORegistryEntrySetCFProperties) {
+        NSLog(@"insulation: IOKit probe - dlsym failed for IORegistryEntrySetCFProperty/CFProperties");
+        return;
+    }
 
-    NSLog(@"insulation: IOKit probe hooks installed (ring %d)", IOKIT_RING_SIZE);
+    struct rebinding rebindings[] = {
+        {"IORegistryEntrySetCFProperty", (void *)hooked_IORegistryEntrySetCFProperty, (void **)&orig_IORegistryEntrySetCFProperty},
+        {"IORegistryEntrySetCFProperties", (void *)hooked_IORegistryEntrySetCFProperties, (void **)&orig_IORegistryEntrySetCFProperties},
+    };
+
+    int ret = rebind_symbols(rebindings, 2);
+    if (ret != 0) {
+        NSLog(@"insulation: IOKit probe - rebind_symbols failed: %d", ret);
+    } else {
+        NSLog(@"insulation: IOKit probe hooks installed (ring %d)", IOKIT_RING_SIZE);
+    }
 }
