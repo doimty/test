@@ -1,10 +1,12 @@
+#define INSULATION_PROBE_IMPLEMENTATION 1
+
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <IOKit/IOKitLib.h>
 #import <mach/mach_time.h>
 #import <substrate.h>
-#import "../insulationObjC/InsulationProbe.h"
-#import "include/Tweak.h"
+#import "InsulationProbe.h"
+#import "../insulationC/include/Tweak.h"
 
 /* ── Ring buffer (lock-free, 128 entries, C-only hot path) ── */
 
