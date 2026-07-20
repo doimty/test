@@ -54,7 +54,8 @@ jobs:
           bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh scripts/test-insulationctl-args.sh scripts/verify-insulationctl-package.sh
           scripts/check-objc-port.sh
           scripts/test-insulationctl-args.sh
-          scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"
+          INSULATION_PROBE_ENABLED=1 PACKAGE_BUILDNAME=decisionprobe4 \
+            scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"
 
       - name: Inspect package slices
         run: |
