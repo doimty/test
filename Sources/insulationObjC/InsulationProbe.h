@@ -13,6 +13,7 @@ void InsulationProbeRecordMitigationUpdate(NSString *name, BOOL changed);
 void InsulationProbeRecordSelfHeal(NSString *reason);
 void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInteger patchedValue);
 void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue, NSInteger patchedValue, NSDictionary *details);
+void InsulationProbeRecordDirectCall(NSString *name, NSDictionary *details);
 void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed);
 void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods);
 
@@ -25,6 +26,7 @@ void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods);
 #define InsulationProbeRecordSelfHeal(...) do { } while (0)
 #define InsulationProbeRecordSetter(...) do { } while (0)
 #define InsulationProbeRecordSetterDetails(...) do { } while (0)
+#define InsulationProbeRecordDirectCall(...) do { } while (0)
 #define InsulationProbeRecordHookInstall(...) do { } while (0)
 #define InsulationProbeRecordMethodDump(...) do { } while (0)
 

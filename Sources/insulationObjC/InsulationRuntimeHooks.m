@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
 #import <objc/runtime.h>
+#import <string.h>
 
 #import "InsulationDictHelper.h"
 #import "InsulationPowerHelper.h"
@@ -81,6 +82,10 @@ static void (*Orig_MitigationController_setPackagePowerZoneTarget)(id self, SEL 
 static void (*Orig_MitigationController_updateCPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
+#if INSULATION_PROBE_ENABLED
+static void (*Orig_MitigationController_setDieTempControllerProperty)(id self, SEL _cmd, CFStringRef property, int level, BOOL scaleToFixedPoint);
+static int (*Orig_MitigationController_setServiceProperty)(id self, SEL _cmd, unsigned service, CFStringRef key, int value, BOOL scaleToFixedPoint);
+#endif
 static void *InsulationLastObservedMitigationControllerPtr;
 
 
@@ -428,6 +433,40 @@ static void Insulation_MitigationController_updatePackage(id self, SEL _cmd) {
     InsulationApplyAfterMitigationControllerCapture(changed);
 }
 
+#if INSULATION_PROBE_ENABLED
+static NSString *InsulationProbeCopyCFString(CFStringRef value) {
+    if (!value) {
+        return @"nil";
+    }
+    return [(__bridge NSString *)value copy];
+}
+
+static void Insulation_MitigationController_setDieTempControllerProperty(id self, SEL _cmd, CFStringRef property, int level, BOOL scaleToFixedPoint) {
+    Orig_MitigationController_setDieTempControllerProperty(self, _cmd, property, level, scaleToFixedPoint);
+    NSString *propertySnapshot = InsulationProbeCopyCFString(property);
+    InsulationProbeRecordDirectCall(@"setDieTempControllerProperty", @{
+        @"selector": @"setDieTempControllerProperty:level:scaleToFixedPoint:",
+        @"property": propertySnapshot,
+        @"level": @(level),
+        @"scaleToFixedPoint": @(scaleToFixedPoint),
+    });
+}
+
+static int Insulation_MitigationController_setServiceProperty(id self, SEL _cmd, unsigned service, CFStringRef key, int value, BOOL scaleToFixedPoint) {
+    int result = Orig_MitigationController_setServiceProperty(self, _cmd, service, key, value, scaleToFixedPoint);
+    NSString *keySnapshot = InsulationProbeCopyCFString(key);
+    InsulationProbeRecordDirectCall(@"setServiceProperty", @{
+        @"selector": @"setServiceProperty:key:value:scaleToFixedPoint:",
+        @"service": @(service),
+        @"key": keySnapshot,
+        @"value": @(value),
+        @"scaleToFixedPoint": @(scaleToFixedPoint),
+        @"result": @(result),
+    });
+    return result;
+}
+#endif
+
 
 static void InsulationInstallNSDictionaryHooks(void) {
     Class dictionaryClass = objc_getClass("NSDictionary");
@@ -488,6 +527,37 @@ static void InsulationInstallMitigationControllerSetterHooks(void) {
     InsulationHookInstanceMethod(mitigationClass, @selector(setPackagePowerZoneTarget), (IMP)Insulation_MitigationController_setPackagePowerZoneTarget, (IMP *)&Orig_MitigationController_setPackagePowerZoneTarget);
 }
 
+#if INSULATION_PROBE_ENABLED
+static BOOL InsulationHookProbeInstanceMethodWithEncoding(Class cls, SEL selector, const char *expectedEncoding, IMP replacement, IMP *originalOut) {
+    NSString *className = cls ? NSStringFromClass(cls) : @"<missing-class>";
+    NSString *selectorName = selector ? NSStringFromSelector(selector) : @"<missing-selector>";
+    Method method = (cls && selector) ? class_getInstanceMethod(cls, selector) : NULL;
+    const char *actualEncoding = method ? method_getTypeEncoding(method) : NULL;
+    if (!method || !actualEncoding || strcmp(actualEncoding, expectedEncoding) != 0) {
+        InsulationProbeRecordHookInstall(className, selectorName, NO);
+        return NO;
+    }
+    *originalOut = method_getImplementation(method);
+    method_setImplementation(method, replacement);
+    InsulationProbeRecordHookInstall(className, selectorName, YES);
+    return YES;
+}
+
+static void InsulationInstallMitigationControllerDirectWriteProbeHooks(void) {
+    Class mitigationClass = objc_getClass("MitigationController");
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setDieTempControllerProperty:level:scaleToFixedPoint:"),
+                                                   "v32@0:8^{__CFString=}16i24B28",
+                                                   (IMP)Insulation_MitigationController_setDieTempControllerProperty,
+                                                   (IMP *)&Orig_MitigationController_setDieTempControllerProperty);
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setServiceProperty:key:value:scaleToFixedPoint:"),
+                                                   "i36@0:8I16^{__CFString=}20i28B32",
+                                                   (IMP)Insulation_MitigationController_setServiceProperty,
+                                                   (IMP *)&Orig_MitigationController_setServiceProperty);
+}
+#endif
+
 static void InsulationInstallMitigationControllerUpdateHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
     // Disabled for cold-start repair isolation: stablebase did not hook the initializer.
@@ -507,6 +577,7 @@ void InsulationRuntimeHooksInstall(void) {
         InsulationInstallMitigationControllerSetterHooks();
         InsulationInstallMitigationControllerUpdateHooks();
 #if INSULATION_PROBE_ENABLED
+        InsulationInstallMitigationControllerDirectWriteProbeHooks();
         InsulationRecordMitigationMethodInventory(objc_getClass("MitigationController"));
 #endif
 #if INSULATION_CPMS_PROBE_ENABLED

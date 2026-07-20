@@ -5,6 +5,7 @@
 
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
+#import <os/lock.h>
 #import "../insulationC/include/Tweak.h"
 
 static NSString *InsulationProbePath(void) {
@@ -36,6 +37,9 @@ static dispatch_queue_t InsulationProbeQueue(void) {
 static BOOL InsulationProbeFlushScheduled;
 static NSUInteger InsulationProbeWriteCount;
 static const NSTimeInterval InsulationProbeFlushDelay = 0.5;
+static os_unfair_lock InsulationProbeDirectCallLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableDictionary *InsulationProbePendingDirectCalls;
+static BOOL InsulationProbeDirectCallDrainScheduled;
 
 static NSMutableDictionary *InsulationProbeState(void) {
     static NSMutableDictionary *state;
@@ -48,6 +52,7 @@ static NSMutableDictionary *InsulationProbeState(void) {
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
         state[@"setters"] = [NSMutableDictionary dictionary];
+        state[@"directCalls"] = [NSMutableDictionary dictionary];
         state[@"updates"] = [NSMutableDictionary dictionary];
         state[@"writeStatus"] = @"notAttempted";
         state[@"flushDelaySeconds"] = @(InsulationProbeFlushDelay);
@@ -257,6 +262,70 @@ void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInte
     InsulationProbeRecordSetterDetails(name, originalValue, patchedValue, nil);
 }
 
+static void InsulationProbeDrainDirectCalls(void) {
+    os_unfair_lock_lock(&InsulationProbeDirectCallLock);
+    NSDictionary *pending = [InsulationProbePendingDirectCalls copy] ?: @{};
+    InsulationProbePendingDirectCalls = [NSMutableDictionary dictionary];
+    InsulationProbeDirectCallDrainScheduled = NO;
+    os_unfair_lock_unlock(&InsulationProbeDirectCallLock);
+
+    NSMutableDictionary *state = InsulationProbeState();
+    NSMutableDictionary *directCalls = state[@"directCalls"];
+    __block NSDictionary *latestRecord = nil;
+    [pending enumerateKeysAndObjectsUsingBlock:^(NSString *name, NSDictionary *entry, BOOL *stop) {
+        (void)stop;
+        NSNumber *oldCount = directCalls[name];
+        NSUInteger aggregateCount = [oldCount unsignedIntegerValue] + [entry[@"count"] unsignedIntegerValue];
+        directCalls[name] = @(aggregateCount);
+        NSDictionary *record = entry[@"last"];
+        if (record) {
+            directCalls[[name stringByAppendingString:@".last"]] = record;
+            if (!latestRecord || [record[@"time"] doubleValue] > [latestRecord[@"time"] doubleValue]) {
+                latestRecord = record;
+            }
+        }
+    }];
+    if (latestRecord) {
+        state[@"lastDirectCall"] = latestRecord;
+        InsulationProbeScheduleWrite();
+    }
+}
+
+void InsulationProbeRecordDirectCall(NSString *name, NSDictionary *details) {
+    if (![name isKindOfClass:[NSString class]] || [name length] == 0) {
+        return;
+    }
+    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    NSMutableDictionary *record = [@{
+        @"time": @(now),
+        @"name": name,
+    } mutableCopy];
+    if ([details isKindOfClass:[NSDictionary class]] && [details count] > 0) {
+        record[@"details"] = details;
+    }
+
+    BOOL shouldScheduleDrain = NO;
+    os_unfair_lock_lock(&InsulationProbeDirectCallLock);
+    if (!InsulationProbePendingDirectCalls) {
+        InsulationProbePendingDirectCalls = [NSMutableDictionary dictionary];
+    }
+    NSMutableDictionary *entry = [InsulationProbePendingDirectCalls[name] mutableCopy] ?: [NSMutableDictionary dictionary];
+    entry[@"count"] = @([entry[@"count"] unsignedIntegerValue] + 1);
+    entry[@"last"] = record;
+    InsulationProbePendingDirectCalls[name] = entry;
+    if (!InsulationProbeDirectCallDrainScheduled) {
+        InsulationProbeDirectCallDrainScheduled = YES;
+        shouldScheduleDrain = YES;
+    }
+    os_unfair_lock_unlock(&InsulationProbeDirectCallLock);
+
+    if (shouldScheduleDrain) {
+        dispatch_async(InsulationProbeQueue(), ^{
+            InsulationProbeDrainDirectCalls();
+        });
+    }
+}
+
 void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed) {
     if (![className isKindOfClass:[NSString class]] || ![selectorName isKindOfClass:[NSString class]] || [className length] == 0 || [selectorName length] == 0) {
         return;
@@ -314,6 +383,7 @@ void InsulationProbeRecordMitigationUpdate(NSString *name, BOOL changed) { (void
 void InsulationProbeRecordSelfHeal(NSString *reason) { (void)reason; }
 void InsulationProbeRecordSetter(NSString *name, NSInteger originalValue, NSInteger patchedValue) { (void)name; (void)originalValue; (void)patchedValue; }
 void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue, NSInteger patchedValue, NSDictionary *details) { (void)name; (void)originalValue; (void)patchedValue; (void)details; }
+void InsulationProbeRecordDirectCall(NSString *name, NSDictionary *details) { (void)name; (void)details; }
 void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed) { (void)className; (void)selectorName; (void)installed; }
 void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods) { (void)className; (void)methods; }
 
