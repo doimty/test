@@ -16,6 +16,7 @@ void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue,
 void InsulationProbeRecordDirectCall(NSString *name, NSDictionary *details);
 void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed);
 void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods);
+void InsulationProbeRecordMarker(NSString *name);
 
 #else
 
@@ -29,5 +30,6 @@ void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods);
 #define InsulationProbeRecordDirectCall(...) do { } while (0)
 #define InsulationProbeRecordHookInstall(...) do { } while (0)
 #define InsulationProbeRecordMethodDump(...) do { } while (0)
+#define InsulationProbeRecordMarker(...) do { } while (0)
 
 #endif

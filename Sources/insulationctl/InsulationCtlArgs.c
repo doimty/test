@@ -8,6 +8,7 @@ static void InsulationCtlInitResult(InsulationCtlParseResult *result) {
     result->mode = INSULATION_CTL_MODE_OFF;
     result->raw = false;
     result->quiet = false;
+    result->markerName = NULL;
     result->exitCode = INSULATION_CTL_EXIT_OK;
     result->errorMessage = NULL;
 }
@@ -76,6 +77,15 @@ int InsulationCtlParseArgs(int argc, const char *const argv[], InsulationCtlPars
         }
         if (strcmp(arg, "status") == 0) {
             result->action = INSULATION_CTL_ACTION_STATUS;
+            sawAction = true;
+            continue;
+        }
+        if (strcmp(arg, "probe-mark") == 0) {
+            if (i + 1 >= argc || strcmp(argv[i + 1], "downclock") != 0) {
+                return InsulationCtlSetUsageError(result, "probe-mark requires marker name: downclock");
+            }
+            result->action = INSULATION_CTL_ACTION_PROBE_MARK;
+            result->markerName = argv[++i];
             sawAction = true;
             continue;
         }

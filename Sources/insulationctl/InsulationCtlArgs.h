@@ -18,6 +18,7 @@ typedef enum {
     INSULATION_CTL_ACTION_ERROR = 0,
     INSULATION_CTL_ACTION_STATUS,
     INSULATION_CTL_ACTION_SET_MODE,
+    INSULATION_CTL_ACTION_PROBE_MARK,
     INSULATION_CTL_ACTION_HELP,
 } InsulationCtlAction;
 
@@ -32,6 +33,7 @@ typedef struct {
     InsulationCtlMode mode;
     bool raw;
     bool quiet;
+    const char *markerName;
     int exitCode;
     const char *errorMessage;
 } InsulationCtlParseResult;

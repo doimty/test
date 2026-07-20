@@ -20,6 +20,8 @@ static NSString *const InsulationCtlPrefsBasePath = @"/var/mobile/Library/Prefer
 static const char *InsulationCtlRuntimeStateName = "com.be-huge.insulation.runtimeState";
 static const char *InsulationCtlApplyNotificationName = "com.be-huge.insulation-executePuppetEvent";
 static const char *InsulationCtlRestartNotificationName = "com.be-huge.insulation-restartThermalMonitor";
+static const char *InsulationCtlProbeMarkNotificationName = "com.be-huge.insulation.decisionProbe.mark.downclock";
+static const uint64_t InsulationCtlProbeMarkMagic = 0x494E53554D41524BULL; /* ASCII 'INSUMARK' */
 /* ASCII 'INSU' in high 32 bits; daemon checks this magic to confirm the
    notify_set_state sender is a genuine insulationctl instance. */
 static const uint64_t InsulationCtlRuntimeStateMagic = 0x494E535500000000ULL;
@@ -65,7 +67,7 @@ static NSString *InsulationCtlPrefsPath(void) {
 
 static void InsulationCtlPrintUsage(FILE *stream) {
     fprintf(stream,
-            "Usage: ins [off|low|max|status] [--raw] [--quiet]\n"
+            "Usage: ins [off|low|max|status|probe-mark downclock] [--raw] [--quiet]\n"
             "\n"
             "Modes:\n"
             "  off   Apple native thermal control\n"
@@ -75,6 +77,9 @@ static void InsulationCtlPrintUsage(FILE *stream) {
             "Aliases:\n"
             "  lowPower   same as low\n"
             "  fullPower  same as max\n"
+            "\n"
+            "Diagnostics:\n"
+            "  probe-mark downclock  timestamp a reproduced downclock in a probe build\n"
             "\n"
             "Options:\n"
             "  --raw      print only off, low, or max\n"
@@ -220,6 +225,27 @@ static int InsulationCtlPostRuntimeState(void) {
     return status;
 }
 
+static bool InsulationCtlPostProbeMarker(NSString **errorOut) {
+    int token = -1;
+    int status = notify_register_check(InsulationCtlProbeMarkNotificationName, &token);
+    if (status == NOTIFY_STATUS_OK) {
+        status = notify_set_state(token, InsulationCtlProbeMarkMagic);
+    }
+    if (status == NOTIFY_STATUS_OK) {
+        status = notify_post(InsulationCtlProbeMarkNotificationName);
+    }
+    if (token >= 0) {
+        notify_cancel(token);
+    }
+    if (status == NOTIFY_STATUS_OK) {
+        return true;
+    }
+    if (errorOut) {
+        *errorOut = [NSString stringWithFormat:@"probe marker notification failed: %d", status];
+    }
+    return false;
+}
+
 static bool InsulationCtlPostApplyAndRestart(NSString **errorOut) {
     int runtimeStatus = InsulationCtlPostRuntimeState();
     int applyStatus = notify_post(InsulationCtlApplyNotificationName);
@@ -258,6 +284,18 @@ int main(int argc, const char *argv[]) {
                 return INSULATION_CTL_EXIT_IO;
             }
             InsulationCtlPrintMode(mode, parsed.raw, parsed.quiet);
+            return INSULATION_CTL_EXIT_OK;
+        }
+
+        if (parsed.action == INSULATION_CTL_ACTION_PROBE_MARK) {
+            NSString *notifyError = nil;
+            if (!InsulationCtlPostProbeMarker(&notifyError)) {
+                fprintf(stderr, "ins: %s\n", [notifyError UTF8String]);
+                return INSULATION_CTL_EXIT_NOTIFY;
+            }
+            if (!parsed.quiet) {
+                printf("Probe marker notification sent: %s; verify the probe plist.\n", parsed.markerName);
+            }
             return INSULATION_CTL_EXIT_OK;
         }
 

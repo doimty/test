@@ -54,6 +54,15 @@ static void expect_set(const char *label,
     CHECK(strcmp(InsulationCtlModePrefsValue(result.mode), prefs) == 0, label);
 }
 
+static void expect_probe_mark(const char *label, int argc, const char *const argv[], const char *markerName, bool quiet) {
+    InsulationCtlParseResult result = parse(argc, argv);
+    CHECK(result.exitCode == INSULATION_CTL_EXIT_OK, label);
+    CHECK(result.action == INSULATION_CTL_ACTION_PROBE_MARK, label);
+    CHECK(result.markerName != NULL, label);
+    CHECK(strcmp(result.markerName, markerName) == 0, label);
+    CHECK(result.quiet == quiet, label);
+}
+
 static void expect_usage_error(const char *label, int argc, const char *const argv[]) {
     InsulationCtlParseResult result = parse(argc, argv);
     CHECK(result.exitCode == INSULATION_CTL_EXIT_USAGE, label);
@@ -118,6 +127,18 @@ int main(void) {
 
     const char *quiet_raw_max[] = {"ins", "--quiet", "max", "--raw"};
     expect_set("quiet and raw set mode", 4, quiet_raw_max, INSULATION_CTL_MODE_FULL_POWER, true, true, "max", "fullPower");
+
+    const char *probe_mark[] = {"ins", "probe-mark", "downclock"};
+    expect_probe_mark("probe mark downclock", 3, probe_mark, "downclock", false);
+
+    const char *quiet_probe_mark[] = {"ins", "--quiet", "probe-mark", "downclock"};
+    expect_probe_mark("quiet probe mark downclock", 4, quiet_probe_mark, "downclock", true);
+
+    const char *probe_mark_missing[] = {"ins", "probe-mark"};
+    expect_usage_error("probe mark requires name", 2, probe_mark_missing);
+
+    const char *probe_mark_unknown[] = {"ins", "probe-mark", "thermal"};
+    expect_usage_error("probe mark rejects unknown name", 3, probe_mark_unknown);
 
     const char *bad_mode[] = {"ins", "turbo"};
     expect_usage_error("unknown mode", 2, bad_mode);

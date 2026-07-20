@@ -286,6 +286,9 @@ import sys
 root = pathlib.Path(sys.argv[1])
 runtime = (root / "Sources/insulationObjC/InsulationRuntimeHooks.m").read_text()
 probe = (root / "Sources/insulationObjC/InsulationProbe.m").read_text()
+tweakinit = (root / "Sources/insulationObjC/TweakInit.m").read_text()
+ctl_args = (root / "Sources/insulationctl/InsulationCtlArgs.c").read_text()
+ctl_main = (root / "Sources/insulationctl/main.m").read_text()
 errors = []
 
 checks = {
@@ -301,6 +304,21 @@ checks = {
     "probe stores bounded direct-call state": 'state[@"directCalls"]' in probe and 'state[@"lastDirectCall"]' in probe,
     "direct-call ingress is coalesced": "InsulationProbeDirectCallDrainScheduled" in probe and "InsulationProbePendingDirectCalls" in probe,
     "direct-call ingress is lock-protected": "os_unfair_lock_lock(&InsulationProbeDirectCallLock)" in probe and "os_unfair_lock_unlock(&InsulationProbeDirectCallLock)" in probe,
+    "probe marker accepts only downclock": 'strcmp(argv[i + 1], "downclock") != 0' in ctl_args,
+    "probe marker uses dedicated notification": "com.be-huge.insulation.decisionProbe.mark.downclock" in ctl_main,
+    "probe marker sender sets validation magic": "InsulationCtlProbeMarkMagic" in ctl_main and "notify_set_state(token, InsulationCtlProbeMarkMagic)" in ctl_main,
+    "probe marker receiver consumes validation magic": "InsulationProbeConsumeMarkerMagic" in tweakinit and "notify_set_state(token, 0)" in tweakinit,
+    "probe marker listener is compile-time gated": re.search(
+        r"#if INSULATION_PROBE_ENABLED\s+CFNotificationCenterAddObserver\(center,\s+NULL,\s+InsulationProbeMarkerNotificationCallback",
+        tweakinit,
+    ) is not None,
+    "probe marker records wall and monotonic time": '@"time": @(now)' in probe and '@"monotonicSeconds"' in probe,
+    "probe marker snapshots setter state": '@"setters": [state[@"setters"] copy]' in probe,
+    "probe marker freezes setter timeline": '@"setterTimeline": [state[@"setterTimeline"] copy]' in probe,
+    "immediate marker flush suppresses stale delayed write": "InsulationProbeDirtyGeneration" in probe and "InsulationProbeWrittenGeneration" in probe,
+    "setter timeline is bounded": "InsulationProbeSetterTimelineCapacity" in probe and 'InsulationProbeAppendBounded(state, @"setterTimeline"' in probe,
+    "marker timeline is bounded": "InsulationProbeMarkerCapacity" in probe and 'InsulationProbeAppendBounded(state, @"markers"' in probe,
+    "rejected thermal notify monitor is absent": "thermalpressurelevel" not in probe and "thermalstatus" not in probe,
 }
 for label, condition in checks.items():
     if not condition:

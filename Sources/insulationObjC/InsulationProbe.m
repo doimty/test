@@ -5,7 +5,9 @@
 
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
+#import <mach/mach_time.h>
 #import <os/lock.h>
+#import <time.h>
 #import "../insulationC/include/Tweak.h"
 
 static NSString *InsulationProbePath(void) {
@@ -36,18 +38,49 @@ static dispatch_queue_t InsulationProbeQueue(void) {
 
 static BOOL InsulationProbeFlushScheduled;
 static NSUInteger InsulationProbeWriteCount;
+static NSUInteger InsulationProbeDirtyGeneration;
+static NSUInteger InsulationProbeWrittenGeneration;
 static const NSTimeInterval InsulationProbeFlushDelay = 0.5;
 static os_unfair_lock InsulationProbeDirectCallLock = OS_UNFAIR_LOCK_INIT;
 static NSMutableDictionary *InsulationProbePendingDirectCalls;
 static BOOL InsulationProbeDirectCallDrainScheduled;
+static const NSUInteger InsulationProbeSetterTimelineCapacity = 96;
+static const NSUInteger InsulationProbeMarkerCapacity = 16;
+
+static double InsulationProbeMonotonicSeconds(void) {
+    static mach_timebase_info_data_t timebase;
+    static BOOL timebaseValid;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        timebaseValid = mach_timebase_info(&timebase) == KERN_SUCCESS && timebase.denom != 0;
+    });
+    if (timebaseValid) {
+        uint64_t ticks = mach_continuous_time();
+        return ((double)ticks * (double)timebase.numer / (double)timebase.denom) / 1e9;
+    }
+    struct timespec ts = {0};
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        return (double)ts.tv_sec + ((double)ts.tv_nsec / 1e9);
+    }
+    return -1.0;
+}
+
+static void InsulationProbeAppendBounded(NSMutableDictionary *state, NSString *key, NSDictionary *entry, NSUInteger capacity) {
+    NSMutableArray *items = [state[key] isKindOfClass:[NSArray class]] ? [state[key] mutableCopy] : [NSMutableArray arrayWithCapacity:capacity];
+    [items addObject:entry];
+    if ([items count] > capacity) {
+        [items removeObjectsInRange:NSMakeRange(0, [items count] - capacity)];
+    }
+    state[key] = items;
+}
 
 static NSMutableDictionary *InsulationProbeState(void) {
     static NSMutableDictionary *state;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         state = [NSMutableDictionary dictionary];
-        state[@"schemaVersion"] = @3;
-        state[@"probeVersion"] = @"decision-pass-through-1";
+        state[@"schemaVersion"] = @4;
+        state[@"probeVersion"] = @"decision-marker-1";
         state[@"pid"] = @((int)[[NSProcessInfo processInfo] processIdentifier]);
         state[@"processStart"] = @([[NSDate date] timeIntervalSince1970]);
         state[@"events"] = [NSMutableDictionary dictionary];
@@ -79,7 +112,7 @@ static NSString *InsulationProbeWriteSnapshot(NSDictionary *snapshot, NSArray<NS
     return nil;
 }
 
-static void InsulationProbeWrite(NSMutableDictionary *state) {
+static BOOL InsulationProbeWrite(NSMutableDictionary *state) {
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
     NSArray<NSString *> *paths = InsulationProbePaths();
     state[@"lastWriteAttemptAt"] = @(now);
@@ -92,12 +125,14 @@ static void InsulationProbeWrite(NSMutableDictionary *state) {
     if (writtenPath) {
         state[@"lastWritePath"] = writtenPath;
         state[@"lastWriteStatus"] = @"written";
-    } else {
-        state[@"lastWriteStatus"] = @"failed";
+        InsulationProbeWrittenGeneration = InsulationProbeDirtyGeneration;
+        return YES;
     }
+    state[@"lastWriteStatus"] = @"failed";
+    return NO;
 }
 
-static void InsulationProbeScheduleWrite(void) {
+static void InsulationProbeEnsureWriteScheduled(void) {
     if (InsulationProbeFlushScheduled) {
         return;
     }
@@ -105,8 +140,15 @@ static void InsulationProbeScheduleWrite(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(InsulationProbeFlushDelay * NSEC_PER_SEC)),
                    InsulationProbeQueue(), ^{
         InsulationProbeFlushScheduled = NO;
-        InsulationProbeWrite(InsulationProbeState());
+        if (InsulationProbeWrittenGeneration < InsulationProbeDirtyGeneration) {
+            InsulationProbeWrite(InsulationProbeState());
+        }
     });
+}
+
+static void InsulationProbeScheduleWrite(void) {
+    InsulationProbeDirtyGeneration++;
+    InsulationProbeEnsureWriteScheduled();
 }
 
 static void InsulationProbeBump(NSMutableDictionary *dict, NSString *key) {
@@ -246,6 +288,7 @@ void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue,
 
         NSMutableDictionary *record = [@{
             @"time": @(now),
+            @"monotonicSeconds": @(InsulationProbeMonotonicSeconds()),
             @"name": name,
             @"original": @(originalValue),
             @"patched": @(patchedValue),
@@ -254,6 +297,7 @@ void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue,
             record[@"details"] = details;
         }
         state[@"lastSetter"] = record;
+        InsulationProbeAppendBounded(state, @"setterTimeline", record, InsulationProbeSetterTimelineCapacity);
         InsulationProbeScheduleWrite();
     });
 }
@@ -374,6 +418,40 @@ void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods) {
     });
 }
 
+void InsulationProbeRecordMarker(NSString *name) {
+    if (![name isKindOfClass:[NSString class]] || ![name isEqualToString:@"downclock"]) {
+        return;
+    }
+    dispatch_async(InsulationProbeQueue(), ^{
+        InsulationProbeDrainDirectCalls();
+        NSMutableDictionary *state = InsulationProbeState();
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        NSUInteger markerSequence = [state[@"markerSequence"] unsignedIntegerValue] + 1;
+        state[@"markerSequence"] = @(markerSequence);
+        NSDictionary *marker = @{
+            @"time": @(now),
+            @"monotonicSeconds": @(InsulationProbeMonotonicSeconds()),
+            @"name": name,
+            @"sequence": @(markerSequence),
+            @"setterTimeline": [state[@"setterTimeline"] copy] ?: @[],
+            @"setters": [state[@"setters"] copy] ?: @{},
+            @"directCalls": [state[@"directCalls"] copy] ?: @{},
+            @"updates": [state[@"updates"] copy] ?: @{},
+            @"lastSetter": [state[@"lastSetter"] copy] ?: @{},
+            @"lastDirectCall": [state[@"lastDirectCall"] copy] ?: @{},
+            @"lastApply": [state[@"lastApply"] copy] ?: @{},
+        };
+        InsulationProbeAppendBounded(state, @"markers", marker, InsulationProbeMarkerCapacity);
+        state[@"lastMarker"] = marker;
+        NSMutableDictionary *events = state[@"events"];
+        InsulationProbeBump(events, @"marker.downclock");
+        InsulationProbeDirtyGeneration++;
+        if (!InsulationProbeWrite(state)) {
+            InsulationProbeEnsureWriteScheduled();
+        }
+    });
+}
+
 #else
 
 void InsulationProbeMarkLoaded(NSString *stage) { (void)stage; }
@@ -386,5 +464,6 @@ void InsulationProbeRecordSetterDetails(NSString *name, NSInteger originalValue,
 void InsulationProbeRecordDirectCall(NSString *name, NSDictionary *details) { (void)name; (void)details; }
 void InsulationProbeRecordHookInstall(NSString *className, NSString *selectorName, BOOL installed) { (void)className; (void)selectorName; (void)installed; }
 void InsulationProbeRecordMethodDump(NSString *className, NSArray *methods) { (void)className; (void)methods; }
+void InsulationProbeRecordMarker(NSString *name) { (void)name; }
 
 #endif
