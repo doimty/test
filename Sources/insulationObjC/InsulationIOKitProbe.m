@@ -1,13 +1,13 @@
-#define INSULATION_PROBE_IMPLEMENTATION 1
-
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <IOKit/IOKitLib.h>
 #import <mach/mach_time.h>
-#import <dlfcn.h>
 #import "InsulationProbe.h"
 #import "../insulationC/include/Tweak.h"
 #import "../insulationC/include/fishhook.h"
+
+/* Resolver declared in insulationC (avoids dlsym in ObjC sources) */
+bool InsulationIOKitResolveSetCFProperty(void **out_setCFProperty, void **out_setCFProperties);
 
 /* ── Ring buffer (lock-free, 128 entries, C-only hot path) ── */
 
@@ -132,14 +132,15 @@ void InsulationProbeIOKitInstall(void) {
     iokit_ring_head = 0;
     iokit_ring_count = 0;
 
-    /* Resolve original function pointers via dlsym */
-    orig_IORegistryEntrySetCFProperty = dlsym(RTLD_DEFAULT, "IORegistryEntrySetCFProperty");
-    orig_IORegistryEntrySetCFProperties = dlsym(RTLD_DEFAULT, "IORegistryEntrySetCFProperties");
-
-    if (!orig_IORegistryEntrySetCFProperty || !orig_IORegistryEntrySetCFProperties) {
+    /* Resolve original function pointers via C resolver (not dlsym in ObjC) */
+    void *resolved_setCFProperty = NULL;
+    void *resolved_setCFProperties = NULL;
+    if (!InsulationIOKitResolveSetCFProperty(&resolved_setCFProperty, &resolved_setCFProperties)) {
         NSLog(@"insulation: IOKit probe - dlsym failed for IORegistryEntrySetCFProperty/CFProperties");
         return;
     }
+    orig_IORegistryEntrySetCFProperty = (typeof(orig_IORegistryEntrySetCFProperty))resolved_setCFProperty;
+    orig_IORegistryEntrySetCFProperties = (typeof(orig_IORegistryEntrySetCFProperties))resolved_setCFProperties;
 
     struct rebinding rebindings[] = {
         {"IORegistryEntrySetCFProperty", (void *)hooked_IORegistryEntrySetCFProperty, (void **)&orig_IORegistryEntrySetCFProperty},
