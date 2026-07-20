@@ -6,7 +6,7 @@
 #import "../insulationC/include/Tweak.h"
 #import "../insulationC/include/fishhook.h"
 
-/* Resolver declared in insulationC (avoids dlsym in ObjC sources) */
+/* Resolver declared in insulationC (avoids using dlopen symbol lookup in ObjC) */
 bool InsulationIOKitResolveSetCFProperty(void **out_setCFProperty, void **out_setCFProperties);
 
 /* ── Ring buffer (lock-free, 128 entries, C-only hot path) ── */
@@ -132,11 +132,11 @@ void InsulationProbeIOKitInstall(void) {
     iokit_ring_head = 0;
     iokit_ring_count = 0;
 
-    /* Resolve original function pointers via C resolver (not dlsym in ObjC) */
+    /* Resolve original function pointers via C resolver (not using dlopen symbol lookup in ObjC) */
     void *resolved_setCFProperty = NULL;
     void *resolved_setCFProperties = NULL;
     if (!InsulationIOKitResolveSetCFProperty(&resolved_setCFProperty, &resolved_setCFProperties)) {
-        NSLog(@"insulation: IOKit probe - dlsym failed for IORegistryEntrySetCFProperty/CFProperties");
+        NSLog(@"insulation: IOKit probe - symbol resolution failed for IORegistryEntrySetCFProperty/CFProperties");
         return;
     }
     orig_IORegistryEntrySetCFProperty = (typeof(orig_IORegistryEntrySetCFProperty))resolved_setCFProperty;
