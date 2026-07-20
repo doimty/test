@@ -1,5 +1,5 @@
 {
   Filter = {
-    Executables = ( "thermalmonitord" );
+    Executables = ( "thermalmonitord", "powerd", "hids" );
   };
 }

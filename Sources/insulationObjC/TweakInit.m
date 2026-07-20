@@ -8,6 +8,7 @@
 
 #import "InsulationPowerHelper.h"
 #import "InsulationProbe.h"
+#import "InsulationMachIOProbe.h"
 #import "InsulationRuntimeHooks.h"
 #import "../insulationC/include/Tweak.h"
 
@@ -67,6 +68,13 @@ static void InsulationProbeMarkerNotificationCallback(CFNotificationCenterRef ce
 
 __attribute__((constructor)) static void InsulationObjCPortInit(void) {
     InsulationProbeMarkLoaded(@"init.begin");
+
+#if INSULATION_PROBE_ENABLED
+    /* Phase 5: Mach IO probe (installed in ALL processes, not just thermalmonitord) */
+    InsulationMachIOProbeInstall();
+    InsulationProbeMarkLoaded(@"machio.probe.installed");
+#endif
+
     // Match DimmingPatch: filter + runtime gate. Do not install hooks outside thermalmonitord.
     if (!insulationIsThermalmonitordProcess()) {
         InsulationProbeMarkLoaded(@"init.skip.nonThermalmonitord");
