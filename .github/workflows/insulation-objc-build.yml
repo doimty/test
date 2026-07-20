@@ -60,6 +60,7 @@ jobs:
       - name: Inspect package slices
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
+          export PACKAGE_BUILDNAME=decisionprobe4
           rm -rf /tmp/insulation-pkg
           mkdir -p /tmp/insulation-pkg
           ls -l packages
