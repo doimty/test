@@ -2,6 +2,17 @@ name: Insulation ObjC Build
 
 on:
   workflow_dispatch:
+    inputs:
+      buildname:
+        description: 'Package build name suffix (e.g. decisionprobe5)'
+        required: false
+        default: 'decisionprobe4'
+        type: string
+      probe_enabled:
+        description: 'Enable probe (INSULATION_PROBE_ENABLED=1)'
+        required: false
+        default: 'true'
+        type: string
   push:
     branches:
       - insulation-objc-build
@@ -54,13 +65,20 @@ jobs:
           bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh scripts/test-insulationctl-args.sh scripts/verify-insulationctl-package.sh
           scripts/check-objc-port.sh
           scripts/test-insulationctl-args.sh
-          INSULATION_PROBE_ENABLED=1 PACKAGE_BUILDNAME=decisionprobe4 \
-            scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"
+          BUILDNAME="${{ inputs.buildname || 'decisionprobe4' }}"
+          PROBE="${{ inputs.probe_enabled || 'true' }}"
+          if [ "$PROBE" = "true" ]; then
+            INSULATION_PROBE_ENABLED=1
+          else
+            INSULATION_PROBE_ENABLED=0
+          fi
+          export INSULATION_PROBE_ENABLED PACKAGE_BUILDNAME="$BUILDNAME"
+          scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"
 
       - name: Inspect package slices
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
-          export PACKAGE_BUILDNAME=decisionprobe4
+          export PACKAGE_BUILDNAME="${{ inputs.buildname || 'decisionprobe4' }}"
           rm -rf /tmp/insulation-pkg
           mkdir -p /tmp/insulation-pkg
           ls -l packages
@@ -75,6 +93,6 @@ jobs:
       - name: Upload deb packages
         uses: actions/upload-artifact@v4
         with:
-          name: insulation-0.1.34-objc-${{ matrix.scheme }}-packages
+          name: insulation-0.1.34-objc-${{ matrix.scheme }}-${{ inputs.buildname || 'default' }}-packages
           path: packages/*
           if-no-files-found: error
