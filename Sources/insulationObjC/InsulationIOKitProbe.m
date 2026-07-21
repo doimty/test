@@ -6,6 +6,9 @@
 #import "InsulationProbe.h"
 #import "../insulationC/include/Tweak.h"
 
+#if INSULATION_PROBE_ENABLED
+
+
 /* ── Ring buffer (lock-free, 128 entries, C-only hot path) ── */
 
 #define IOKIT_RING_SIZE 128
@@ -92,8 +95,6 @@ static kern_return_t hooked_IORegistryEntrySetCFProperties(io_registry_entry_t e
 
 /* ── Snapshot: dump ring buffer as NSArray for plist inclusion ── */
 
-#if INSULATION_PROBE_ENABLED
-
 NSArray *InsulationProbeIOKitSnapshot(void) {
     uint32_t head = iokit_ring_head;
     uint32_t count = iokit_ring_count;
@@ -141,4 +142,5 @@ void InsulationProbeIOKitInstall(void) {
 
     NSLog(@"insulation: IOKit probe hooks installed via MSHookFunction (ring %d)", IOKIT_RING_SIZE);
 }
+
 #endif

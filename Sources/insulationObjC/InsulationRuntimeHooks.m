@@ -549,8 +549,11 @@ static void InsulationInstallMitigationControllerSetterHooks(void) {
 
 static BOOL InsulationHookProbeInstanceMethodWithEncoding(Class cls, SEL selector, const char *expectedEncoding, IMP replacement, IMP *originalOut) {
     NSString *className = cls ? NSStringFromClass(cls) : @"<missing-class>";
+    (void)className;
     NSString *selectorName = selector ? NSStringFromSelector(selector) : @"<missing-selector>";
-    Method method = (cls && selector) ? class_getInstanceMethod(cls, selector) : NULL;
+
+    (void)selectorName;
+   Method method = (cls && selector) ? class_getInstanceMethod(cls, selector) : NULL;
     const char *actualEncoding = method ? method_getTypeEncoding(method) : NULL;
     if (!method || !actualEncoding || strcmp(actualEncoding, expectedEncoding) != 0) {
         InsulationProbeRecordHookInstall(className, selectorName, NO);
