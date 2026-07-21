@@ -472,6 +472,8 @@ static void InsulationInstallMitigationControllerDirectWriteProbeHooks(void) {
 }
 #endif
 
+static BOOL InsulationHookProbeInstanceMethodWithEncoding(Class cls, SEL selector, const char *expectedEncoding, IMP replacement, IMP *originalOut);
+
 static void InsulationInstallMitigationControllerIOKitHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
     InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
