@@ -27,7 +27,7 @@ insulation_USE_MODULES = 0
 # Decision probe: make package FINALPACKAGE=1 PACKAGE_BUILDNAME=decisionprobe4 INSULATION_PROBE_ENABLED=1
 INSULATION_PROBE_ENABLED ?= 0
 INSULATION_CPMS_PROBE_ENABLED ?= 1
-insulation_OBJC_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) $(if $(filter 1,$(INSULATION_PROBE_ENABLED)),,! -name 'InsulationProbe.m' ! -name 'InsulationMachIOProbe.m') $(if $(filter 1,$(INSULATION_CPMS_PROBE_ENABLED)),,! -name 'InsulationCPMSProbe.m'))
+insulation_OBJC_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) $(if $(filter 1,$(INSULATION_PROBE_ENABLED)),,! -name 'InsulationProbe.m' ! -name 'InsulationMachIOProbe.m'))
 insulation_C_FILES = $(shell find Sources/insulationC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) ! -name 'Tweak.m')
 insulation_FILES = $(insulation_OBJC_FILES) $(insulation_C_FILES)
 
