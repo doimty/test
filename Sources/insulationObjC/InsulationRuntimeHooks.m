@@ -82,10 +82,8 @@ static void (*Orig_MitigationController_setPackagePowerZoneTarget)(id self, SEL 
 static void (*Orig_MitigationController_updateCPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updateGPU)(id self, SEL _cmd);
 static void (*Orig_MitigationController_updatePackage)(id self, SEL _cmd);
-#if INSULATION_PROBE_ENABLED
 static void (*Orig_MitigationController_setDieTempControllerProperty)(id self, SEL _cmd, CFStringRef property, int level, BOOL scaleToFixedPoint);
 static int (*Orig_MitigationController_setServiceProperty)(id self, SEL _cmd, unsigned service, CFStringRef key, int value, BOOL scaleToFixedPoint);
-#endif
 static void *InsulationLastObservedMitigationControllerPtr;
 
 
@@ -442,28 +440,21 @@ static NSString *InsulationProbeCopyCFString(CFStringRef value) {
 }
 
 static void Insulation_MitigationController_setDieTempControllerProperty(id self, SEL _cmd, CFStringRef property, int level, BOOL scaleToFixedPoint) {
-    Orig_MitigationController_setDieTempControllerProperty(self, _cmd, property, level, scaleToFixedPoint);
-    NSString *propertySnapshot = InsulationProbeCopyCFString(property);
-    InsulationProbeRecordDirectCall(@"setDieTempControllerProperty", @{
-        @"selector": @"setDieTempControllerProperty:level:scaleToFixedPoint:",
-        @"property": propertySnapshot,
-        @"level": @(level),
-        @"scaleToFixedPoint": @(scaleToFixedPoint),
-    });
+    if (InsulationThermalDimmingBypassActive()) {
+        // Raise die temperature threshold to prevent thermal throttling
+        int raisedLevel = scaleToFixedPoint ? 12500 : 125;
+        Orig_MitigationController_setDieTempControllerProperty(self, _cmd, property, raisedLevel, scaleToFixedPoint);
+    } else {
+        Orig_MitigationController_setDieTempControllerProperty(self, _cmd, property, level, scaleToFixedPoint);
+    }
 }
 
 static int Insulation_MitigationController_setServiceProperty(id self, SEL _cmd, unsigned service, CFStringRef key, int value, BOOL scaleToFixedPoint) {
-    int result = Orig_MitigationController_setServiceProperty(self, _cmd, service, key, value, scaleToFixedPoint);
-    NSString *keySnapshot = InsulationProbeCopyCFString(key);
-    InsulationProbeRecordDirectCall(@"setServiceProperty", @{
-        @"selector": @"setServiceProperty:key:value:scaleToFixedPoint:",
-        @"service": @(service),
-        @"key": keySnapshot,
-        @"value": @(value),
-        @"scaleToFixedPoint": @(scaleToFixedPoint),
-        @"result": @(result),
-    });
-    return result;
+    if (InsulationThermalDimmingBypassActive()) {
+        // Suppress IOKit property writes that could cause throttling
+        return Orig_MitigationController_setServiceProperty(self, _cmd, service, key, 0, scaleToFixedPoint);
+    }
+    return Orig_MitigationController_setServiceProperty(self, _cmd, service, key, value, scaleToFixedPoint);
 }
 #endif
 
@@ -558,6 +549,20 @@ static void InsulationInstallMitigationControllerDirectWriteProbeHooks(void) {
 }
 #endif
 
+static void InsulationInstallMitigationControllerIOKitHooks(void) {
+    Class mitigationClass = objc_getClass("MitigationController");
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setDieTempControllerProperty:level:scaleToFixedPoint:"),
+                                                   "v32@0:8^{__CFString=}16i24B28",
+                                                   (IMP)Insulation_MitigationController_setDieTempControllerProperty,
+                                                   (IMP *)&Orig_MitigationController_setDieTempControllerProperty);
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setServiceProperty:key:value:scaleToFixedPoint:"),
+                                                   "i36@0:8I16^{__CFString=}20i28B32",
+                                                   (IMP)Insulation_MitigationController_setServiceProperty,
+                                                   (IMP *)&Orig_MitigationController_setServiceProperty);
+}
+
 static void InsulationInstallMitigationControllerUpdateHooks(void) {
     Class mitigationClass = objc_getClass("MitigationController");
     // Disabled for cold-start repair isolation: stablebase did not hook the initializer.
@@ -576,6 +581,7 @@ void InsulationRuntimeHooksInstall(void) {
         InsulationInstallCommonProductHooks();
         InsulationInstallMitigationControllerSetterHooks();
         InsulationInstallMitigationControllerUpdateHooks();
+        InsulationInstallMitigationControllerIOKitHooks();
 #if INSULATION_PROBE_ENABLED
         InsulationInstallMitigationControllerDirectWriteProbeHooks();
         InsulationRecordMitigationMethodInventory(objc_getClass("MitigationController"));
