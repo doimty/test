@@ -438,10 +438,10 @@ static NSString *InsulationProbeCopyCFString(CFStringRef value) {
     }
     return [(__bridge NSString *)value copy];
 }
+#endif
 
 static void Insulation_MitigationController_setDieTempControllerProperty(id self, SEL _cmd, CFStringRef property, int level, BOOL scaleToFixedPoint) {
     if (InsulationThermalDimmingBypassActive()) {
-        // Raise die temperature threshold to prevent thermal throttling
         int raisedLevel = scaleToFixedPoint ? 12500 : 125;
         Orig_MitigationController_setDieTempControllerProperty(self, _cmd, property, raisedLevel, scaleToFixedPoint);
     } else {
@@ -451,13 +451,40 @@ static void Insulation_MitigationController_setDieTempControllerProperty(id self
 
 static int Insulation_MitigationController_setServiceProperty(id self, SEL _cmd, unsigned service, CFStringRef key, int value, BOOL scaleToFixedPoint) {
     if (InsulationThermalDimmingBypassActive()) {
-        // Suppress IOKit property writes that could cause throttling
         return Orig_MitigationController_setServiceProperty(self, _cmd, service, key, 0, scaleToFixedPoint);
     }
     return Orig_MitigationController_setServiceProperty(self, _cmd, service, key, value, scaleToFixedPoint);
 }
+
+#if INSULATION_PROBE_ENABLED
+static void InsulationInstallMitigationControllerDirectWriteProbeHooks(void) {
+    Class mitigationClass = objc_getClass("MitigationController");
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setDieTempControllerProperty:level:scaleToFixedPoint:"),
+                                                   "v32@0:8^{__CFString=}16i24B28",
+                                                   (IMP)Insulation_MitigationController_setDieTempControllerProperty,
+                                                   (IMP *)&Orig_MitigationController_setDieTempControllerProperty);
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setServiceProperty:key:value:scaleToFixedPoint:"),
+                                                   "i36@0:8I16^{__CFString=}20i28B32",
+                                                   (IMP)Insulation_MitigationController_setServiceProperty,
+                                                   (IMP *)&Orig_MitigationController_setServiceProperty);
+}
 #endif
 
+static void InsulationInstallMitigationControllerIOKitHooks(void) {
+    Class mitigationClass = objc_getClass("MitigationController");
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setDieTempControllerProperty:level:scaleToFixedPoint:"),
+                                                   "v32@0:8^{__CFString=}16i24B28",
+                                                   (IMP)Insulation_MitigationController_setDieTempControllerProperty,
+                                                   (IMP *)&Orig_MitigationController_setDieTempControllerProperty);
+    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
+                                                   NSSelectorFromString(@"setServiceProperty:key:value:scaleToFixedPoint:"),
+                                                   "i36@0:8I16^{__CFString=}20i28B32",
+                                                   (IMP)Insulation_MitigationController_setServiceProperty,
+                                                   (IMP *)&Orig_MitigationController_setServiceProperty);
+}
 
 static void InsulationInstallNSDictionaryHooks(void) {
     Class dictionaryClass = objc_getClass("NSDictionary");
@@ -518,7 +545,6 @@ static void InsulationInstallMitigationControllerSetterHooks(void) {
     InsulationHookInstanceMethod(mitigationClass, @selector(setPackagePowerZoneTarget), (IMP)Insulation_MitigationController_setPackagePowerZoneTarget, (IMP *)&Orig_MitigationController_setPackagePowerZoneTarget);
 }
 
-#if INSULATION_PROBE_ENABLED
 static BOOL InsulationHookProbeInstanceMethodWithEncoding(Class cls, SEL selector, const char *expectedEncoding, IMP replacement, IMP *originalOut) {
     NSString *className = cls ? NSStringFromClass(cls) : @"<missing-class>";
     NSString *selectorName = selector ? NSStringFromSelector(selector) : @"<missing-selector>";
@@ -532,35 +558,6 @@ static BOOL InsulationHookProbeInstanceMethodWithEncoding(Class cls, SEL selecto
     method_setImplementation(method, replacement);
     InsulationProbeRecordHookInstall(className, selectorName, YES);
     return YES;
-}
-
-static void InsulationInstallMitigationControllerDirectWriteProbeHooks(void) {
-    Class mitigationClass = objc_getClass("MitigationController");
-    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
-                                                   NSSelectorFromString(@"setDieTempControllerProperty:level:scaleToFixedPoint:"),
-                                                   "v32@0:8^{__CFString=}16i24B28",
-                                                   (IMP)Insulation_MitigationController_setDieTempControllerProperty,
-                                                   (IMP *)&Orig_MitigationController_setDieTempControllerProperty);
-    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
-                                                   NSSelectorFromString(@"setServiceProperty:key:value:scaleToFixedPoint:"),
-                                                   "i36@0:8I16^{__CFString=}20i28B32",
-                                                   (IMP)Insulation_MitigationController_setServiceProperty,
-                                                   (IMP *)&Orig_MitigationController_setServiceProperty);
-}
-#endif
-
-static void InsulationInstallMitigationControllerIOKitHooks(void) {
-    Class mitigationClass = objc_getClass("MitigationController");
-    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
-                                                   NSSelectorFromString(@"setDieTempControllerProperty:level:scaleToFixedPoint:"),
-                                                   "v32@0:8^{__CFString=}16i24B28",
-                                                   (IMP)Insulation_MitigationController_setDieTempControllerProperty,
-                                                   (IMP *)&Orig_MitigationController_setDieTempControllerProperty);
-    InsulationHookProbeInstanceMethodWithEncoding(mitigationClass,
-                                                   NSSelectorFromString(@"setServiceProperty:key:value:scaleToFixedPoint:"),
-                                                   "i36@0:8I16^{__CFString=}20i28B32",
-                                                   (IMP)Insulation_MitigationController_setServiceProperty,
-                                                   (IMP *)&Orig_MitigationController_setServiceProperty);
 }
 
 static void InsulationInstallMitigationControllerUpdateHooks(void) {
