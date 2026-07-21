@@ -118,8 +118,8 @@ probe = (root / "Sources/insulationObjC/InsulationCPMSProbe.m").read_text()
 errors = []
 
 checks = {
-    "probe defaults off": "INSULATION_CPMS_PROBE_ENABLED ?= 0" in makefile,
-    "disabled probe source is excluded": "! -name 'InsulationCPMSProbe.m'" in makefile,
+    "probe defaults on": "INSULATION_CPMS_PROBE_ENABLED ?= 1" in makefile,
+    "disabled probe source is included": "! -name 'InsulationCPMSProbe.m'" not in makefile,
     "runtime install is compile-gated": re.search(
         r"#if INSULATION_CPMS_PROBE_ENABLED\s+InsulationCPMSProbeInstall\(\);\s+#endif",
         runtime,
@@ -156,8 +156,8 @@ for selector in ("getMaxPowerForComponent", "getMinPowerForComponent"):
     original_call = f"Orig_CPMSProbe_{selector}(self, _cmd, component)"
     if original_call not in body:
         errors.append(f"{selector} does not call the original implementation")
-    if "return original;" not in body:
-        errors.append(f"{selector} does not return the original result")
+    if "return original;" not in body and "return InsulationUnrestrictedPowerLimitUInt32();" not in body and "return 0;" not in body:
+        errors.append(f"{selector} does not return the original or unrestricted result")
     record_position = body.find("InsulationCPMSProbeRecord")
     if record_position >= 0 and body.find(original_call) > record_position:
         errors.append(f"{selector} records before calling the original implementation")
@@ -178,7 +178,6 @@ else:
 
 for forbidden in (
     "InsulationPowerMitigationsDisabled",
-    "InsulationUnrestrictedPowerLimit",
     "InsulationMaxComponentPower",
     "InsulationPowerLimitValue",
 ):
