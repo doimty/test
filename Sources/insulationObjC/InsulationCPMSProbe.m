@@ -1,5 +1,5 @@
 #ifndef INSULATION_CPMS_PROBE_ENABLED
-#define INSULATION_CPMS_PROBE_ENABLED 0
+#define INSULATION_CPMS_PROBE_ENABLED 1
 #endif
 
 #if INSULATION_CPMS_PROBE_ENABLED
@@ -15,6 +15,7 @@
 #include <string.h>
 
 #import "../insulationC/include/Tweak.h"
+#import "InsulationPowerHelper.h"
 
 static unsigned (*Orig_CPMSProbe_getMaxPowerForComponent)(id self, SEL _cmd, int component);
 static unsigned (*Orig_CPMSProbe_getMinPowerForComponent)(id self, SEL _cmd, int component);
@@ -171,13 +172,13 @@ static void InsulationCPMSProbeRecordMinCall(int component, unsigned result) {
 static unsigned Insulation_CPMSProbe_getMaxPowerForComponent(id self, SEL _cmd, int component) {
     unsigned original = Orig_CPMSProbe_getMaxPowerForComponent(self, _cmd, component);
     InsulationCPMSProbeRecordMaxCall(component, original);
-    return original;
+    return InsulationUnrestrictedPowerLimitUInt32();
 }
 
 static unsigned Insulation_CPMSProbe_getMinPowerForComponent(id self, SEL _cmd, int component) {
     unsigned original = Orig_CPMSProbe_getMinPowerForComponent(self, _cmd, component);
     InsulationCPMSProbeRecordMinCall(component, original);
-    return original;
+    return 0;
 }
 
 static Method InsulationCPMSProbeDirectInstanceMethod(Class cls, SEL selector) {
@@ -317,8 +318,9 @@ static BOOL InsulationCPMSProbeInspectAndInstall(NSUInteger attempt) {
 
     InsulationCPMSProbeInstallMetadata = @{
         @"schemaVersion": @2,
-        @"probeVersion": @"cpms-abi-pass-through-3",
-        @"mode": @"passThrough",
+        @"probeVersion": @"cpms-abi-raise-1",
+        @"mode": @"raise",
+        @"unrestrictedPowerTarget": @(InsulationUnrestrictedPowerLimitUInt32()),
         @"pid": @((int)[[NSProcessInfo processInfo] processIdentifier]),
         @"lastInstallAttemptAt": @([[NSDate date] timeIntervalSince1970]),
         @"installAttempt": @(attempt),
