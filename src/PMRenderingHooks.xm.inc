@@ -5,7 +5,9 @@
 
 + (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
     CADisplayLink *link = %orig;
-    if (PMTGProbeEnabled) PMTGProbeDisplayLinkCreated(target, link);
+#if PM_FOREGROUND_PROBE_ENABLED
+    PMFGProbeRecordDisplayLinkCreate();
+#endif
     if (!PMIsTargetProcess()) {
         NSString *targetClass = PMClassName(target);
         if (link && targetClass.length > 0) {
@@ -22,7 +24,9 @@
 }
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
-    if (PMTGProbeEnabled) PMTGProbeRangeSet(range, @"CADisplayLink");
+#if PM_FOREGROUND_PROBE_ENABLED
+    PMFGProbeRecordRange(PMFGProbeRangeSourceDisplayLink, range);
+#endif
     if (!PMIsTargetProcess()) {
         if (PMFloatAnyFloatingWindowVisible() && ((range.preferred > 0 && range.preferred < TARGET_FPS) || (range.maximum > 0 && range.maximum < TARGET_FPS))) {
             PMFloatPreArm(@"CADisplayLink.lowRange");
@@ -66,7 +70,9 @@
 %hook CAAnimation
 
 - (void)setPreferredFrameRateRange:(CAFrameRateRange)range {
-    if (PMTGProbeEnabled) PMTGProbeRangeSet(range, @"CAAnimation");
+#if PM_FOREGROUND_PROBE_ENABLED
+    PMFGProbeRecordRange(PMFGProbeRangeSourceCAAnimation, range);
+#endif
     if (PMDeviceSupports120Hz()) {
         PMSetHighFrameRateReasonDirect(self);
         %orig(PMForce120Range());
@@ -94,7 +100,9 @@
 %hook CAMetalDrawable
 
 - (void)presentAfterMinimumDuration:(CFTimeInterval)duration {
-    if (PMTGProbeEnabled) PMTGProbeMetalPresent(@"presentAfterMinDuration");
+#if PM_FOREGROUND_PROBE_ENABLED
+    PMFGProbeRecordMetal(PMFGProbeMetalSourceDrawable);
+#endif
     if (PMDeviceSupports120Hz()) {
         %orig(1.0 / TARGET_FPS);
     } else {
@@ -107,7 +115,9 @@
 %hook MTLCommandBuffer
 
 - (void)presentDrawable:(id)drawable afterMinimumDuration:(CFTimeInterval)minimumDuration {
-    if (PMTGProbeEnabled) PMTGProbeMetalPresent(@"cmdBuf.presentAfterMinDuration");
+#if PM_FOREGROUND_PROBE_ENABLED
+    PMFGProbeRecordMetal(PMFGProbeMetalSourceCommandBuffer);
+#endif
     if (PMDeviceSupports120Hz()) {
         %orig(drawable, 1.0 / TARGET_FPS);
     } else {

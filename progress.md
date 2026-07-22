@@ -80,3 +80,58 @@ Moving state and declarations to their owning include-only modules can remove fa
 - arm64 and arm64e machine-code disassembly are byte-for-byte identical. Binary hash differences are limited to generated UUID/code-signature data.
 - Independent hook-split review found no P0 and no hook/constructor/include-order regression. Ship gate: all new `.xmi`/`.xm.inc` files must be included in the eventual commit.
 - GitHub Actions path filters now include `**/*.xmi` and `**/*.inc`, so later module-only edits trigger both roothide and rootless workflows.
+
+## Foreground app probe 1
+
+### Baseline
+
+- Production behavior baseline: `8d7ce89` (`1.0.9+clean2`).
+- Diagnostic starting point: `6312bd4` (`diag/telegram-chat-probe`).
+- Working branch: `diagnostic/foreground-app-probe1`.
+
+### Hypothesis
+
+Hard-coded Telegram bundle IDs are unnecessary. Because ProMotion120 already injects into UIKit app processes, a compile-time-isolated probe can observe only the currently active app, keep hot-path evidence in bounded atomic counters, and write a bundle-identified snapshot when that app resigns active or receives an explicit marker. This should cover arbitrary Telegram forks without adding per-frame queueing or disk I/O.
+
+### Success criteria
+
+- Remove Telegram/Nicegram bundle matching and all rejected-app plist writes.
+- Do not dispatch, allocate collections/strings, or write files from DisplayLink/range/scroll/Metal hot hooks.
+- Record only while the app process is active; reset counters at each foreground session.
+- Write a unique bundle-identified plist only on app resign or `com.doimty.promotion120.probe.mark.drop`.
+- Snapshot includes bundle/version/pid, capture span, source liveness, requested range counters, scroll counters, Metal-present cadence buckets, last-event monotonic times, and the trigger.
+- `PM_FOREGROUND_PROBE_ENABLED=0` excludes the implementation and all probe strings from a clean binary.
+- Existing ProMotion hook order, active 120Hz behavior, keepalive/Float/Banner state machines, ranges, and timing constants remain unchanged.
+- Probe-enabled and probe-disabled local builds compile; cloud roothide artifact has correct arm64e ABI and no incompatible-ABI warning.
+
+### Independent failure signals
+
+- Any production hook, forced range, high-frame-rate reason, keepalive tick/evaluate behavior, lifecycle hold, or process filter changes.
+- Any unbounded queue or collection fed by a per-frame hook.
+- Any file write before an explicit marker or foreground-session end.
+- Probe filenames collide across bundle IDs or system/non-target processes overwrite the target app snapshot.
+- A clean build contains `foreground-probe`, marker notification, or probe-version strings.
+
+### Ablation expectations
+
+- Probe enabled versus disabled must differ only by observation calls and probe lifecycle registration; forced output ranges and runtime hook composition stay identical.
+- Removing bundle-name matching must not affect ProMotion eligibility because the matcher was diagnostic-only.
+- With no marker and no resign event, no probe plist is created.
+- On resign, exactly the resigning app writes its own bundle-specific snapshot; on marker, only active app processes write snapshots.
+
+### Evidence plan
+
+- Static hot-path scan and source contract checker.
+- Diff production function bodies and Logos directive order against `8d7ce89` after accounting for probe calls.
+- Compile with `PM_FOREGROUND_PROBE_ENABLED=1` and `0`.
+- Extract both packages and scan clean/probe strings and substrate filter.
+- Use macOS cloud roothide build for any device-delivered arm64e package.
+
+### Verification
+
+- Source contract (scripts/check-foreground-probe.sh): 22 checks pass.
+- Package verification (scripts/verify-foreground-probe-package.sh): probe-on produces roothide arm64e with expected strings; probe-off has no probe strings and passes jbroot check.
+- Binary equivalence: probe-off vs baseline `8d7ce89` — arm64e symbols, disassembly, __cstring, __objc_methname, __objc_classname, __objc_methtype all identical.
+- Correctness review (sub-agent): P1 writer boundary, coherent range snapshot, marker generation binding, CAS timestamp race — all fixed.
+- Build/isolation review (sub-agent): P1 probe-off CI, ABI gate, roothide assertion — all fixed.
+- Concurrent pended-marker handling: marker accepted in backgrounded callback merged into foregroundEnd snapshot with `marker.drop+foregroundEnd` reason.

@@ -106,7 +106,9 @@
     if (PMIsTargetProcess()) {
         PMGlobalSBApply(@"UIScrollView.setContentOffset");
     } else {
-        if (PMTGProbeEnabled) PMTGProbeScroll(@"setContentOffset", (UIScrollView *)self);
+#if PM_FOREGROUND_PROBE_ENABLED
+        PMFGProbeRecordScroll(PMFGProbeScrollSourceSetContentOffset);
+#endif
         @try { PMAppScrollArm(@"UIScrollView.setContentOffset"); } @catch (__unused NSException *e) {}
     }
     %orig;
@@ -116,7 +118,9 @@
     if (PMIsTargetProcess()) {
         PMGlobalSBApply(@"UIScrollView.setContentOffsetAnimated");
     } else {
-        if (PMTGProbeEnabled) PMTGProbeScroll(@"setContentOffsetAnimated", (UIScrollView *)self);
+#if PM_FOREGROUND_PROBE_ENABLED
+        PMFGProbeRecordScroll(PMFGProbeScrollSourceSetContentOffsetAnimated);
+#endif
         @try { PMAppScrollArm(@"UIScrollView.setContentOffsetAnimated"); } @catch (__unused NSException *e) {}
     }
     %orig;
@@ -126,7 +130,9 @@
     if (!PMIsTargetProcess()) {
         @try {
             if (PMAppScrollViewIsMoving((UIScrollView *)self)) {
-                if (PMTGProbeEnabled) PMTGProbeScroll(@"layoutSubviews.moving", (UIScrollView *)self);
+#if PM_FOREGROUND_PROBE_ENABLED
+                PMFGProbeRecordScroll(PMFGProbeScrollSourceLayoutMoving);
+#endif
                 PMAppScrollArm(@"UIScrollView.layoutSubviews.moving");
             }
         } @catch (__unused NSException *e) {}

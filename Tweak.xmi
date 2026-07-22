@@ -10,8 +10,10 @@
 
 #define TWEAK_NAME @"ProMotion120"
 #define TARGET_FPS 120
-#define PM_SCOPEPROBE_VERSION @"1.0.9+tgprobe1"
-// Build tag only (do not bump Package Version for hygiene): 1.0.9+tgprobe1
+#define PM_SCOPEPROBE_VERSION @"1.0.9+fgprobe1"
+#ifndef PM_FOREGROUND_PROBE_ENABLED
+#define PM_FOREGROUND_PROBE_ENABLED 0
+#endif
 
 #ifndef __IPHONE_15_0
 typedef struct {
@@ -51,8 +53,10 @@ typedef struct {
 // App-process persistent DynamicSource owner.
 #include "src/PMAppPersistent.xm.inc"
 
-// Telegram chat diagnostic probe (temporary, needs PMAppPersistentFrameRateSource).
-#include "src/PMTelegramProbe.xm.inc"
+#if PM_FOREGROUND_PROBE_ENABLED
+// Generic foreground-app probe; snapshots can inspect the App source owner.
+#include "src/PMForegroundProbe.xm.inc"
+#endif
 
 // Logos hook layers. Tweak.xmi is C-preprocessed before Logos.
 #include "src/PMSystemHooks.xm.inc"
