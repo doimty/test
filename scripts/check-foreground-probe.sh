@@ -6,12 +6,15 @@ PROBE="$ROOT/src/PMForegroundProbe.xm.inc"
 
 python3 - "$ROOT" "$PROBE" <<'PY'
 from pathlib import Path
+import os
 import re
 import sys
 
 root = Path(sys.argv[1])
 probe_path = Path(sys.argv[2])
+workflow_path = Path(os.environ.get("PM_WORKFLOW_UNDER_TEST", root / ".github/workflows/roothide-build.yml"))
 probe = probe_path.read_text()
+workflow = workflow_path.read_text()
 all_source = "\n".join(
     path.read_text(errors="replace")
     for path in [root / "Tweak.xmi", *sorted((root / "src").glob("*.inc"))]
@@ -33,6 +36,9 @@ required = {
     "coherent range snapshot": "PMFGProbeLastRangeSequence" in probe and '@"coherent"' in probe,
     "single atomic plist write": probe.count("writeToFile:") == 1,
     "clean build macro": "PM_FOREGROUND_PROBE_ENABLED ?= 1" in (root / "Makefile").read_text(),
+    "workflow propagates build failures": "set -o pipefail" in workflow,
+    "probe-on artifact preserved before probe-off": workflow.find('cp "$deb" artifacts/') > 0 and workflow.find('cp "$deb" artifacts/') < workflow.find("# Probe-off build"),
+    "probe-off package cannot replace deliverable": "path: artifacts/*.deb" in workflow and "path: packages/*" not in workflow,
 }
 
 for label, ok in required.items():

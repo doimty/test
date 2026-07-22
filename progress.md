@@ -135,3 +135,5 @@ Hard-coded Telegram bundle IDs are unnecessary. Because ProMotion120 already inj
 - Correctness review (sub-agent): P1 writer boundary, coherent range snapshot, marker generation binding, CAS timestamp race — all fixed.
 - Build/isolation review (sub-agent): P1 probe-off CI, ABI gate, roothide assertion — all fixed.
 - Concurrent pended-marker handling: marker accepted in backgrounded callback merged into foregroundEnd snapshot with `marker.drop+foregroundEnd` reason.
+- Run `29925794568` did not reach checkout or compilation. Its sole annotation reports failed account payment or an insufficient Actions spending limit.
+- Workflow regression gate now proves build pipeline failures propagate through `tee`, preserves the probe-on deb before the probe-off isolation build, and uploads only the preserved diagnostic package.

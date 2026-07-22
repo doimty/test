@@ -6,6 +6,7 @@ on:
     branches:
       - master
       - main
+      - 'cloud/**'
     paths:
       - '.github/workflows/roothide-build.yml'
       - '**/*.h'
@@ -58,10 +59,12 @@ jobs:
 
       - name: Build package
         run: |
+          set -o pipefail
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
           bash -n scripts/check-foreground-probe.sh scripts/verify-foreground-probe-package.sh
           scripts/check-foreground-probe.sh
-          # Probe-on build
+          rm -rf packages artifacts
+          # Probe-on build; preserve this exact package for artifact upload.
           make clean SDKVERSION=16.5
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide PM_FOREGROUND_PROBE_ENABLED=1 SDKVERSION=16.5 2>&1 | tee /tmp/pm120-probe-on-build.log
           if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-probe-on-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
@@ -69,7 +72,10 @@ jobs:
           test -n "$deb"
           OTOOL="$(xcrun -f otool 2>/dev/null || echo otool)" scripts/verify-foreground-probe-package.sh "$deb" 1
           xcrun otool -hv .theos/obj/arm64e/ProMotion120.dylib
-          # Probe-off clean build
+          mkdir -p artifacts
+          cp "$deb" artifacts/
+          # Probe-off build is an isolation gate only and must not replace the deliverable.
+          rm -rf packages
           make clean SDKVERSION=16.5
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide PM_FOREGROUND_PROBE_ENABLED=0 SDKVERSION=16.5 2>&1 | tee /tmp/pm120-probe-off-build.log
           if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-probe-off-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
@@ -77,9 +83,9 @@ jobs:
           test -n "$deb_off"
           OTOOL="$(xcrun -f otool 2>/dev/null || echo otool)" scripts/verify-foreground-probe-package.sh "$deb_off" 0
 
-      - name: Upload deb packages
+      - name: Upload probe-on deb package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: promotion120-roothide-packages
-          path: packages/*
+          name: promotion120-roothide-fgprobe1
+          path: artifacts/*.deb
           if-no-files-found: error
