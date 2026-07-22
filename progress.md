@@ -139,3 +139,38 @@ Hard-coded Telegram bundle IDs are unnecessary. Because ProMotion120 already inj
 - Workflow regression gate now proves build pipeline failures propagate through `tee`, preserves the probe-on deb before the probe-off isolation build, and uploads only the preserved diagnostic package.
 - Fallback macOS run `29927454537` built commit `50dbe0a371ad0b35cac619394017d4530531ad8c`: probe-on and probe-off package gates passed, compiler-error and incompatible-arm64e scans were clean, and the uploaded artifact contains only the preserved probe-on deb.
 - Verified cloud deb SHA256: `49edcc87463f784717ed8414fbec818c8da05511f13d956f6e77be2c064bfa40`.
+
+## Foreground app probe 2: visible log output
+
+### Baseline
+
+- Behavior/source baseline: `953940a` (`1.0.9+fgprobe1`).
+- Working branch: `diagnostic/foreground-app-probe2-visible-log`.
+
+### Hypothesis
+
+`/var/tmp` is not a reliable user-visible retrieval location on the target roothide setup, and marker/background-only output gives no immediate proof that injection succeeded. Matching the previously validated ProMotion/Insulation probe convention should make diagnostics observable without changing high-refresh behavior.
+
+### Success criteria
+
+- Write a per-bundle stable latest snapshot at `/var/mobile/Library/Preferences/com.promotion120.foreground-probe.<bundle-prefix>.h<bundle-hash>.latest.plist`, preventing delayed snapshots and truncated-name collisions from another app from overwriting it.
+- Keep a unique bundle/version/pid/session history snapshot in the same visible directory.
+- Emit one `foregroundStart` receipt when an app becomes active; marker and foreground-end snapshots remain supported.
+- Record per-path success/error details in the plist and retain `/tmp` only as a fallback.
+- Keep all write/serialization work on the existing snapshot queue; hot rendering hooks remain atomic-only.
+- Probe-off build remains binary-equivalent to `8d7ce89`; cloud roothide arm64e package has no incompatible-ABI warning.
+
+### Independent failure signals
+
+- The package contains only `/var/tmp` output paths or lacks the per-bundle stable latest preference path.
+- Foreground activation cannot produce a snapshot without a marker.
+- Marker notifications can enqueue more than one disk snapshot per process, or one app can overwrite another app's latest snapshot.
+- Path/error reporting itself causes recursive writes or unbounded retries.
+- Any high-refresh hook order, forced range, keepalive, Float, Banner, or injection filter change.
+
+### Verification
+
+- Source contract passes with explicit gates for per-bundle hashed latest paths, immediate foreground receipt, mutex-bound marker ownership, session-drained marker admission, nonblocking lifecycle writes, arm64e Mach-O subtype, probe artifact isolation, and cloud clean2 comparison.
+- Local probe-on and probe-off builds compile and pass package verification; local Linux arm64e output retains the known incompatible-ABI linker warning and is compile evidence only, never deliverable.
+- Fresh local probe-off comparison against `8d7ce89` passes for exported symbols, normalized disassembly, and `__cstring`/Objective-C name/type sections.
+- Three adversarial review passes found and drove fixes for snapshot dropping, misleading two-pass telemetry, main-thread disk waits, cross-app latest collisions, unbounded marker writes, truncated bundle collisions, and marker token TOCTOU; final review reports no P0/P1 findings.

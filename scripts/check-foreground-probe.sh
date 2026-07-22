@@ -19,19 +19,32 @@ all_source = "\n".join(
     path.read_text(errors="replace")
     for path in [root / "Tweak.xmi", *sorted((root / "src").glob("*.inc"))]
 )
+background = probe[probe.find("UIApplicationDidEnterBackgroundNotification"):]
+marker_callback = probe[probe.find("static void PMFGProbeMarkerCallback"):probe.find("static void PMFGProbeRecordDisplayLinkCreate")]
 
 required = {
     "compile-time probe guard": "#if PM_FOREGROUND_PROBE_ENABLED" in (root / "Tweak.xmi").read_text(),
     "generic probe include": 'src/PMForegroundProbe.xm.inc' in (root / "Tweak.xmi").read_text(),
     "explicit marker": "com.doimty.promotion120.probe.mark.drop" in probe,
-    "foreground start": "UIApplicationDidBecomeActiveNotification" in probe,
+    "foreground lifecycle start": "UIApplicationDidBecomeActiveNotification" in probe,
+    "foreground start receipt": 'PMFGProbeWriteSnapshot(@"foregroundStart"' in probe,
     "foreground end": "UIApplicationDidEnterBackgroundNotification" in probe,
     "active marker gate": "PMFGProbeShouldRecord()" in probe,
     "unique bundle output": "foreground-probe.%@.%@.p%d.t%llu.s%llu.plist" in probe,
+    "per-bundle visible latest output": "/var/mobile/Library/Preferences/com.promotion120.foreground-probe.%@.latest.plist" in probe,
+    "collision-resistant latest bundle name": "PMFGProbeStableStringHash" in probe and "PMFGProbeLatestBundlePathPart" in probe,
+    "write result telemetry": '@"writeResults"' in probe and 'errorDomain' in probe and 'errorCode' in probe,
     "real app short version": 'CFBundleShortVersionString' in probe,
     "real app build version": 'CFBundleVersion' in probe,
     "fixed atomic counters": "__atomic_add_fetch" in probe and "__atomic_load_n" in probe,
-    "coalesced marker write": "PMFGProbeSnapshotPending" in probe and "PMFGProbeMarkerDispatchPending" in probe,
+    "coalesced marker dispatch": "PMFGProbeMarkerMutex" in probe and "PMFGProbeMarkerState" in probe,
+    "bounded marker disk queue": "PMFGProbeMarkerQueued" in probe and "PMFGProbeFinishMarker" in probe,
+    "marker state and token share mutex": "PMFGProbeMarkerAcceptedToken == acceptedToken" in probe,
+    "marker callback participates in session drain": "PMFGProbeTryBeginRecord()" in marker_callback and "PMFGProbeEndRecord();" in marker_callback,
+    "background closes marker admission first": background.find("PMFGProbeCloseAndDrainSession();") < background.find("pthread_mutex_lock(&PMFGProbeMarkerMutex)"),
+    "lifecycle snapshots are never dropped": "PMFGProbeSnapshotPending" not in probe,
+    "background write extension": "beginBackgroundTaskWithName" in probe and "endBackgroundTask" in probe,
+    "snapshot queue never blocks lifecycle callback": "dispatch_sync(PMFGProbeSnapshotQueue" not in probe,
     "drained session boundary": "PMFGProbeCloseAndDrainSession" in probe and "PMFGProbeWriters" in probe,
     "coherent range snapshot": "PMFGProbeLastRangeSequence" in probe and '@"coherent"' in probe,
     "single atomic plist write": probe.count("writeToFile:") == 1,
@@ -39,6 +52,8 @@ required = {
     "workflow propagates build failures": "set -o pipefail" in workflow,
     "probe-on artifact preserved before probe-off": workflow.find('cp "$deb" artifacts/') > 0 and workflow.find('cp "$deb" artifacts/') < workflow.find("# Probe-off build"),
     "probe-off package cannot replace deliverable": "path: artifacts/*.deb" in workflow and "path: packages/*" not in workflow,
+    "probe-off binary baseline gate": "8d7ce89" in workflow and "pm120-probe-off-current-disasm" in workflow,
+    "Mach-O arm64e assertion": "ARM64[[:space:]]+E" in (root / "scripts/verify-foreground-probe-package.sh").read_text(),
 }
 
 for label, ok in required.items():

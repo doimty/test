@@ -31,6 +31,11 @@ if ! "$OTOOL" -L "$DYLIB" 2>/dev/null | grep -qF 'jbroot'; then
   echo "not a roothide build (no jbroot dependency: $OTOOL -L $DYLIB)" >&2
   exit 1
 fi
+HEADER="$($OTOOL -hv "$DYLIB" 2>/dev/null)"
+if ! grep -Eq 'ARM64[[:space:]]+E([[:space:]]|$)' <<<"$HEADER"; then
+  echo "not an arm64e Mach-O: $HEADER" >&2
+  exit 1
+fi
 
 STRINGS="$TMP/strings.txt"
 strings "$DYLIB" > "$STRINGS"
@@ -42,10 +47,14 @@ for retired in 'PMTelegramProbe' 'PMTGProbe' 'tgprobe' 'tgprobe.rejected' 'rejec
 done
 
 probe_markers=(
-  '1.0.9+fgprobe1'
+  '1.0.9+fgprobe2'
   'com.doimty.promotion120.probe.mark.drop'
+  '/var/mobile/Library/Preferences/com.promotion120.foreground-probe.'
+  '.latest.plist'
   'com.promotion120.foreground-probe.'
+  'foregroundStart'
   'foregroundEnd'
+  'writeResults'
 )
 if [[ "$PROBE_ENABLED" == "1" ]]; then
   for marker in "${probe_markers[@]}"; do

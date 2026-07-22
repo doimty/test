@@ -1,13 +1,19 @@
 // Generic foreground-app diagnostic probe.
-// Hot hooks only touch fixed atomic counters. Disk I/O occurs only for an
-// explicit marker or when the active app enters the background.
+// Hot hooks only touch fixed atomic counters. Snapshot serialization and disk
+// I/O stay on the dedicated queue at foreground start/end or an explicit marker.
 
 #import <mach/mach_time.h>
 #import <mach-o/dyld.h>
+#import <pthread.h>
 #import <sched.h>
 #import <unistd.h>
 
 static NSString * const PMFGProbeMarkerNotification = @"com.doimty.promotion120.probe.mark.drop";
+enum {
+    PMFGProbeMarkerIdle = 0,
+    PMFGProbeMarkerPublished = 1,
+    PMFGProbeMarkerQueued = 2,
+};
 static dispatch_queue_t PMFGProbeSnapshotQueue = nil;
 static NSString *PMFGProbeBundleID = nil;
 static NSString *PMFGProbeAppShortVersion = nil;
@@ -23,11 +29,12 @@ static uint64_t PMFGProbeFortyMsTicks = 0;
 
 static uint32_t PMFGProbeAppActive = 0;
 static uint32_t PMFGProbeWriters = 0;
-static uint32_t PMFGProbeMarkerDispatchPending = 0;
-static uint32_t PMFGProbeSnapshotPending = 0;
+static pthread_mutex_t PMFGProbeMarkerMutex = PTHREAD_MUTEX_INITIALIZER;
+static uint32_t PMFGProbeMarkerState = PMFGProbeMarkerIdle;
 static uint64_t PMFGProbeMarkerAcceptedGeneration = 0;
 static uint64_t PMFGProbeMarkerAcceptedTicks = 0;
 static uint64_t PMFGProbeMarkerAcceptedWallMillis = 0;
+static uint64_t PMFGProbeMarkerAcceptedToken = 0;
 static uint64_t PMFGProbeSessionGeneration = 0;
 static uint64_t PMFGProbeSnapshotSequence = 0;
 static uint64_t PMFGProbeSessionStartTicks = 0;
@@ -67,6 +74,11 @@ static uint64_t PMFGProbeCommandInterval40MsOrMore = 0;
 #define PMFG_LOAD(value) __atomic_load_n(&(value), __ATOMIC_RELAXED)
 #define PMFG_STORE(value, newValue) __atomic_store_n(&(value), (newValue), __ATOMIC_RELAXED)
 #define PMFG_INCREMENT(value) __atomic_add_fetch(&(value), 1, __ATOMIC_RELAXED)
+
+static void PMFGProbeWriteSnapshot(NSString *reason,
+                                   uint64_t triggerTicks,
+                                   uint64_t triggerWallMillis,
+                                   dispatch_block_t completion);
 
 static uint64_t PMFGProbeWallMillis(void) {
     return (uint64_t)([[NSDate date] timeIntervalSince1970] * 1000.0);
@@ -145,9 +157,12 @@ static void PMFGProbeBeginForegroundSession(void) {
     PMFGProbeCloseAndDrainSession();
     PMFGProbeResetCounters();
     PMFG_INCREMENT(PMFGProbeSessionGeneration);
-    PMFG_STORE(PMFGProbeSessionStartTicks, mach_continuous_time());
-    PMFG_STORE(PMFGProbeSessionStartWallMillis, PMFGProbeWallMillis());
+    uint64_t startTicks = mach_continuous_time();
+    uint64_t startWallMillis = PMFGProbeWallMillis();
+    PMFG_STORE(PMFGProbeSessionStartTicks, startTicks);
+    PMFG_STORE(PMFGProbeSessionStartWallMillis, startWallMillis);
     __atomic_store_n(&PMFGProbeAppActive, 1, __ATOMIC_RELEASE);
+    PMFGProbeWriteSnapshot(@"foregroundStart", startTicks, startWallMillis, nil);
 }
 
 static NSString *PMFGProbeSanitizePathPart(NSString *value) {
@@ -162,15 +177,58 @@ static NSString *PMFGProbeSanitizePathPart(NSString *value) {
     return result.length > 0 ? result : @"unknown";
 }
 
-static NSString *PMFGProbeOutputPath(uint64_t sessionGeneration) {
+static uint64_t PMFGProbeStableStringHash(NSString *value) {
+    const char *bytes = [value UTF8String];
+    uint64_t hash = UINT64_C(1469598103934665603);
+    if (!bytes) return hash;
+    for (const unsigned char *cursor = (const unsigned char *)bytes; *cursor; cursor++) {
+        hash ^= (uint64_t)*cursor;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static NSString *PMFGProbeLatestBundlePathPart(void) {
+    NSString *bundle = PMFGProbeBundleID ?: @"unknown";
+    return [NSString stringWithFormat:@"%@.h%016llx",
+            PMFGProbeSanitizePathPart(bundle),
+            (unsigned long long)PMFGProbeStableStringHash(bundle)];
+}
+
+static NSString *PMFGProbeUniqueFileName(uint64_t sessionGeneration) {
     NSString *bundle = PMFGProbeSanitizePathPart(PMFGProbeBundleID);
     NSString *build = PMFGProbeSanitizePathPart(PMFGProbeAppBuildVersion);
-    return [NSString stringWithFormat:@"/var/tmp/com.promotion120.foreground-probe.%@.%@.p%d.t%llu.s%llu.plist",
+    return [NSString stringWithFormat:@"com.promotion120.foreground-probe.%@.%@.p%d.t%llu.s%llu.plist",
             bundle,
             build,
             getpid(),
             (unsigned long long)PMFGProbeLoadedTicks,
             (unsigned long long)sessionGeneration];
+}
+
+static NSString *PMFGProbeVisibleUniquePath(uint64_t sessionGeneration) {
+    return [@"/var/mobile/Library/Preferences" stringByAppendingPathComponent:PMFGProbeUniqueFileName(sessionGeneration)];
+}
+
+static NSString *PMFGProbeVisibleLatestPath(void) {
+    return [NSString stringWithFormat:@"/var/mobile/Library/Preferences/com.promotion120.foreground-probe.%@.latest.plist",
+            PMFGProbeLatestBundlePathPart()];
+}
+
+static NSString *PMFGProbeFallbackLatestPath(void) {
+    return [NSString stringWithFormat:@"/tmp/com.promotion120.foreground-probe.%@.latest.plist",
+            PMFGProbeLatestBundlePathPart()];
+}
+
+static NSArray<NSString *> *PMFGProbeOutputPaths(uint64_t sessionGeneration) {
+    NSString *visibleUnique = PMFGProbeVisibleUniquePath(sessionGeneration);
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    for (NSString *path in @[PMFGProbeVisibleLatestPath(),
+                             visibleUnique,
+                             PMFGProbeFallbackLatestPath()]) {
+        if (path.length > 0 && ![paths containsObject:path]) [paths addObject:path];
+    }
+    return paths;
 }
 
 static NSArray *PMFGProbeLoadedAppImages(void) {
@@ -280,15 +338,43 @@ static NSDictionary *PMFGProbeBuildSnapshot(NSString *reason,
             },
         },
         @"loadedAppImages": PMFGProbeLoadedAppImages(),
-        @"outputPath": PMFGProbeOutputPath(sessionGeneration),
+        @"primaryOutputPath": PMFGProbeVisibleLatestPath(),
+        @"outputPath": PMFGProbeVisibleUniquePath(sessionGeneration),
+        @"candidateOutputPaths": PMFGProbeOutputPaths(sessionGeneration),
     };
 }
 
+static NSDictionary *PMFGProbeWriteSnapshotData(NSDictionary *snapshot, NSString *path) {
+    NSError *serializationError = nil;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:snapshot
+                                                               format:NSPropertyListBinaryFormat_v1_0
+                                                              options:0
+                                                                error:&serializationError];
+    if (!data) {
+        NSMutableDictionary *result = [@{ @"success": @NO } mutableCopy];
+        if (serializationError) {
+            result[@"errorDomain"] = serializationError.domain ?: @"";
+            result[@"errorCode"] = @(serializationError.code);
+            result[@"errorDescription"] = serializationError.localizedDescription ?: @"";
+        }
+        return result;
+    }
+
+    NSError *writeError = nil;
+    BOOL success = [data writeToFile:path options:NSDataWritingAtomic error:&writeError];
+    NSMutableDictionary *result = [@{ @"success": @(success) } mutableCopy];
+    if (writeError) {
+        result[@"errorDomain"] = writeError.domain ?: @"";
+        result[@"errorCode"] = @(writeError.code);
+        result[@"errorDescription"] = writeError.localizedDescription ?: @"";
+    }
+    return result;
+}
+
 static void PMFGProbeWriteSnapshot(NSString *reason,
-                                   BOOL waitForWrite,
                                    uint64_t triggerTicks,
-                                   uint64_t triggerWallMillis) {
-    if (!waitForWrite && __atomic_exchange_n(&PMFGProbeSnapshotPending, 1, __ATOMIC_ACQ_REL) != 0) return;
+                                   uint64_t triggerWallMillis,
+                                   dispatch_block_t completion) {
     uint64_t snapshotTicks = mach_continuous_time();
     uint64_t snapshotWallMillis = PMFGProbeWallMillis();
     NSDictionary *snapshot = PMFGProbeBuildSnapshot(reason,
@@ -296,16 +382,46 @@ static void PMFGProbeWriteSnapshot(NSString *reason,
                                                      snapshotWallMillis,
                                                      triggerTicks,
                                                      triggerWallMillis);
-    NSString *path = snapshot[@"outputPath"];
-    void (^writeBlock)(void) = ^{
-        [snapshot writeToFile:path atomically:YES];
-        PMFG_STORE(PMFGProbeSnapshotPending, 0);
-    };
-    if (waitForWrite) {
-        dispatch_sync(PMFGProbeSnapshotQueue, writeBlock);
-        return;
+    dispatch_async(PMFGProbeSnapshotQueue, ^{
+        NSMutableDictionary *output = [snapshot mutableCopy];
+        NSString *historyPath = output[@"outputPath"];
+        output[@"writeStatus"] = @"history";
+        output[@"deliveryPath"] = historyPath;
+        NSDictionary *historyResult = PMFGProbeWriteSnapshotData(output, historyPath);
+
+        NSString *latestPath = PMFGProbeVisibleLatestPath();
+        NSString *fallbackPath = PMFGProbeFallbackLatestPath();
+        output[@"writeResults"] = @{ historyPath: historyResult };
+        output[@"writeStatus"] = @"complete";
+        output[@"deliveryPath"] = latestPath;
+        NSDictionary *latestResult = PMFGProbeWriteSnapshotData(output, latestPath);
+        if (![latestResult[@"success"] boolValue]) {
+            output[@"writeResults"] = @{
+                historyPath: historyResult,
+                latestPath: latestResult,
+            };
+            output[@"writeStatus"] = @"primaryLatestFailed";
+            output[@"deliveryPath"] = fallbackPath;
+            NSDictionary *fallbackResult = PMFGProbeWriteSnapshotData(output, fallbackPath);
+            if (![fallbackResult[@"success"] boolValue]) {
+                NSLog(@"[PMForegroundProbe] snapshot write failed: %@", @{
+                    @"history": historyResult,
+                    @"latest": latestResult,
+                    @"fallback": fallbackResult,
+                });
+            }
+        }
+        if (completion) completion();
+    });
+}
+
+static void PMFGProbeFinishMarker(uint64_t token) {
+    pthread_mutex_lock(&PMFGProbeMarkerMutex);
+    if (PMFGProbeMarkerState == PMFGProbeMarkerQueued &&
+        PMFGProbeMarkerAcceptedToken == token) {
+        PMFGProbeMarkerState = PMFGProbeMarkerIdle;
     }
-    dispatch_async(PMFGProbeSnapshotQueue, writeBlock);
+    pthread_mutex_unlock(&PMFGProbeMarkerMutex);
 }
 
 static void PMFGProbeMarkerCallback(CFNotificationCenterRef center,
@@ -318,37 +434,46 @@ static void PMFGProbeMarkerCallback(CFNotificationCenterRef center,
     (void)name;
     (void)object;
     (void)userInfo;
-    if (!PMFGProbeShouldRecord()) return;
-    uint32_t expectedPending = 0;
-    if (!__atomic_compare_exchange_n(&PMFGProbeMarkerDispatchPending,
-                                     &expectedPending,
-                                     2,
-                                     NO,
-                                     __ATOMIC_ACQ_REL,
-                                     __ATOMIC_RELAXED)) {
+    if (!PMFGProbeTryBeginRecord()) return;
+
+    pthread_mutex_lock(&PMFGProbeMarkerMutex);
+    if (PMFGProbeMarkerState != PMFGProbeMarkerIdle) {
+        pthread_mutex_unlock(&PMFGProbeMarkerMutex);
+        PMFGProbeEndRecord();
         return;
     }
-    PMFG_STORE(PMFGProbeMarkerAcceptedGeneration, PMFG_LOAD(PMFGProbeSessionGeneration));
-    PMFG_STORE(PMFGProbeMarkerAcceptedTicks, mach_continuous_time());
-    PMFG_STORE(PMFGProbeMarkerAcceptedWallMillis, PMFGProbeWallMillis());
-    __atomic_store_n(&PMFGProbeMarkerDispatchPending, 1, __ATOMIC_RELEASE);
+    PMFGProbeMarkerAcceptedGeneration = PMFG_LOAD(PMFGProbeSessionGeneration);
+    PMFGProbeMarkerAcceptedTicks = mach_continuous_time();
+    PMFGProbeMarkerAcceptedWallMillis = PMFGProbeWallMillis();
+    uint64_t acceptedToken = ++PMFGProbeMarkerAcceptedToken;
+    PMFGProbeMarkerState = PMFGProbeMarkerPublished;
+    pthread_mutex_unlock(&PMFGProbeMarkerMutex);
+    PMFGProbeEndRecord();
+
     dispatch_async(dispatch_get_main_queue(), ^{
-        uint32_t published = 1;
-        if (!__atomic_compare_exchange_n(&PMFGProbeMarkerDispatchPending,
-                                         &published,
-                                         0,
-                                         NO,
-                                         __ATOMIC_ACQ_REL,
-                                         __ATOMIC_RELAXED)) {
+        uint64_t acceptedGeneration = 0;
+        uint64_t acceptedTicks = 0;
+        uint64_t acceptedWallMillis = 0;
+        BOOL claimed = NO;
+        pthread_mutex_lock(&PMFGProbeMarkerMutex);
+        if (PMFGProbeMarkerState == PMFGProbeMarkerPublished &&
+            PMFGProbeMarkerAcceptedToken == acceptedToken) {
+            PMFGProbeMarkerState = PMFGProbeMarkerQueued;
+            acceptedGeneration = PMFGProbeMarkerAcceptedGeneration;
+            acceptedTicks = PMFGProbeMarkerAcceptedTicks;
+            acceptedWallMillis = PMFGProbeMarkerAcceptedWallMillis;
+            claimed = YES;
+        }
+        pthread_mutex_unlock(&PMFGProbeMarkerMutex);
+        if (!claimed) return;
+
+        if (PMFGProbeShouldRecord() && acceptedGeneration == PMFG_LOAD(PMFGProbeSessionGeneration)) {
+            PMFGProbeWriteSnapshot(@"marker.drop", acceptedTicks, acceptedWallMillis, ^{
+                PMFGProbeFinishMarker(acceptedToken);
+            });
             return;
         }
-        uint64_t acceptedGeneration = PMFG_LOAD(PMFGProbeMarkerAcceptedGeneration);
-        if (PMFGProbeShouldRecord() && acceptedGeneration == PMFG_LOAD(PMFGProbeSessionGeneration)) {
-            PMFGProbeWriteSnapshot(@"marker.drop",
-                                   NO,
-                                   PMFG_LOAD(PMFGProbeMarkerAcceptedTicks),
-                                   PMFG_LOAD(PMFGProbeMarkerAcceptedWallMillis));
-        }
+        PMFGProbeFinishMarker(acceptedToken);
     });
 }
 
@@ -494,21 +619,31 @@ static void PMFGProbeInit(void) {
         uint64_t triggerTicks = mach_continuous_time();
         uint64_t triggerWallMillis = PMFGProbeWallMillis();
         NSString *reason = @"foregroundEnd";
-        while (__atomic_load_n(&PMFGProbeMarkerDispatchPending, __ATOMIC_ACQUIRE) == 2) sched_yield();
-        uint32_t published = 1;
-        if (__atomic_compare_exchange_n(&PMFGProbeMarkerDispatchPending,
-                                        &published,
-                                        0,
-                                        NO,
-                                        __ATOMIC_ACQ_REL,
-                                        __ATOMIC_RELAXED) &&
-            PMFG_LOAD(PMFGProbeMarkerAcceptedGeneration) == generation) {
-            reason = @"marker.drop+foregroundEnd";
-            triggerTicks = PMFG_LOAD(PMFGProbeMarkerAcceptedTicks);
-            triggerWallMillis = PMFG_LOAD(PMFGProbeMarkerAcceptedWallMillis);
-        }
         PMFGProbeCloseAndDrainSession();
-        PMFGProbeWriteSnapshot(reason, YES, triggerTicks, triggerWallMillis);
+        pthread_mutex_lock(&PMFGProbeMarkerMutex);
+        if (PMFGProbeMarkerState == PMFGProbeMarkerPublished) {
+            if (PMFGProbeMarkerAcceptedGeneration == generation) {
+                reason = @"marker.drop+foregroundEnd";
+                triggerTicks = PMFGProbeMarkerAcceptedTicks;
+                triggerWallMillis = PMFGProbeMarkerAcceptedWallMillis;
+            }
+            PMFGProbeMarkerState = PMFGProbeMarkerIdle;
+        }
+        pthread_mutex_unlock(&PMFGProbeMarkerMutex);
+        __block UIBackgroundTaskIdentifier backgroundTask = UIBackgroundTaskInvalid;
+        backgroundTask = [application beginBackgroundTaskWithName:@"com.promotion120.foreground-probe.snapshot"
+                                                expirationHandler:^{
+            if (backgroundTask == UIBackgroundTaskInvalid) return;
+            [application endBackgroundTask:backgroundTask];
+            backgroundTask = UIBackgroundTaskInvalid;
+        }];
+        PMFGProbeWriteSnapshot(reason, triggerTicks, triggerWallMillis, ^{
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (backgroundTask == UIBackgroundTaskInvalid) return;
+                [application endBackgroundTask:backgroundTask];
+                backgroundTask = UIBackgroundTaskInvalid;
+            });
+        });
     }];
 
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
