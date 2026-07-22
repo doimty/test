@@ -13,9 +13,6 @@
                 });
             }
             if (!PMIsTargetProcess()) {
-#if PM_FOREGROUND_PROBE_ENABLED
-                PMFGProbeInit();
-#endif
                 // Register Darwin notification state so SpringBoard knows
                 // this app has our hooks injected (skip keepalive)
                 @try {

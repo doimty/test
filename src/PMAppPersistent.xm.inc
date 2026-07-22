@@ -50,9 +50,6 @@ static void PMAppRefreshPersistentSource(void) {
     @try {
         PMSetHighFrameRateReasonDirect(PMAppPersistentFrameRateSource);
         PMSetFrameRateRangeDirect(PMAppPersistentFrameRateSource);
-#if PM_FOREGROUND_PROBE_ENABLED
-        PMFGProbeRecordSourceRefresh();
-#endif
     } @catch (__unused NSException *e) {
     }
 }
