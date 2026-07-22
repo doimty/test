@@ -137,3 +137,5 @@ Hard-coded Telegram bundle IDs are unnecessary. Because ProMotion120 already inj
 - Concurrent pended-marker handling: marker accepted in backgrounded callback merged into foregroundEnd snapshot with `marker.drop+foregroundEnd` reason.
 - Run `29925794568` did not reach checkout or compilation. Its sole annotation reports failed account payment or an insufficient Actions spending limit.
 - Workflow regression gate now proves build pipeline failures propagate through `tee`, preserves the probe-on deb before the probe-off isolation build, and uploads only the preserved diagnostic package.
+- Fallback macOS run `29927454537` built commit `50dbe0a371ad0b35cac619394017d4530531ad8c`: probe-on and probe-off package gates passed, compiler-error and incompatible-arm64e scans were clean, and the uploaded artifact contains only the preserved probe-on deb.
+- Verified cloud deb SHA256: `49edcc87463f784717ed8414fbec818c8da05511f13d956f6e77be2c064bfa40`.
