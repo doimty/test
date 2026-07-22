@@ -7,6 +7,7 @@ on:
       - master
       - main
       - 'cloud/**'
+      - 'release/**'
     paths:
       - '.github/workflows/roothide-build.yml'
       - '**/*.h'
@@ -18,7 +19,6 @@ on:
       - 'Makefile'
       - 'control'
       - 'layout/**'
-      - 'scripts/**'
 
 jobs:
   package:
@@ -28,7 +28,6 @@ jobs:
     env:
       THEOS: ${{ github.workspace }}/theos
       THEOS_PACKAGE_SCHEME: roothide
-      PM_FOREGROUND_PROBE_ENABLED: 1
       FINALPACKAGE: 1
 
     steps:
@@ -56,62 +55,23 @@ jobs:
           mkdir -p "$THEOS/sdks"
           cp -R /tmp/theos-sdks/iPhoneOS16.5.sdk "$THEOS/sdks/"
 
-      - name: List available schemes
-        run: ls "$THEOS/makefiles/package/" 2>/dev/null || echo "No package dir"
-
       - name: Build package
         run: |
           set -o pipefail
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
-          bash -n scripts/check-foreground-probe.sh scripts/verify-foreground-probe-package.sh
-          scripts/check-foreground-probe.sh
           rm -rf packages artifacts
-          # Probe-on build; preserve this exact package for artifact upload.
           make clean SDKVERSION=16.5
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide PM_FOREGROUND_PROBE_ENABLED=1 SDKVERSION=16.5 2>&1 | tee /tmp/pm120-probe-on-build.log
-          if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-probe-on-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide SDKVERSION=16.5 2>&1 | tee /tmp/pm120-build.log
+          if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
           deb="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -n "$deb"
-          OTOOL="$(xcrun -f otool 2>/dev/null || echo otool)" scripts/verify-foreground-probe-package.sh "$deb" 1
           xcrun otool -hv .theos/obj/arm64e/ProMotion120.dylib
           mkdir -p artifacts
           cp "$deb" artifacts/
-          # Probe-off build is an isolation gate only and must not replace the deliverable.
-          rm -rf packages
-          make clean SDKVERSION=16.5
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide PM_FOREGROUND_PROBE_ENABLED=0 SDKVERSION=16.5 2>&1 | tee /tmp/pm120-probe-off-build.log
-          if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-probe-off-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
-          deb_off="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          test -n "$deb_off"
-          OTOOL="$(xcrun -f otool 2>/dev/null || echo otool)" scripts/verify-foreground-probe-package.sh "$deb_off" 0
-          cp .theos/obj/arm64e/ProMotion120.dylib /tmp/pm120-probe-off-current.dylib
 
-          # Compile clean2 with this runner and compare behavior-bearing sections.
-          git worktree add --detach /tmp/pm120-clean2-baseline 8d7ce89
-          (
-            cd /tmp/pm120-clean2-baseline
-            make clean SDKVERSION=16.5
-            make FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide PM_FOREGROUND_PROBE_ENABLED=0 SDKVERSION=16.5 2>&1 | tee /tmp/pm120-clean2-baseline-build.log
-            if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-clean2-baseline-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
-            cp .theos/obj/arm64e/ProMotion120.dylib /tmp/pm120-probe-off-baseline.dylib
-          )
-          nm -gj /tmp/pm120-probe-off-current.dylib | sort > /tmp/pm120-probe-off-current-symbols.txt
-          nm -gj /tmp/pm120-probe-off-baseline.dylib | sort > /tmp/pm120-probe-off-baseline-symbols.txt
-          cmp /tmp/pm120-probe-off-current-symbols.txt /tmp/pm120-probe-off-baseline-symbols.txt
-          otool -tvV /tmp/pm120-probe-off-current.dylib | tail -n +2 > /tmp/pm120-probe-off-current-disasm.txt
-          otool -tvV /tmp/pm120-probe-off-baseline.dylib | tail -n +2 > /tmp/pm120-probe-off-baseline-disasm.txt
-          cmp /tmp/pm120-probe-off-current-disasm.txt /tmp/pm120-probe-off-baseline-disasm.txt
-          for section in __cstring __objc_methname __objc_classname __objc_methtype; do
-            otool -v -s __TEXT "$section" /tmp/pm120-probe-off-current.dylib | tail -n +2 > "/tmp/pm120-probe-off-current-$section.txt"
-            otool -v -s __TEXT "$section" /tmp/pm120-probe-off-baseline.dylib | tail -n +2 > "/tmp/pm120-probe-off-baseline-$section.txt"
-            cmp "/tmp/pm120-probe-off-current-$section.txt" "/tmp/pm120-probe-off-baseline-$section.txt"
-          done
-          git worktree remove --force /tmp/pm120-clean2-baseline
-          echo 'Probe-off binary behavior matches 8d7ce89 clean2 baseline'
-
-      - name: Upload probe-on deb package
+      - name: Upload deb package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: promotion120-roothide-fgprobe2
+          name: promotion120-roothide-1.0.10
           path: artifacts/*.deb
           if-no-files-found: error
