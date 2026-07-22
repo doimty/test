@@ -19,7 +19,7 @@ The probe records:
 - Snapshot writes are serialized, coalesced, atomic, and limited to one successful path per flush.
 - No global IOKit interception, stack unwinding, Darwin notification logging, sysctl frequency reads, initializer hook, or new control-loop calls.
 - Phase 2 adds pass-through observation of MitigationController's existing `setDieTempControllerProperty:level:scaleToFixedPoint:` and `setServiceProperty:key:value:scaleToFixedPoint:` methods. Both call the original implementation first with unchanged arguments; the latter returns the original result unchanged.
-- Direct-write observations retain counters plus only the latest bounded record per selector. They do not accumulate an unbounded event history.
+- Direct-write observations retain counters, the latest record per selector, and a bounded 256-entry timeline. They do not accumulate an unbounded event history.
 - A high patched target alongside an externally observed downclock is inconclusive about kernel or firmware causality.
 
 ## Device Evidence
@@ -47,3 +47,9 @@ Interpretation is intentionally narrow:
 - Missing or stale evidence: improve the feedback loop; do not infer a hardware cause.
 
 This phase diagnoses only. It does not bypass CLPC, SoC, PMIC, die-temperature, current, or emergency thermal protections.
+
+## Phase 6 IOKit Correlation
+
+Phase 6 keeps the Phase 2 wrappers strictly pass-through and adds a bounded `directCallTimeline`. Each record contains wall-clock and monotonic timestamps plus the original selector details. A downclock marker captures both clocks at notification ingress, then drains pending records before freezing the latest 256 entries, so queue latency does not move the marker and multiple `property` or `service`/`key` values are not collapsed into one latest value.
+
+This probe remains limited to exactly `thermalmonitord`. It does not include the known Phase 4 global IOKit property probe or Phase 5 Mach IO probe entrypoints, and it does not convert an observed call into an active mitigation. A direct-write path becomes a mitigation candidate only after its concrete key repeatedly correlates with user-marked downclocks.

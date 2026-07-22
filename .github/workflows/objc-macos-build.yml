@@ -14,7 +14,7 @@ on:
         required: false
         default: false
       package_buildname:
-        description: 'Package build name suffix (e.g., decisionprobe1)'
+        description: 'Package build name suffix (e.g., decisionprobe6)'
         type: string
         required: false
         default: ''
@@ -63,10 +63,19 @@ jobs:
           mkdir -p "$THEOS/sdks"
           cp -R /tmp/theos-sdks/iPhoneOS16.5.sdk "$THEOS/sdks/"
 
+      - name: Compile both decision-probe configurations
+        run: |
+          export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
+          for probe_enabled in 0 1; do
+            make clean THEOS_PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME}"
+            make all FINALPACKAGE=1 THEOS_PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME}" INSULATION_PROBE_ENABLED="$probe_enabled"
+          done
+          make clean THEOS_PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME}"
+
       - name: Build ObjC ${{ matrix.scheme }} package
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$THEOS/bin:$PATH"
-          bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh scripts/test-insulationctl-args.sh scripts/verify-insulationctl-package.sh
+          bash -n scripts/check-objc-port.sh scripts/build-objc-package.sh scripts/setup-linux-theos-env.sh scripts/test-insulationctl-args.sh scripts/verify-insulationctl-package.sh scripts/verify-decision-probe-package.sh
           scripts/check-objc-port.sh
           scripts/test-insulationctl-args.sh
           scripts/build-objc-package.sh "${THEOS_PACKAGE_SCHEME}"
@@ -84,6 +93,7 @@ jobs:
           xcrun otool -hv "$prefs_bin"
           xcrun otool -L "$prefs_bin"
           scripts/verify-insulationctl-package.sh "$deb"
+          scripts/verify-decision-probe-package.sh "$deb" "$INSULATION_PROBE_ENABLED"
 
       - name: Upload deb packages
         uses: actions/upload-artifact@v4

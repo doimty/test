@@ -289,13 +289,32 @@ probe = (root / "Sources/insulationObjC/InsulationProbe.m").read_text()
 tweakinit = (root / "Sources/insulationObjC/TweakInit.m").read_text()
 ctl_args = (root / "Sources/insulationctl/InsulationCtlArgs.c").read_text()
 ctl_main = (root / "Sources/insulationctl/main.m").read_text()
+makefile = (root / "Makefile").read_text()
+filter_plist = (root / "insulation.plist").read_text()
+objc_probe_surface = "\n".join(path.read_text() for path in (root / "Sources/insulationObjC").glob("*.[mch]"))
 errors = []
+direct_call_drain = re.search(
+    r"static void InsulationProbeDrainDirectCalls\(void\) \{(?P<body>.*?)\n\}\n\nvoid InsulationProbeRecordDirectCall",
+    probe,
+    re.DOTALL,
+)
+direct_call_recorder = re.search(
+    r"void InsulationProbeRecordDirectCall\([^\{]+\) \{(?P<body>.*?)\n\}\n\nvoid InsulationProbeRecordHookInstall",
+    probe,
+    re.DOTALL,
+)
+marker_recorder = re.search(
+    r"void InsulationProbeRecordMarker\([^\{]+\) \{(?P<body>.*?)\n\}\n\n#else",
+    probe,
+    re.DOTALL,
+)
 
 checks = {
     "direct-write install is probe-gated": re.search(
         r"#if INSULATION_PROBE_ENABLED\s+InsulationInstallMitigationControllerDirectWriteProbeHooks\(\);",
         runtime,
     ) is not None,
+    "direct-write hooks install exactly once": len(re.findall(r"^\s*InsulationInstallMitigationControllerDirectWriteProbeHooks\(\);", runtime, re.MULTILINE)) == 1,
     "die-temperature selector is exact": 'NSSelectorFromString(@"setDieTempControllerProperty:level:scaleToFixedPoint:")' in runtime,
     "service-property selector is exact": 'NSSelectorFromString(@"setServiceProperty:key:value:scaleToFixedPoint:")' in runtime,
     "die-temperature ABI is exact": '"v32@0:8^{__CFString=}16i24B28"' in runtime,
@@ -312,13 +331,51 @@ checks = {
         r"#if INSULATION_PROBE_ENABLED\s+CFNotificationCenterAddObserver\(center,\s+NULL,\s+InsulationProbeMarkerNotificationCallback",
         tweakinit,
     ) is not None,
-    "probe marker records wall and monotonic time": '@"time": @(now)' in probe and '@"monotonicSeconds"' in probe,
+    "probe marker captures ingress wall and monotonic time": marker_recorder is not None and all(token in marker_recorder.group("body") for token in [
+        "NSTimeInterval markerTime = [[NSDate date] timeIntervalSince1970];",
+        "double markerMonotonicSeconds = InsulationProbeMonotonicSeconds();",
+        '@"time": @(markerTime)',
+        '@"monotonicSeconds": @(markerMonotonicSeconds)',
+    ]),
+    "direct-call records include monotonic time": direct_call_recorder is not None and '@"monotonicSeconds": @(InsulationProbeMonotonicSeconds()),' in direct_call_recorder.group("body"),
     "probe marker snapshots setter state": '@"setters": [state[@"setters"] copy]' in probe,
     "probe marker freezes setter timeline": '@"setterTimeline": [state[@"setterTimeline"] copy]' in probe,
     "immediate marker flush suppresses stale delayed write": "InsulationProbeDirtyGeneration" in probe and "InsulationProbeWrittenGeneration" in probe,
     "setter timeline is bounded": "InsulationProbeSetterTimelineCapacity" in probe and 'InsulationProbeAppendBounded(state, @"setterTimeline"' in probe,
+    "direct-call pending ingress is bounded": direct_call_recorder is not None and all(token in direct_call_recorder.group("body") for token in [
+        "[InsulationProbePendingDirectCallRecords count] >= InsulationProbePendingDirectCallCapacity",
+        "NSUInteger pruneCount = InsulationProbePendingDirectCallCapacity / 2",
+        "removeObjectsInRange:NSMakeRange(0, pruneCount)",
+        "InsulationProbePendingDirectCallDropped += pruneCount",
+        "[InsulationProbePendingDirectCallRecords addObject:record]",
+    ]) and "InsulationProbePendingDirectCallCapacity = 256" in probe,
+    "direct-call pending drops are persisted": direct_call_drain is not None and all(token in direct_call_drain.group("body") for token in [
+        "NSUInteger pendingDropped = InsulationProbePendingDirectCallDropped",
+        "InsulationProbePendingDirectCallDropped = 0",
+        'state[@"directCallIngressDropped"] = @([state[@"directCallIngressDropped"] unsignedIntegerValue] + pendingDropped)',
+    ]),
+    "direct-call timeline is bounded": "InsulationProbeDirectCallTimelineCapacity" in probe and 'InsulationProbeAppendBounded(state, @"directCallTimeline"' in probe,
+    "probe marker freezes direct-call timeline": '@"directCallTimeline": [state[@"directCallTimeline"] copy]' in probe,
     "marker timeline is bounded": "InsulationProbeMarkerCapacity" in probe and 'InsulationProbeAppendBounded(state, @"markers"' in probe,
     "rejected thermal notify monitor is absent": "thermalpressurelevel" not in probe and "thermalstatus" not in probe,
+    "production filter remains exactly thermalmonitord-only": re.fullmatch(
+        r'\s*\{\s*Filter\s*=\s*\{\s*Executables\s*=\s*\(\s*"thermalmonitord"\s*\)\s*;\s*\}\s*;\s*\}\s*',
+        filter_plist,
+    ) is not None,
+    "global IOKit probe sources are absent": not (root / "Sources/insulationObjC/InsulationIOKitProbe.m").exists() and not (root / "Sources/insulationObjC/InsulationMachIOProbe.m").exists(),
+    "known global IOKit and Mach IO probe entrypoints are absent": not any(token in objc_probe_surface for token in [
+        "InsulationProbeIOKitInstall",
+        "InsulationProbeIOKitSnapshot",
+        "InsulationMachIOProbeInstall",
+        "InsulationMachIOProbeSnapshot",
+        "IOConnectCallMethod",
+        "IOConnectCallScalarMethod",
+        "IOConnectCallAsyncMethod",
+        "IORegistryEntrySetCFProperty",
+        "IORegistryEntrySetCFProperties",
+        "IOServiceOpen",
+    ]),
+    "probe does not add Substrate linkage": "CydiaSubstrate" not in makefile,
 }
 for label, condition in checks.items():
     if not condition:

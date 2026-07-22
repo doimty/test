@@ -24,7 +24,7 @@ TWEAK_NAME = insulation
 insulation_USE_MODULES = 0
 # General telemetry, targeted CPMS ABI probe, and decision probe are opt-in diagnostics.
 # CPMS package:  make package FINALPACKAGE=1 PACKAGE_BUILDNAME=cpmsprobe1 INSULATION_CPMS_PROBE_ENABLED=1
-# Decision probe: make package FINALPACKAGE=1 PACKAGE_BUILDNAME=decisionprobe1 INSULATION_PROBE_ENABLED=1
+# Decision probe: make package FINALPACKAGE=1 PACKAGE_BUILDNAME=decisionprobe6 INSULATION_PROBE_ENABLED=1
 INSULATION_PROBE_ENABLED ?= 0
 INSULATION_CPMS_PROBE_ENABLED ?= 0
 insulation_OBJC_FILES = $(shell find Sources/insulationObjC -type f \( -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp' \) $(if $(filter 1,$(INSULATION_PROBE_ENABLED)),,! -name 'InsulationProbe.m') $(if $(filter 1,$(INSULATION_CPMS_PROBE_ENABLED)),,! -name 'InsulationCPMSProbe.m'))
