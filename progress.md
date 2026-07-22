@@ -174,3 +174,5 @@ Hard-coded Telegram bundle IDs are unnecessary. Because ProMotion120 already inj
 - Local probe-on and probe-off builds compile and pass package verification; local Linux arm64e output retains the known incompatible-ABI linker warning and is compile evidence only, never deliverable.
 - Fresh local probe-off comparison against `8d7ce89` passes for exported symbols, normalized disassembly, and `__cstring`/Objective-C name/type sections.
 - Three adversarial review passes found and drove fixes for snapshot dropping, misleading two-pass telemetry, main-thread disk waits, cross-app latest collisions, unbounded marker writes, truncated bundle collisions, and marker token TOCTOU; final review reports no P0/P1 findings.
+- Fallback macOS run `29934468752` built code commit `1479eb73efa0d6cc38a9b4b41778bd91ffbea15d`: probe-on/off and clean2 baseline builds passed, actual Mach-O subtype and roothide dependency checks passed, cloud logs contain no incompatible-arm64e or compiler-fatal signal, and the artifact contains only the preserved probe-on deb.
+- Verified cloud deb SHA256: `3845b93fba1ed416674202dfd346120471b1815b8797e2e1dbb63cd52c22e2f1`.
