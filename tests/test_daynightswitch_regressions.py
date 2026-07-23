@@ -117,10 +117,14 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
             self.assertNotIn('shadowOpacity = 1', source)
             self.assertNotIn('shadowOpacity = on ?', source)
 
-    def test_popup_menu_uses_style_specifier_and_exact_five_values(self):
-        self.assertIn('selectedSpecifier == self.styleSpecifier', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
-        self.assertIn('_styleValues = @[@0, @1, @2, @3, @8];', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
-        self.assertNotIn('textLabel.text isEqualToString:', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
+    def test_popup_menu_has_one_selection_path_and_exact_five_values(self):
+        controller = (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8')
+        self.assertIn('selectedSpecifier == self.styleSpecifier', controller)
+        self.assertIn('_styleValues = @[@0, @1, @2, @3, @8];', controller)
+        self.assertNotIn('textLabel.text isEqualToString:', controller)
+        self.assertIn('<string>PSTitleValueCell</string>', ROOT_PLIST)
+        self.assertNotIn('<string>PSLinkListCell</string>', ROOT_PLIST)
+        self.assertNotIn('<string>PSListItemsController</string>', ROOT_PLIST)
 
     def test_all_switches_use_consistent_change_action_semantics(self):
         self.assertIn('self.changeAction(on, !self.isMoved);', DONG)
