@@ -42,9 +42,8 @@ static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
 static NSString *const DNSPrefsMobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
 static NSString *const DNSPrefsRootlessPath = @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
 
-// 恢复 DNSPrefsPath + 显式越狱路径
-// 注意：bdcfc4a 版本（cfprefs 优先 + 文件兜底）工作正常，改优先级后部分进程读不到 global=YES
-
+// Injected third-party processes must read the shared preference file directly.
+// Their CFPreferences cache for another app domain can be stale or empty.
 static NSString *DNSPrefsPath(void) {
     NSFileManager *fm = [NSFileManager defaultManager];
     if ([fm fileExistsAtPath:DNSPrefsMobilePath]) {
@@ -65,48 +64,15 @@ static BOOL DNSIsValidSwitchStyle(NSInteger style) {
     return style >= 0 && style <= 4;
 }
 
-// 文件兜底：用显式越狱路径读 plist
-static NSMutableDictionary *DNSPrefsReadFromFile(void) {
-    for (NSString *path in @[
-        DNSPrefsPath(),                                     // auto-detect
-        @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist",         // rootful
-        @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist",  // rootless
-    ]) {
-        if (path == nil) continue;
-        NSMutableDictionary *d = [[NSMutableDictionary alloc] initWithContentsOfFile:path];
-        if (d) return d;
-    }
-    return nil;
-}
-
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
+    NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];
 
-    // 1) cfprefsd 实时值（Settings 刚写完就有，最快）
-    id globalCF  = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
-    id styleCF   = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
-
-    // 2) 文件持久化值（所有进程都能读到，但可能有延迟）
-    NSMutableDictionary *settings = DNSPrefsReadFromFile();
-
-    // 3) 优先用 cfprefs（实时），没有则 fallback 到文件（兼容）
-    if (globalCF) {
-        global = [globalCF boolValue];
-    } else if (settings) {
-        global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
-    } else {
-        global = NO;
-    }
-
-    if (styleCF) {
-        NSInteger savedStyle = DNSMigrateSwitchStyle([styleCF integerValue]);
-        switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;
-    } else if (settings) {
-        NSInteger savedStyle = DNSMigrateSwitchStyle([settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0);
-        switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;
-    } else {
-        switchStyle = 0;
-    }
+    global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;
+    NSInteger savedStyle = DNSMigrateSwitchStyle(
+        [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0
+    );
+    switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {

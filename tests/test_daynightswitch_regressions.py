@@ -60,12 +60,12 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertIn(should_apply_check, body)
         self.assertLess(body.index(observer_call), body.index(should_apply_check))
 
-    def test_prefs_reading_is_type_safe_and_style_whitelisted(self):
+    def test_prefs_reading_uses_shared_file_not_process_local_cfprefs_cache(self):
         self.assertIn('static BOOL DNSIsValidSwitchStyle(NSInteger style)', TWEAK)
-        self.assertNotIn('BOOL DNSBoolPref', TWEAK)
-        self.assertIn('if (globalCF) {', TWEAK)
-        self.assertIn('global = [globalCF boolValue];', TWEAK)
-        self.assertIn('if (styleCF) {', TWEAK)
+        self.assertNotIn('CFPreferencesCopyAppValue', TWEAK)
+        self.assertIn('CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));', TWEAK)
+        self.assertIn('NSMutableDictionary *settings = [[NSMutableDictionary alloc] initWithContentsOfFile:DNSPrefsPath()];', TWEAK)
+        self.assertIn('global = [settings objectForKey:@"global"] ? [[settings objectForKey:@"global"] boolValue] : NO;', TWEAK)
         self.assertIn('switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;', TWEAK)
 
     def test_dns_sync_custom_switch_restores_selector_guards(self):
