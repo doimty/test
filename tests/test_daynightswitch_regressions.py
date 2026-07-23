@@ -125,6 +125,8 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertIn('<string>PSTitleValueCell</string>', ROOT_PLIST)
         self.assertNotIn('<string>PSLinkListCell</string>', ROOT_PLIST)
         self.assertNotIn('<string>PSListItemsController</string>', ROOT_PLIST)
+        self.assertIn('self.styleSpecifier = nil;', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
+        self.assertIn('cell.detailTextLabel.text =', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
 
     def test_all_switches_use_consistent_change_action_semantics(self):
         self.assertIn('self.changeAction(on, !self.isMoved);', DONG)

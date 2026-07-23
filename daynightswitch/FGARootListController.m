@@ -27,6 +27,7 @@ static NSString *const DNSSwitchStyleKey = @"switchStyle";
 
 - (NSArray *)specifiers {
     if (!_specifiers) {
+        self.styleSpecifier = nil;
         _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
         [self locateStyleSpecifierIfNeeded];
     }
@@ -80,6 +81,20 @@ static NSString *const DNSSwitchStyleKey = @"switchStyle";
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
     notify_post([DNSPrefsChangedDarwinNotification UTF8String]);
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
+    PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
+    id key = [specifier.properties objectForKey:@"key"];
+    if ([key isKindOfClass:[NSString class]] && [(NSString *)key isEqualToString:DNSSwitchStyleKey]) {
+        NSInteger current = [self currentSwitchStyle];
+        NSUInteger index = [self.styleValues indexOfObject:@(current)];
+        cell.detailTextLabel.text = index != NSNotFound ? self.styleTitles[index] : self.styleTitles.firstObject;
+        cell.detailTextLabel.textColor = cell.textLabel.textColor;
+        cell.accessoryType = UITableViewCellAccessoryNone;
+    }
+    return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -193,6 +208,7 @@ static NSString *const DNSSwitchStyleKey = @"switchStyle";
     NSInteger selectedStyle = self.styleValues[sender.tag].integerValue;
     [self writeSwitchStyle:selectedStyle];
     [self dismissStyleMenu];
+    self.styleSpecifier = nil;
     [self reloadSpecifiers];
 }
 
