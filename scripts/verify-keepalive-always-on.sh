@@ -86,7 +86,7 @@ check "Link added to run loop" \
 # 11. Comment says always-on
 check "Comment says always-on" \
     "src/PMKeepAlive.xm.inc" \
-    "Always-on"
+    "always-on"
 
 # 12. No Darwin notify registration in PMBootstrap.xm.inc
 check "No Darwin notify in PMBootstrap" \
@@ -94,9 +94,9 @@ check "No Darwin notify in PMBootstrap" \
     "com.doimty.pm120.hooked" negate
 
 # 13. Version is bumped
-check "Version bumped to 1.0.10+keepalive1" \
+check "Version bumped to 1.0.11" \
     "control" \
-    "Version: 1.0.10+keepalive1"
+    "Version: 1.0.11"
 
 echo ""
 echo "=== Results: $errors errors ==="

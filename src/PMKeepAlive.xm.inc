@@ -11,106 +11,24 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
 // Problem:  CADynamicFrameRateSource is a "vote" DPPMS can ignore.
 //           When the foreground app is injection-blocked and only produces
 //           60fps content, DPPMS downclocks the display.
-// Solution: A persistent CADisplayLink in SpringBoard that toggles a tiny
-//           offscreen dirty layer every frame, producing real render commits
-//           that DPPMS treats as proof of 120Hz demand.
-//           Always-on: the link starts running immediately and never pauses.
-//           This matches the proven 1.0.9 behavior (commit 74807ca).
-//           Smart evaluation (paused/unpaused) was unreliable because
-//           Darwin notify IPC state can be lost on app relaunch, and the
-//           evaluation timer misses transitions.
+// Solution: A persistent CADisplayLink in SpringBoard with an empty tick.
+//           The link itself is a live 120Hz consumer — DPPMS treats active
+//           display links as proof of demand. The link runs immediately on
+//           install and never pauses, matching the proven 1.0.9 behavior
+//           (commit 74807ca).
+//           No per-frame layer mutations or DynamicSource re-apply:
+//           those caused CA commit contention with the app process.
 // ─────────────────────────────────────────────────────────────────────────
 
 // --- Keepalive state ---
 
-static CADisplayLink *PMSBKeepAliveLink   = nil;
-static UIWindow      *PMSBKeepAliveWindow = nil;
-static CALayer       *PMSBDirtyLayer      = nil;
-
-// Precomputed CGColors for dirty layer toggle (avoid per-frame alloc)
-static CGColorRef PMSBDirtyColorA = NULL;
-static CGColorRef PMSBDirtyColorB = NULL;
-
-// --- Tick: runs every frame (link is always on) ---
-// v1.0.22: attach UIWindowScene + stronger dirty + CADisplay mode pin.
-// 1.0.20/21 full-width 2pt/opacity 0.02 still lost to DPPMS 80Hz compromise
-// when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
-
-// Pinned host: offscreen 1x1 (no visible top strip). Keepalive demand =
-// DisplayLink range + Global DynamicSource + sparse preferredMode pin.
-// Only valid on 24-float baseline (do not recombine with 25/26 float thrash).
-static const CGFloat PMSBKeepAliveStripH = 1.0;
-static const CGFloat PMSBKeepAliveOffX = -20.0;
-static const CGFloat PMSBKeepAliveOffY = -20.0;
-
-static void PMSBKeepAliveAttachScene(void) {
-    if (!PMSBKeepAliveWindow) return;
-    @try {
-        // iOS 13+: unattached UIWindow may never commit; pin to any live SB scene.
-        if (![PMSBKeepAliveWindow respondsToSelector:@selector(setWindowScene:)]) return;
-        id currentScene = nil;
-        if ([PMSBKeepAliveWindow respondsToSelector:@selector(windowScene)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            currentScene = [PMSBKeepAliveWindow performSelector:@selector(windowScene)];
-#pragma clang diagnostic pop
-        }
-        if (currentScene) return;
-
-        Class UIApplicationClass = NSClassFromString(@"UIApplication");
-        if (!UIApplicationClass || ![UIApplicationClass respondsToSelector:@selector(sharedApplication)]) return;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        UIApplication *app = [UIApplicationClass performSelector:@selector(sharedApplication)];
-#pragma clang diagnostic pop
-        if (!app) return;
-
-        id scene = nil;
-        if ([app respondsToSelector:@selector(connectedScenes)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            NSSet *scenes = [app performSelector:@selector(connectedScenes)];
-#pragma clang diagnostic pop
-            for (id s in scenes) {
-                NSString *cls = PMClassName(s);
-                if ([cls containsString:@"UIWindowScene"]) { scene = s; break; }
-            }
-        }
-        if (!scene && [app respondsToSelector:@selector(windows)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            NSArray *windows = [app performSelector:@selector(windows)];
-#pragma clang diagnostic pop
-            for (UIWindow *w in windows) {
-                if (w == PMSBKeepAliveWindow) continue;
-                if ([w respondsToSelector:@selector(windowScene)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                    scene = [w performSelector:@selector(windowScene)];
-#pragma clang diagnostic pop
-                    if (scene) break;
-                }
-            }
-        }
-        if (scene) {
-            typedef void (*PMSetSceneFn)(id, SEL, id);
-            PMSetSceneFn setScene = (PMSetSceneFn)objc_msgSend;
-            setScene(PMSBKeepAliveWindow, @selector(setWindowScene:), scene);
-        }
-    } @catch (__unused NSException *e) {}
-}
+static CADisplayLink *PMSBKeepAliveLink = nil;
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
-// Empty tick: matches proven 1.0.9 behavior (commit 74807ca).
-// The DisplayLink itself is the 120Hz consumer that DPPMS sees.
-// Per-frame dirty layer mutations + DynamicSource re-apply +
-// mode pin caused CA commit contention with the app process.
 - (void)pm_sbTick:(__unused CADisplayLink *)link {}
 @end
-
-static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
 
 static void PMSBKeepAliveApplyLinkRange(void) {
     if (!PMSBKeepAliveLink) return;
@@ -121,43 +39,14 @@ static void PMSBKeepAliveApplyLinkRange(void) {
     }
 }
 
-// --- Install: always-on DisplayLink (no pause/evaluation) ---
+// --- Install: always-on DisplayLink, no pause, no evaluation, no dirty layer ---
 
 static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
-        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        CGFloat cA[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-        CGFloat cB[4] = {0.10f, 0.10f, 0.10f, 1.0f};
-        PMSBDirtyColorA = CGColorCreate(cs, cA);
-        PMSBDirtyColorB = CGColorCreate(cs, cB);
-        CGColorSpaceRelease(cs);
-
-        // Offscreen 1x1 host (no visible top strip). Demand = DisplayLink +
-        // Global DynamicSource + sparse mode pin on 24-float baseline.
-        PMSBKeepAliveWindow = [[UIWindow alloc] initWithFrame:CGRectMake(PMSBKeepAliveOffX, PMSBKeepAliveOffY, PMSBKeepAliveStripH, PMSBKeepAliveStripH)];
-        PMSBKeepAliveAttachScene();
-        PMSBKeepAliveWindow.windowLevel              = -9999.0; // intentionally out of visible stack
-        PMSBKeepAliveWindow.hidden                   = NO;
-        PMSBKeepAliveWindow.userInteractionEnabled    = NO;
-        PMSBKeepAliveWindow.opaque                    = NO;
-        PMSBKeepAliveWindow.backgroundColor           = [UIColor clearColor];
-        PMSBKeepAliveWindow.clipsToBounds             = YES;
-        PMSBKeepAliveWindow.layer.masksToBounds       = YES;
-
-        PMSBDirtyLayer = [CALayer layer];
-        PMSBDirtyLayer.frame             = CGRectMake(0, 0, PMSBKeepAliveStripH, PMSBKeepAliveStripH);
-        PMSBDirtyLayer.opacity           = 0.12f;
-        PMSBDirtyLayer.backgroundColor   = PMSBDirtyColorA;
-        PMSBDirtyLayer.allowsGroupOpacity = NO;
-        PMSBDirtyLayer.contentsScale     = [UIScreen mainScreen].scale;
-        [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
-
-        PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
-        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
+        PMSBKeepAliveTarget *target = [[PMSBKeepAliveTarget alloc] init];
+        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:target
                                                         selector:@selector(pm_sbTick:)];
-        // Always-on: matches proven 1.0.9 behavior (commit 74807ca).
-        // No pause/evaluation — the link runs from install until the process dies.
         PMSBKeepAliveApplyLinkRange();
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     } @catch (__unused NSException *e) {}
