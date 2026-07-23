@@ -124,25 +124,11 @@ static void PMSBForceMainDisplayHighMode(void) {
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
-- (void)pm_sbTick:(__unused CADisplayLink *)link {
-    if (!PMSBDirtyLayer) return;
-    static BOOL toggle = NO;
-    static NSUInteger tick = 0;
-    toggle = !toggle;
-    tick += 1;
-
-    // Dual dirty: position + color. Stronger alpha so DPPMS cannot settle at 80.
-    CGFloat y = toggle ? 0.0 : 1.0;
-    PMSBDirtyLayer.position = CGPointMake(CGRectGetMidX(PMSBDirtyLayer.bounds), y + CGRectGetMidY(PMSBDirtyLayer.bounds));
-    PMSBDirtyLayer.backgroundColor = toggle ? PMSBDirtyColorA : PMSBDirtyColorB;
-    // Force a real content commit (not just geometry) every frame.
-    PMSBDirtyLayer.opacity = toggle ? 0.12f : 0.10f;
-
-    PMSBKeepAliveApplyLinkRange();
-    PMGlobalSBApplyForced(@"keepalive.tick");
-    // Mode pin is heavier; ~4Hz is enough alongside per-frame vote.
-    if ((tick % 30) == 0) PMSBForceMainDisplayHighMode();
-}
+// Empty tick: matches proven 1.0.9 behavior (commit 74807ca).
+// The DisplayLink itself is the 120Hz consumer that DPPMS sees.
+// Per-frame dirty layer mutations + DynamicSource re-apply +
+// mode pin caused CA commit contention with the app process.
+- (void)pm_sbTick:(__unused CADisplayLink *)link {}
 @end
 
 static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
