@@ -100,27 +100,6 @@ static void PMSBKeepAliveAttachScene(void) {
     } @catch (__unused NSException *e) {}
 }
 
-static void PMSBForceMainDisplayHighMode(void) {
-    // Best-effort pin preferredMode to highest refreshRate (>=119). Silent no-op if private API differs.
-    @try {
-        id display = PMMainCADisplay();
-        if (!display) return;
-        NSArray *modes = [display valueForKey:@"availableModes"];
-        if (![modes isKindOfClass:[NSArray class]] || modes.count == 0) return;
-        id best = nil;
-        double bestRate = 0;
-        for (id mode in modes) {
-            double rate = [[mode valueForKey:@"refreshRate"] doubleValue];
-            if (rate > bestRate) { bestRate = rate; best = mode; }
-        }
-        if (!best || bestRate < 119.0) return;
-        id current = nil;
-        @try { current = [display valueForKey:@"preferredMode"]; } @catch (__unused NSException *e) {}
-        if (current == best) return;
-        @try { [display setValue:best forKey:@"preferredMode"]; } @catch (__unused NSException *e) {}
-    } @catch (__unused NSException *e) {}
-}
-
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
