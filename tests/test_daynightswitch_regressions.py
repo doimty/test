@@ -4,6 +4,8 @@ import unittest
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TWEAK = (REPO / "Tweak.xm").read_text(encoding="utf-8")
 ROOT_PLIST = (REPO / "daynightswitch/Resources/Root.plist").read_text(encoding="utf-8")
+DAY = (REPO / "DayNightSwitch.m").read_text(encoding="utf-8")
+STRIPED = (REPO / "StripedSwitch.m").read_text(encoding="utf-8")
 PLANE = (REPO / "PlaneSwitch.m").read_text(encoding="utf-8")
 DONG = (REPO / "DongRiYueSwitch.m").read_text(encoding="utf-8")
 TEETH = (REPO / "TeethSwitch.m").read_text(encoding="utf-8")
@@ -106,6 +108,19 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertNotIn('addParticleToSky:', night_body)
         start_body = method_body(DONG, '- (void)dns_startLoopingAnimations')
         self.assertIn('if (!self.window || !self.isOn)', start_body)
+
+    def test_non_plane_styles_do_not_use_live_layer_shadows(self):
+        for source in (DAY, DONG, STRIPED, TEETH):
+            self.assertNotIn('shadowOpacity = 0.2', source)
+            self.assertNotIn('shadowOpacity = 0.25', source)
+            self.assertNotIn('shadowOpacity = 0.8', source)
+            self.assertNotIn('shadowOpacity = 1', source)
+            self.assertNotIn('shadowOpacity = on ?', source)
+
+    def test_popup_menu_uses_style_specifier_and_exact_five_values(self):
+        self.assertIn('selectedSpecifier == self.styleSpecifier', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
+        self.assertIn('_styleValues = @[@0, @1, @2, @3, @8];', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
+        self.assertNotIn('textLabel.text isEqualToString:', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
 
     def test_all_switches_use_consistent_change_action_semantics(self):
         self.assertIn('self.changeAction(on, !self.isMoved);', DONG)

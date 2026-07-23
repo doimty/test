@@ -83,10 +83,14 @@ static NSString *const DNSSwitchStyleKey = @"switchStyle";
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-    if (cell != nil && [cell.textLabel.text isEqualToString:@"当前样式"]) {
+    [self locateStyleSpecifierIfNeeded];
+    PSSpecifier *selectedSpecifier = [self specifierAtIndexPath:indexPath];
+    if (selectedSpecifier == self.styleSpecifier) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
         [tableView deselectRowAtIndexPath:indexPath animated:YES];
-        [self showStyleMenuFromCell:cell];
+        if (cell != nil) {
+            [self showStyleMenuFromCell:cell];
+        }
         return;
     }
     [super tableView:tableView didSelectRowAtIndexPath:indexPath];
