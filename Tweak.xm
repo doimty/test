@@ -42,6 +42,28 @@ static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
 static NSString *const DNSPrefsMobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
 static NSString *const DNSPrefsRootlessPath = @"/var/jb/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
 
+// ========== DIAGNOSTIC ==========
+// Remove before release.
+static NSString *const DNSDiagPath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.diag.plist";
+static void DNSDiag(NSString *event, NSDictionary *extra) {
+    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
+    NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+    entry[@"t"] = @([[NSDate date] timeIntervalSince1970]);
+    entry[@"p"] = bundleId;
+    entry[@"e"] = event;
+    entry[@"g"] = @(global);
+    entry[@"s"] = @(switchStyle);
+    if (extra) [entry addEntriesFromDictionary:extra];
+    @synchronized ([NSObject class]) {
+        NSMutableArray *arr = [NSMutableArray arrayWithContentsOfFile:DNSDiagPath];
+        if (!arr) arr = [NSMutableArray array];
+        if (arr.count > 200) [arr removeObjectsInRange:NSMakeRange(0, arr.count - 150)];
+        [arr addObject:entry];
+        [arr writeToFile:DNSDiagPath atomically:YES];
+    }
+}
+// ================================
+
 // Injected third-party processes must read the shared preference file directly.
 // Their CFPreferences cache for another app domain can be stale or empty.
 static NSString *DNSPrefsPath(void) {
@@ -73,9 +95,11 @@ static void DNSReadPrefs(void) {
         [settings objectForKey:@"switchStyle"] ? [[settings objectForKey:@"switchStyle"] integerValue] : 0
     );
     switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;
+    DNSDiag(@"readPrefs", @{@"file": DNSPrefsPath(), @"hasFile": @(settings != nil)});
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    DNSDiag(@"darwinNotify", nil);
     dispatch_async(dispatch_get_main_queue(), ^{
         DNSReadPrefs();
         [[NSNotificationCenter defaultCenter] postNotificationName:DNSPrefsChangedNotification object:nil];
@@ -180,7 +204,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
 - (void)didMoveToSuperview {
     %orig;
-    // dns_setup 内部已无条件注册通知，即使当前没挂皮也能热切换
+    DNSDiag(@"didMoveToSuperview", @{@"shouldApply": @([self dns_shouldApply])});
     [self dns_setup];
 }
 
@@ -221,18 +245,19 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
     if (![self dns_shouldApply]) {
         if (self.dns_dayNightSwitch) {
+            DNSDiag(@"dns_setup_remove", @{@"reason": @"shouldApply_false"});
             [self dns_removeSwitch];
         }
         return;
     }
 
     if (self.dns_dayNightSwitch) {
-        // UITableView/UICollectionView 复用 cell 时，同一个 UISwitch 会被重新绑定到别的数据行。
-        // 这里每次回到视图层级都强制按系统 UISwitch 的真实状态刷新自定义视图，避免闹钟列表这种场景串状态。
+        DNSDiag(@"dns_setup_sync", nil);
         [self dns_syncCustomSwitchWithOn:self.on animated:NO];
         return;
     }
 
+    DNSDiag(@"dns_setup_add", nil);
     [self dns_addSwitch];
 }
 
@@ -272,21 +297,21 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 - (void)dns_addSwitch {
     UIView<FGASwitchProtocol> *sub;
 
-    // 【指挥部】：这里的数字已经和你的 Root.plist 完全对齐
+    Class subClass = nil;
     if (switchStyle == 1) {
-        // 对应 1: 清晰条纹
+        subClass = [StripedSwitch class];
         sub = (UIView<FGASwitchProtocol> *)[[StripedSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else if (switchStyle == 2) {
-        // 对应 2: 日夜交替 (动态)
+        subClass = [DongRiYueSwitch class];
         sub = (UIView<FGASwitchProtocol> *)[[DongRiYueSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else if (switchStyle == 3) {
-        // 对应 3: 飞机跑道
+        subClass = [PlaneSwitch class];
         sub = (UIView<FGASwitchProtocol> *)[[PlaneSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else if (switchStyle == 4) {
-        // 对应 4: 纯洁牙齿
+        subClass = [TeethSwitch class];
         sub = (UIView<FGASwitchProtocol> *)[[TeethSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else {
-        // 默认 0: 经典日月
+        subClass = [DayNightSwitch class];
         sub = (UIView<FGASwitchProtocol> *)[[DayNightSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     }
     sub.on = self.on;
@@ -322,6 +347,7 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     self.onTintColor = [UIColor clearColor];
     self.thumbTintColor = [UIColor clearColor];
     [self addSubview:sub];
+    DNSDiag(@"dns_addSwitch", @{@"subClass": NSStringFromClass(subClass), @"subFrame": NSStringFromCGRect(sub.frame)});
 }
 
 - (void)dealloc {
@@ -338,6 +364,9 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
         self.thumbTintColor = [UIColor clearColor];
         customSwitch.frame = self.bounds;
         [self bringSubviewToFront:customSwitch];
+        DNSDiag(@"layoutSubviews", @{@"hasCustom": @YES, @"bounds": NSStringFromCGRect(self.bounds)});
+    } else {
+        DNSDiag(@"layoutSubviews", @{@"hasCustom": @NO});
     }
 }
 
