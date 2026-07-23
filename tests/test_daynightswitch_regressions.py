@@ -66,7 +66,7 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertIn('static BOOL DNSIsValidSwitchStyle(NSInteger style)', TWEAK)
         self.assertNotIn('enabled = DNSBoolPref', TWEAK)
         self.assertIn('global = DNSBoolPref(globalFile, DNSBoolPref(globalCF, NO));', TWEAK)
-        self.assertIn('NSInteger savedStyle = DNSIntegerPref(styleFile, DNSIntegerPref(styleCF, 0));', TWEAK)
+        self.assertIn('NSInteger savedStyle = DNSMigrateSwitchStyle(DNSIntegerPref(styleFile, DNSIntegerPref(styleCF, 0)));', TWEAK)
         self.assertIn('Shared preference files are authoritative', TWEAK)
         self.assertIn('switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;', TWEAK)
 
@@ -121,13 +121,20 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
     def test_popup_menu_has_one_selection_path_and_exact_five_values(self):
         controller = (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8')
         self.assertIn('selectedSpecifier == self.styleSpecifier', controller)
-        self.assertIn('_styleValues = @[@0, @1, @2, @3, @8];', controller)
+        self.assertIn('_styleValues = @[@0, @1, @2, @3, @4];', controller)
+        self.assertIn('if (style == 8)', controller)
+        self.assertIn('return style == 8 ? 4 : style;', TWEAK)
         self.assertNotIn('textLabel.text isEqualToString:', controller)
         self.assertIn('<string>PSTitleValueCell</string>', ROOT_PLIST)
         self.assertNotIn('<string>PSLinkListCell</string>', ROOT_PLIST)
         self.assertNotIn('<string>PSListItemsController</string>', ROOT_PLIST)
         self.assertIn('self.styleSpecifier = nil;', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
         self.assertIn('cell.detailTextLabel.text =', (REPO / 'daynightswitch/FGARootListController.m').read_text(encoding='utf-8'))
+
+    def test_native_switch_appearance_is_restored_after_skin_removal(self):
+        self.assertIn('dns_appearanceCaptured', TWEAK)
+        self.assertIn('self.tintColor = tintColor;', TWEAK)
+        self.assertIn('%orig;', method_body(TWEAK, '- (void)layoutSubviews'))
 
     def test_all_switches_use_consistent_change_action_semantics(self):
         self.assertIn('self.changeAction(on, !self.isMoved);', DONG)

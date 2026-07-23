@@ -17,12 +17,13 @@
 - (NSString *)identifier;
 @end
 
-@interface UISwitch (DNSPrefObserverDeclarations)
-- (void)dns_registerPrefsObserver;
-@end
-
 static char DNSDayNightSwitchKey;
 static char DNSCurrentStyleKey;
+static char DNSOriginalTintColorKey;
+static char DNSOriginalOnTintColorKey;
+static char DNSOriginalThumbTintColorKey;
+static char DNSAppearanceCapturedKey;
+static char DNSOriginalShadowOpacityKey;
 static NSString *const DNSPrefsChangedNotification = @"DNSPrefsChangedNotification";
 
 // ================= 【核心：通用开关协议，保证系统不崩溃】 =================
@@ -69,8 +70,13 @@ static NSInteger DNSIntegerPref(id value, NSInteger fallback) {
     return fallback;
 }
 
+static NSInteger DNSMigrateSwitchStyle(NSInteger style) {
+    // Style 8 was the pre-1.2.2 value for TeethSwitch.
+    return style == 8 ? 4 : style;
+}
+
 static BOOL DNSIsValidSwitchStyle(NSInteger style) {
-    return style == 0 || style == 1 || style == 2 || style == 3 || style == 8;
+    return style >= 0 && style <= 4;
 }
 
 // 当 cfprefs 返回 nil 时，回退到真正的越狱前缀文件读取
@@ -104,13 +110,13 @@ static void DNSReadPrefs(void) {
     }
 
     global = DNSBoolPref(globalFile, DNSBoolPref(globalCF, NO));
-    NSInteger savedStyle = DNSIntegerPref(styleFile, DNSIntegerPref(styleCF, 0));
+    NSInteger savedStyle = DNSMigrateSwitchStyle(DNSIntegerPref(styleFile, DNSIntegerPref(styleCF, 0)));
     switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;
 }
 
 static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    DNSReadPrefs();
     dispatch_async(dispatch_get_main_queue(), ^{
+        DNSReadPrefs();
         [[NSNotificationCenter defaultCenter] postNotificationName:DNSPrefsChangedNotification object:nil];
     });
 }
@@ -131,6 +137,11 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 - (void)dns_preferencesChanged;
 - (void)dns_restoreNativeAppearance;
 - (void)dns_syncCustomSwitchWithOn:(BOOL)on animated:(BOOL)animated;
+@property (nonatomic, retain) UIColor *dns_originalTintColor;
+@property (nonatomic, retain) UIColor *dns_originalOnTintColor;
+@property (nonatomic, retain) UIColor *dns_originalThumbTintColor;
+@property (nonatomic, retain) NSNumber *dns_appearanceCaptured;
+@property (nonatomic, retain) NSNumber *dns_originalShadowOpacity;
 @end
 
 %hook UISwitch
@@ -152,21 +163,64 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 }
 
 %new
+- (UIColor *)dns_originalTintColor {
+    return objc_getAssociatedObject(self, &DNSOriginalTintColorKey);
+}
+
+%new
+- (UIColor *)dns_originalOnTintColor {
+    return objc_getAssociatedObject(self, &DNSOriginalOnTintColorKey);
+}
+
+%new
+- (UIColor *)dns_originalThumbTintColor {
+    return objc_getAssociatedObject(self, &DNSOriginalThumbTintColorKey);
+}
+
+%new
+- (NSNumber *)dns_appearanceCaptured {
+    return objc_getAssociatedObject(self, &DNSAppearanceCapturedKey);
+}
+
+%new
+- (NSNumber *)dns_originalShadowOpacity {
+    return objc_getAssociatedObject(self, &DNSOriginalShadowOpacityKey);
+}
+
+%new
 - (void)setDns_currentStyle:(NSNumber *)value {
     objc_setAssociatedObject(self, &DNSCurrentStyleKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (void)didMoveToSuperview {
-    %orig;
-    [self dns_setup];
-    // 无条件注册通知：即使当前没挂皮（global=NO），等 global 切 ON 时也能热切换
-    [self dns_registerPrefsObserver];
+%new
+- (void)setDns_originalTintColor:(UIColor *)value {
+    objc_setAssociatedObject(self, &DNSOriginalTintColorKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 %new
-- (void)dns_registerPrefsObserver {
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:DNSPrefsChangedNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dns_preferencesChanged) name:DNSPrefsChangedNotification object:nil];
+- (void)setDns_originalOnTintColor:(UIColor *)value {
+    objc_setAssociatedObject(self, &DNSOriginalOnTintColorKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+%new
+- (void)setDns_originalThumbTintColor:(UIColor *)value {
+    objc_setAssociatedObject(self, &DNSOriginalThumbTintColorKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+%new
+- (void)setDns_appearanceCaptured:(NSNumber *)value {
+    objc_setAssociatedObject(self, &DNSAppearanceCapturedKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+%new
+- (void)setDns_originalShadowOpacity:(NSNumber *)value {
+    objc_setAssociatedObject(self, &DNSOriginalShadowOpacityKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (void)didMoveToSuperview {
+    %orig;
+    // dns_setup 内部已无条件注册通知，即使当前没挂皮也能热切换
+    [self dns_setup];
 }
 
 %new
@@ -267,8 +321,8 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     } else if (switchStyle == 3) {
         // 对应 3: 飞机跑道
         sub = (UIView<FGASwitchProtocol> *)[[PlaneSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
-    } else if (switchStyle == 8) {
-        // 对应 8: 纯洁牙齿
+    } else if (switchStyle == 4) {
+        // 对应 4: 纯洁牙齿
         sub = (UIView<FGASwitchProtocol> *)[[TeethSwitch alloc] initWithFrame:CGRectMake(0, 0, 51, 31)];
     } else {
         // 默认 0: 经典日月
@@ -296,7 +350,13 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
     self.dns_dayNightSwitch = sub;
     self.dns_currentStyle = @(switchStyle);
 
-    self.layer.shadowOpacity = 0;
+    if (!self.dns_appearanceCaptured.boolValue) {
+        self.dns_originalTintColor = self.tintColor;
+        self.dns_originalOnTintColor = self.onTintColor;
+        self.dns_originalThumbTintColor = self.thumbTintColor;
+        self.dns_originalShadowOpacity = @(self.layer.shadowOpacity);
+        self.dns_appearanceCaptured = @YES;
+    }
     self.tintColor = [UIColor clearColor];
     self.onTintColor = [UIColor clearColor];
     self.thumbTintColor = [UIColor clearColor];
@@ -309,23 +369,31 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 }
 
 - (void)layoutSubviews {
+    %orig;
     UIView *customSwitch = self.dns_dayNightSwitch;
     if (customSwitch) {
-        // 在 %orig 之前把自定义开关放好、隐藏原生开关外观，防止原生闪烁
         self.tintColor = [UIColor clearColor];
         self.onTintColor = [UIColor clearColor];
         self.thumbTintColor = [UIColor clearColor];
         customSwitch.frame = self.bounds;
         [self bringSubviewToFront:customSwitch];
     }
-    %orig;
 }
 
 %new
 - (void)dns_restoreNativeAppearance {
-    self.tintColor = nil;
-    self.onTintColor = nil;
-    self.thumbTintColor = nil;
+    UIColor *tintColor = self.dns_originalTintColor;
+    UIColor *onTintColor = self.dns_originalOnTintColor;
+    UIColor *thumbTintColor = self.dns_originalThumbTintColor;
+    self.tintColor = tintColor;
+    self.onTintColor = onTintColor;
+    self.thumbTintColor = thumbTintColor;
+    self.layer.shadowOpacity = self.dns_originalShadowOpacity.floatValue;
+    self.dns_originalTintColor = nil;
+    self.dns_originalOnTintColor = nil;
+    self.dns_originalThumbTintColor = nil;
+    self.dns_originalShadowOpacity = nil;
+    self.dns_appearanceCaptured = nil;
 }
 
 %new

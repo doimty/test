@@ -19,7 +19,7 @@ static NSString *const DNSSwitchStyleKey = @"switchStyle";
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _styleValues = @[@0, @1, @2, @3, @8];
+        _styleValues = @[@0, @1, @2, @3, @4];
         _styleTitles = @[@"经典日月", @"清晰条纹", @"动态日月", @"飞机跑道", @"纯洁牙齿"];
     }
     return self;
@@ -62,6 +62,9 @@ static NSString *const DNSSwitchStyleKey = @"switchStyle";
     [self locateStyleSpecifierIfNeeded];
     id value = self.styleSpecifier ? [self readPreferenceValue:self.styleSpecifier] : nil;
     NSInteger style = [value respondsToSelector:@selector(integerValue)] ? [value integerValue] : 0;
+    if (style == 8) {
+        style = 4;
+    }
     for (NSNumber *candidate in self.styleValues) {
         if (candidate.integerValue == style) {
             return style;
