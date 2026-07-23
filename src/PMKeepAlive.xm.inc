@@ -14,73 +14,28 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
 // Solution: A persistent CADisplayLink in SpringBoard that toggles a tiny
 //           offscreen dirty layer every frame, producing real render commits
 //           that DPPMS treats as proof of 120Hz demand.
-// Smart:    Only active when an injection-blocked app is in the foreground.
-//           Hooked apps report their status via Darwin notify IPC.
+//           Always-on: the link starts running immediately and never pauses.
+//           This matches the proven 1.0.9 behavior (commit 74807ca).
+//           Smart evaluation (paused/unpaused) was unreliable because
+//           Darwin notify IPC state can be lost on app relaunch, and the
+//           evaluation timer misses transitions.
 // ─────────────────────────────────────────────────────────────────────────
-
-// --- IPC: query frontmost app and injection status ---
-
-static NSString *PMSBFrontmostBundleID(void) {
-    @try {
-        Class cls = NSClassFromString(@"SBApplicationController");
-        if (!cls) return nil;
-        typedef id (*PMIdGetter)(id, SEL);
-        PMIdGetter getter = (PMIdGetter)objc_msgSend;
-        SEL sharedSel = NSSelectorFromString(@"sharedInstance");
-        if (![cls respondsToSelector:sharedSel]) return nil;
-        id controller = getter((id)cls, sharedSel);
-        if (!controller) return nil;
-        SEL frontSel = NSSelectorFromString(@"frontmostApplication");
-        if (![controller respondsToSelector:frontSel]) {
-            frontSel = NSSelectorFromString(@"frontApp");
-            if (![controller respondsToSelector:frontSel]) return nil;
-        }
-        id app = getter(controller, frontSel);
-        if (!app) return nil;
-        SEL bundleSel = NSSelectorFromString(@"bundleIdentifier");
-        if ([app respondsToSelector:bundleSel]) return getter(app, bundleSel);
-    } @catch (__unused NSException *e) {}
-    return nil;
-}
-
-static NSMutableDictionary<NSString *, NSNumber *> *PMHookedTokenCache = nil;
-
-static BOOL PMSBIsAppHooked(NSString *bundleID) {
-    if (!bundleID) return NO;
-    if (!PMHookedTokenCache) PMHookedTokenCache = [NSMutableDictionary new];
-    int token;
-    NSNumber *cached = PMHookedTokenCache[bundleID];
-    if (cached) {
-        token = [cached intValue];
-    } else {
-        char name[256];
-        snprintf(name, sizeof(name), "com.doimty.pm120.hooked.%s", [bundleID UTF8String]);
-        notify_register_check(name, &token);
-        PMHookedTokenCache[bundleID] = @(token);
-    }
-    uint64_t state = 0;
-    notify_get_state(token, &state);
-    return state == 1;
-}
 
 // --- Keepalive state ---
 
 static CADisplayLink *PMSBKeepAliveLink   = nil;
 static UIWindow      *PMSBKeepAliveWindow = nil;
 static CALayer       *PMSBDirtyLayer      = nil;
-static BOOL           PMSBKeepAliveNeeded = NO;
-static NSTimer       *PMSBKeepAliveEvalTimer = nil;
 
 // Precomputed CGColors for dirty layer toggle (avoid per-frame alloc)
 static CGColorRef PMSBDirtyColorA = NULL;
 static CGColorRef PMSBDirtyColorB = NULL;
 
-// --- Tick: only runs when link is unpaused ---
+// --- Tick: runs every frame (link is always on) ---
 // v1.0.22: attach UIWindowScene + stronger dirty + CADisplay mode pin.
 // 1.0.20/21 full-width 2pt/opacity 0.02 still lost to DPPMS 80Hz compromise
 // when blocked-app content is dense. Bare UIWindow without scene is flaky on iOS 15+.
 
-static CFAbsoluteTime PMSBKeepAliveHoldUntil = 0; // hysteresis after positive need
 // Pinned host: offscreen 1x1 (no visible top strip). Keepalive demand =
 // DisplayLink range + Global DynamicSource + sparse preferredMode pin.
 // Only valid on 24-float baseline (do not recombine with 25/26 float thrash).
@@ -201,54 +156,7 @@ static void PMSBKeepAliveApplyLinkRange(void) {
     }
 }
 
-// --- Evaluate: pause/unpause with hysteresis; re-assert range + window when active ---
-
-static void PMSBKeepAliveEvaluate(void) {
-    if (!PMSBKeepAliveLink) return;
-    NSString *front = PMSBFrontmostBundleID();
-    BOOL positive = (front != nil) && !PMSBIsAppHooked(front);
-    // Floating windows often sit over hooked apps (or in SB). Hooked-front
-    // keepalive pause then leaves only a soft DynamicSource vote, and DPPMS
-    // drops float UI to 60Hz or the 10Hz idle floor. Keep render proof alive
-    // while any floating window is visible.
-    BOOL floatVisible = PMFloatAnyFloatingWindowVisible();
-    if (floatVisible) positive = YES;
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (positive) {
-        // Hold 2s past last positive so frontmost nil / brief transitions don't pause mid-scroll.
-        PMSBKeepAliveHoldUntil = now + 2.0;
-    }
-    BOOL needed = positive || (now < PMSBKeepAliveHoldUntil);
-    BOOL changed = (needed != PMSBKeepAliveNeeded);
-    PMSBKeepAliveNeeded = needed;
-    PMSBKeepAliveLink.paused = !needed;
-
-    if (needed) {
-        if (PMSBKeepAliveWindow) {
-            PMSBKeepAliveAttachScene();
-            PMSBKeepAliveWindow.hidden = NO;
-            // Stay offscreen; do not re-expand to full-width status-bar strip.
-            CGRect want = CGRectMake(PMSBKeepAliveOffX, PMSBKeepAliveOffY, PMSBKeepAliveStripH, PMSBKeepAliveStripH);
-            if (fabs(PMSBKeepAliveWindow.frame.origin.x - want.origin.x) > 0.5 ||
-                fabs(PMSBKeepAliveWindow.frame.origin.y - want.origin.y) > 0.5 ||
-                fabs(PMSBKeepAliveWindow.bounds.size.width - want.size.width) > 0.5 ||
-                fabs(PMSBKeepAliveWindow.bounds.size.height - want.size.height) > 0.5) {
-                PMSBKeepAliveWindow.frame = want;
-                PMSBDirtyLayer.frame = CGRectMake(0, 0, PMSBKeepAliveStripH, PMSBKeepAliveStripH);
-            }
-            if (PMSBDirtyLayer && PMSBDirtyLayer.superlayer == nil) {
-                [PMSBKeepAliveWindow.layer addSublayer:PMSBDirtyLayer];
-            }
-        }
-        if (changed) {
-            PMSBKeepAliveApplyLinkRange();
-            PMSBForceMainDisplayHighMode();
-            PMGlobalSBApplyForced(@"keepalive.activate");
-        }
-    }
-}
-
-// --- Install: starts paused; only burns frames for injection-blocked front apps ---
+// --- Install: always-on DisplayLink (no pause/evaluation) ---
 
 static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
@@ -283,15 +191,10 @@ static void PMSBInstallKeepAliveLink(void) {
         PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
         PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
                                                         selector:@selector(pm_sbTick:)];
-        PMSBKeepAliveLink.paused = YES;
+        // Always-on: matches proven 1.0.9 behavior (commit 74807ca).
+        // No pause/evaluation — the link runs from install until the process dies.
         PMSBKeepAliveApplyLinkRange();
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-
-        PMSBKeepAliveEvalTimer = [NSTimer timerWithTimeInterval:0.15 repeats:YES block:^(__unused NSTimer *t) {
-            PMSBKeepAliveEvaluate();
-        }];
-        [[NSRunLoop mainRunLoop] addTimer:PMSBKeepAliveEvalTimer forMode:NSRunLoopCommonModes];
-        PMSBKeepAliveEvaluate();
     } @catch (__unused NSException *e) {}
 }
 
