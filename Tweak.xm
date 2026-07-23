@@ -36,7 +36,6 @@ static NSString *const DNSPrefsChangedNotification = @"DNSPrefsChangedNotificati
 // =======================================================================
 
 // MARK: Settings
-static BOOL enabled = NO;
 static BOOL global = NO;
 static NSInteger switchStyle = 0; // 新增：保存用户选择的样式
 static NSString *const DNSPrefsMobilePath = @"/var/mobile/Library/Preferences/de.finngaida.daynightswitch.plist";
@@ -91,23 +90,21 @@ static NSMutableDictionary *DNSPrefsReadFromFile(void) {
 static void DNSReadPrefs(void) {
     CFPreferencesAppSynchronize(CFSTR("de.finngaida.daynightswitch"));
 
-    // 1) cfprefsd 实时值（Settings 刚写完就有，最快）
-    id enabledCF = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("enabled"), CFSTR("de.finngaida.daynightswitch"));
-    id globalCF  = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
-    id styleCF   = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
-
-    // 2) 文件持久化值 - 尝试所有已知越狱路径（cfprefs 兜底）
+    // Shared preference files are authoritative across injected app processes.
+    // Per-process CFPreferences caches can remain stale after Settings writes.
     NSMutableDictionary *settings = DNSPrefsReadFromFile();
+    id globalFile = [settings objectForKey:@"global"];
+    id styleFile = [settings objectForKey:@"switchStyle"];
 
-    // 3) 优先用 cfprefs（实时），没有则 fallback 到文件（兼容）
-    BOOL fileEnabled = DNSBoolPref([settings objectForKey:@"enabled"], YES);
-    BOOL fileGlobal = DNSBoolPref([settings objectForKey:@"global"], NO);
-    NSInteger fileStyle = DNSIntegerPref([settings objectForKey:@"switchStyle"], 0);
+    id globalCF = nil;
+    id styleCF = nil;
+    if (globalFile == nil || styleFile == nil) {
+        globalCF = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("global"), CFSTR("de.finngaida.daynightswitch"));
+        styleCF = (__bridge_transfer id)CFPreferencesCopyAppValue(CFSTR("switchStyle"), CFSTR("de.finngaida.daynightswitch"));
+    }
 
-    enabled = DNSBoolPref(enabledCF, fileEnabled);
-    global = DNSBoolPref(globalCF, fileGlobal);
-
-    NSInteger savedStyle = DNSIntegerPref(styleCF, fileStyle);
+    global = DNSBoolPref(globalFile, DNSBoolPref(globalCF, NO));
+    NSInteger savedStyle = DNSIntegerPref(styleFile, DNSIntegerPref(styleCF, 0));
     switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;
 }
 
@@ -174,10 +171,6 @@ static void DNSPrefsChanged(CFNotificationCenterRef center, void *observer, CFSt
 
 %new
 - (BOOL)dns_shouldApply {
-    if (!enabled) {
-        return NO;
-    }
-
     if (global) {
         return YES;
     }

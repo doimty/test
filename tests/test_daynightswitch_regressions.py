@@ -64,9 +64,10 @@ class DayNightSwitchRegressionTests(unittest.TestCase):
         self.assertIn('static BOOL DNSBoolPref(id value, BOOL fallback)', TWEAK)
         self.assertIn('static NSInteger DNSIntegerPref(id value, NSInteger fallback)', TWEAK)
         self.assertIn('static BOOL DNSIsValidSwitchStyle(NSInteger style)', TWEAK)
-        self.assertIn('enabled = DNSBoolPref(enabledCF,', TWEAK)
-        self.assertIn('global = DNSBoolPref(globalCF,', TWEAK)
-        self.assertIn('NSInteger savedStyle = DNSIntegerPref(', TWEAK)
+        self.assertNotIn('enabled = DNSBoolPref', TWEAK)
+        self.assertIn('global = DNSBoolPref(globalFile, DNSBoolPref(globalCF, NO));', TWEAK)
+        self.assertIn('NSInteger savedStyle = DNSIntegerPref(styleFile, DNSIntegerPref(styleCF, 0));', TWEAK)
+        self.assertIn('Shared preference files are authoritative', TWEAK)
         self.assertIn('switchStyle = DNSIsValidSwitchStyle(savedStyle) ? savedStyle : 0;', TWEAK)
 
     def test_dns_sync_custom_switch_restores_selector_guards(self):
