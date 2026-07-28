@@ -6,6 +6,8 @@ on:
     branches:
       - master
       - main
+      - 'cloud/**'
+      - 'release/**'
     paths:
       - '.github/workflows/rootless-build.yml'
       - '**/*.h'
@@ -33,7 +35,11 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          clang --version
 
       - name: Install packaging tools
         run: |
@@ -53,13 +59,21 @@ jobs:
 
       - name: Build package
         run: |
+          set -o pipefail
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
+          rm -rf packages artifacts
           make clean SDKVERSION=16.5
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless SDKVERSION=16.5
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless SDKVERSION=16.5 2>&1 | tee /tmp/pm120-rootless-build.log
+          if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-rootless-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
+          deb="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$deb"
+          xcrun otool -hv .theos/obj/arm64e/ProMotion120.dylib
+          mkdir -p artifacts
+          cp "$deb" artifacts/
 
       - name: Upload deb packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: promotion120-rootless-packages
-          path: packages/*
+          name: promotion120-rootless-1.0.11
+          path: artifacts/*.deb
           if-no-files-found: error
