@@ -38,6 +38,8 @@ for forbidden in (
 
 if "self.useTrailingCheckmarkLayout = YES;" not in source:
     raise AssertionError("native checkmark is not configured for the trailing slot")
+if 'if ([mode isEqualToString:@"lowPower"]) {\n        return [UIColor systemOrangeColor];\n    }' not in source:
+    raise AssertionError("lowPower did not retain the previous system orange color")
 
 sync = method_body("- (void)syncMenuSelectionViews:")
 if ".selected = selected;" not in sync:

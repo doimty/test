@@ -20,7 +20,7 @@ static UIColor *InsulationColorForPowerMode(NSString *mode) {
         return [UIColor systemRedColor];
     }
     if ([mode isEqualToString:@"lowPower"]) {
-        return [UIColor systemYellowColor];
+        return [UIColor systemOrangeColor];
     }
     return [UIColor whiteColor];
 }
