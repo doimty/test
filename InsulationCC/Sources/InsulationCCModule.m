@@ -270,7 +270,9 @@ static void InsulationSetPowerMode(NSString *mode) {
     }
     self.menuItems = items;
     [self syncMenuSelectionViews:[self menuItemViewsIfAvailable]];
-    [self _updateLeadingAndTrailingViews];
+    if ([self respondsToSelector:@selector(_updateLeadingAndTrailingViews)]) {
+        [self _updateLeadingAndTrailingViews];
+    }
 }
 
 - (void)buttonTapped:(CCUIButtonModuleView *)button forEvent:(UIEvent *)event {
@@ -287,7 +289,9 @@ static void InsulationSetPowerMode(NSString *mode) {
 
     [super buttonTapped:button forEvent:event];
     [self syncMenuSelectionViews:[self menuItemViewsIfAvailable]];
-    [self _updateLeadingAndTrailingViews];
+    if ([self respondsToSelector:@selector(_updateLeadingAndTrailingViews)]) {
+        [self _updateLeadingAndTrailingViews];
+    }
 }
 
 - (void)_handleActionTapped:(CCUIMenuModuleItemView *)view {
@@ -307,7 +311,9 @@ static void InsulationSetPowerMode(NSString *mode) {
         visibleMenuViews = [[self menuItemViewsIfAvailable] copy];
     }
     [self syncMenuSelectionViews:visibleMenuViews];
-    [self _updateLeadingAndTrailingViews];
+    if ([self respondsToSelector:@selector(_updateLeadingAndTrailingViews)]) {
+        [self _updateLeadingAndTrailingViews];
+    }
 }
 
 - (BOOL)_canShowWhileLocked {

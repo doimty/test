@@ -55,9 +55,12 @@ jobs:
 
       - name: Install Theos SDK with private frameworks
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
-          git -C /tmp/theos-sdks checkout 0222fd5413cf4b9af096f37b4621afa2688572f7
+          git init /tmp/theos-sdks
+          git -C /tmp/theos-sdks remote add origin https://github.com/theos/sdks.git
+          git -C /tmp/theos-sdks sparse-checkout init --cone
           git -C /tmp/theos-sdks sparse-checkout set iPhoneOS16.5.sdk
+          git -C /tmp/theos-sdks fetch --depth 1 --filter=blob:none origin 0222fd5413cf4b9af096f37b4621afa2688572f7
+          git -C /tmp/theos-sdks checkout --detach FETCH_HEAD
           mkdir -p "$THEOS/sdks"
           cp -R /tmp/theos-sdks/iPhoneOS16.5.sdk "$THEOS/sdks/"
 

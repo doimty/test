@@ -3,12 +3,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE="$ROOT/InsulationCC/Sources/InsulationCCModule.m"
+WORKFLOW="$ROOT/.github/workflows/build.yml"
 
-python3 - "$SOURCE" <<'PY'
+python3 - "$SOURCE" "$WORKFLOW" <<'PY'
 import pathlib
 import sys
 
 source = pathlib.Path(sys.argv[1]).read_text()
+workflow = pathlib.Path(sys.argv[2]).read_text()
 
 
 def method_body(signature: str) -> str:
@@ -38,6 +40,10 @@ if "self.useTrailingCheckmarkLayout = YES;" not in source:
     raise AssertionError("native checkmark is not configured for the trailing slot")
 if 'if ([mode isEqualToString:@"lowPower"]) {\n        return [UIColor systemOrangeColor];\n    }' not in source:
     raise AssertionError("lowPower did not retain the previous system orange color")
+if 'if ([mode isEqualToString:@"fullPower"]) {\n        return [UIColor systemRedColor];\n    }' not in source:
+    raise AssertionError("fullPower did not retain the system red color")
+if "return [UIColor whiteColor];" not in source:
+    raise AssertionError("natural mode did not retain its white glyph color")
 
 sync = method_body("- (void)syncMenuSelectionViews:")
 if ".selected = selected;" not in sync:
@@ -56,5 +62,22 @@ if min(positions) < 0 or positions != sorted(positions):
 if "visibleMenuStack.arrangedSubviews" not in handle:
     raise AssertionError("expanded tap does not capture current visible rows")
 
-print("OK: native checkmark selection is synchronized and refreshed on the visible CC menu")
+native_refresh = "[self _updateLeadingAndTrailingViews];"
+native_refresh_guard = "if ([self respondsToSelector:@selector(_updateLeadingAndTrailingViews)]) {"
+search_from = 0
+while True:
+    call = source.find(native_refresh, search_from)
+    if call < 0:
+        break
+    if native_refresh_guard not in source[max(0, call - 160):call]:
+        raise AssertionError("private native checkmark refresh is called without a selector guard")
+    search_from = call + len(native_refresh)
+
+sdk_commit = "0222fd5413cf4b9af096f37b4621afa2688572f7"
+if f'git -C /tmp/theos-sdks fetch --depth 1 --filter=blob:none origin {sdk_commit}' not in workflow:
+    raise AssertionError("CI does not shallow-fetch the pinned SDK commit directly")
+if "git -C /tmp/theos-sdks checkout --detach FETCH_HEAD" not in workflow:
+    raise AssertionError("CI does not detach at the explicitly fetched SDK commit")
+
+print("OK: native checkmark selection and pinned SDK checkout are guarded and reproducible")
 PY
