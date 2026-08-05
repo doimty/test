@@ -50,7 +50,7 @@ jobs:
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/roothide/theos.git "$THEOS"
-          git -C "$THEOS" checkout d5feac27e65847a803f310012001b2d842f55727
+          git -C "$THEOS" checkout 88506b2c22e9e07dd4ed055f23c9e398a117a2c7
           git -C "$THEOS" submodule update --init --recursive
 
       - name: Install Theos SDK with private frameworks
