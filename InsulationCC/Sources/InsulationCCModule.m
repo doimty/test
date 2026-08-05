@@ -1,5 +1,4 @@
 #import <UIKit/UIKit.h>
-#import <QuartzCore/QuartzCore.h>
 #import <notify.h>
 
 #import "ControlCenterUIKit/CCUIContentModule.h"
@@ -15,7 +14,6 @@ static NSString *const InsulationExecuteNotification = @"com.be-huge.insulation-
 static NSString *const InsulationRestartNotification = @"com.be-huge.insulation-restartThermalMonitor";
 static const char *InsulationRuntimeStateName = "com.be-huge.insulation.runtimeState";
 static const uint64_t InsulationRuntimeStateMagic = 0x494E535500000000ULL;
-static const CGFloat InsulationModeDotDiameter = 9.0;
 
 static UIColor *InsulationColorForPowerMode(NSString *mode) {
     if ([mode isEqualToString:@"fullPower"]) {
@@ -26,41 +24,6 @@ static UIColor *InsulationColorForPowerMode(NSString *mode) {
     }
     return [UIColor whiteColor];
 }
-
-@interface InsulationModeDotView : UIView
-@property (nonatomic, copy, readonly) NSString *mode;
-- (instancetype)initWithMode:(NSString *)mode;
-@end
-
-@implementation InsulationModeDotView
-
-- (instancetype)initWithMode:(NSString *)mode {
-    self = [super initWithFrame:CGRectMake(0, 0, InsulationModeDotDiameter, InsulationModeDotDiameter)];
-    if (self) {
-        _mode = [mode copy];
-        self.backgroundColor = InsulationColorForPowerMode(mode);
-        self.userInteractionEnabled = NO;
-        self.layer.cornerRadius = InsulationModeDotDiameter / 2.0;
-        self.layer.masksToBounds = YES;
-    }
-    return self;
-}
-
-- (CGSize)intrinsicContentSize {
-    return CGSizeMake(InsulationModeDotDiameter, InsulationModeDotDiameter);
-}
-
-- (CGSize)sizeThatFits:(__unused CGSize)size {
-    return CGSizeMake(InsulationModeDotDiameter, InsulationModeDotDiameter);
-}
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    CGFloat side = MIN(CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
-    self.layer.cornerRadius = side / 2.0;
-}
-
-@end
 
 static void InsulationPostDarwinNotification(NSString *name) {
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge CFStringRef)name, NULL, NULL, true);
@@ -110,7 +73,6 @@ static void InsulationSetPowerMode(NSString *mode) {
 @property (nonatomic, copy) NSArray<NSString *> *modeTitles;
 @property (nonatomic, copy) NSArray<NSString *> *modeSubtitles;
 @property (nonatomic, assign) NSInteger selectedIndex;
-@property (nonatomic, assign) BOOL applyingModeDots;
 @end
 
 @implementation InsulationCCModuleViewController
@@ -220,9 +182,22 @@ static void InsulationSetPowerMode(NSString *mode) {
     @try {
         menuViews = [self valueForKey:@"_menuItemsViews"];
     } @catch (__unused NSException *exception) {
-        return nil;
+        menuViews = nil;
     }
-    return [menuViews isKindOfClass:[NSArray class]] ? menuViews : nil;
+    if ([menuViews isKindOfClass:[NSArray class]] && [menuViews count] != 0) {
+        return menuViews;
+    }
+
+    id container = nil;
+    @try {
+        container = [self valueForKey:@"_menuItemsContainer"];
+    } @catch (__unused NSException *exception) {
+        container = nil;
+    }
+    if ([container isKindOfClass:[UIStackView class]]) {
+        return ((UIStackView *)container).arrangedSubviews;
+    }
+    return nil;
 }
 
 - (NSString *)modeForMenuItemView:(CCUIMenuModuleItemView *)view {
@@ -249,58 +224,30 @@ static void InsulationSetPowerMode(NSString *mode) {
     return self.modeValues[idx];
 }
 
-- (void)updateMenuSelectionViews:(NSArray *)menuViews {
-    if (self.applyingModeDots) {
-        return;
+- (void)syncMenuSelectionViews:(NSArray *)menuViews {
+    NSString *selectedMode = nil;
+    if (self.selectedIndex >= 0 && self.selectedIndex < (NSInteger)self.modeValues.count) {
+        selectedMode = self.modeValues[(NSUInteger)self.selectedIndex];
     }
-    self.applyingModeDots = YES;
 
-    for (NSUInteger i = 0; i < menuViews.count; i++) {
-        id candidate = menuViews[i];
+    NSUInteger itemIndex = 0;
+    for (id candidate in menuViews) {
         if (![candidate isKindOfClass:[CCUIMenuModuleItemView class]]) {
             continue;
         }
 
-        CCUIMenuModuleItemView *itemView = candidate;
-        BOOL selected = (i < self.modeValues.count && (NSInteger)i == self.selectedIndex);
+        CCUIMenuModuleItem *item = ((CCUIMenuModuleItemView *)candidate).menuItem;
+        NSString *identifier = nil;
+        if ([item isKindOfClass:[CCUIMenuModuleItem class]] && [item.identifier isKindOfClass:[NSString class]]) {
+            identifier = item.identifier;
+        }
+        BOOL selected = identifier ? [identifier isEqualToString:selectedMode] : itemIndex == (NSUInteger)self.selectedIndex;
+        itemIndex++;
 
-        id item = itemView.menuItem;
-        if ([item isKindOfClass:[CCUIMenuModuleItem class]] && ((CCUIMenuModuleItem *)item).selected != selected) {
-            ((CCUIMenuModuleItem *)item).selected = selected;
+        if ([item isKindOfClass:[CCUIMenuModuleItem class]] && item.selected != selected) {
+            item.selected = selected;
         }
-        if (itemView.leadingView) {
-            itemView.leadingView = nil;
-        }
-
-        if (!selected) {
-            if (itemView.trailingView) {
-                itemView.trailingView = nil;
-            }
-            continue;
-        }
-
-        NSString *mode = self.modeValues[i];
-        UIView *existing = itemView.trailingView;
-        if ([existing isKindOfClass:[InsulationModeDotView class]] &&
-            [((InsulationModeDotView *)existing).mode isEqualToString:mode]) {
-            continue;
-        }
-        itemView.trailingView = [[InsulationModeDotView alloc] initWithMode:mode];
     }
-
-    self.applyingModeDots = NO;
-}
-
-- (void)applyModeDots {
-    NSArray *menuViews = [self menuItemViewsIfAvailable];
-    if (menuViews) {
-        [self updateMenuSelectionViews:menuViews];
-    }
-}
-
-- (void)_updateLeadingAndTrailingViews {
-    [super _updateLeadingAndTrailingViews];
-    [self applyModeDots];
 }
 
 - (void)rebuildMenuItems {
@@ -315,7 +262,8 @@ static void InsulationSetPowerMode(NSString *mode) {
         [items addObject:item];
     }
     self.menuItems = items;
-    [self applyModeDots];
+    [self syncMenuSelectionViews:[self menuItemViewsIfAvailable]];
+    [self _updateLeadingAndTrailingViews];
 }
 
 - (void)buttonTapped:(CCUIButtonModuleView *)button forEvent:(UIEvent *)event {
@@ -331,10 +279,13 @@ static void InsulationSetPowerMode(NSString *mode) {
     [self refreshSelectionState];
 
     [super buttonTapped:button forEvent:event];
-    [self applyModeDots];
+    [self syncMenuSelectionViews:[self menuItemViewsIfAvailable]];
+    [self _updateLeadingAndTrailingViews];
 }
 
 - (void)_handleActionTapped:(CCUIMenuModuleItemView *)view {
+    UIStackView *visibleMenuStack = [view.superview isKindOfClass:[UIStackView class]] ? (UIStackView *)view.superview : nil;
+    NSArray *visibleMenuViews = visibleMenuStack ? [visibleMenuStack.arrangedSubviews copy] : [[self menuItemViewsIfAvailable] copy];
     NSString *mode = [self modeForMenuItemView:view];
     if (!mode) {
         [super _handleActionTapped:view];
@@ -345,7 +296,11 @@ static void InsulationSetPowerMode(NSString *mode) {
     [self refreshSelectionState];
 
     [super _handleActionTapped:view];
-    [self applyModeDots];
+    if (visibleMenuViews.count == 0) {
+        visibleMenuViews = [[self menuItemViewsIfAvailable] copy];
+    }
+    [self syncMenuSelectionViews:visibleMenuViews];
+    [self _updateLeadingAndTrailingViews];
 }
 
 - (BOOL)_canShowWhileLocked {

@@ -64,9 +64,10 @@ jobs:
       - name: Build package
         run: |
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
-          bash -n scripts/check-objc-port.sh scripts/test-insulationctl-args.sh scripts/verify-insulationctl-package.sh
+          bash -n scripts/check-objc-port.sh scripts/test-insulationctl-args.sh scripts/test-insulationcc-native-selection-refresh.sh scripts/verify-insulationctl-package.sh
           scripts/check-objc-port.sh
           scripts/test-insulationctl-args.sh
+          scripts/test-insulationcc-native-selection-refresh.sh
           make clean SDKVERSION=16.5
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME}" SDKVERSION=16.5
           deb="$(ls packages/*.deb | head -n 1)"
