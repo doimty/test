@@ -30,11 +30,9 @@ def method_body(signature: str) -> str:
 for forbidden in (
     "InsulationModeDotView",
     "InsulationModeDotDiameter",
-    ".leadingView =",
-    ".trailingView =",
 ):
     if forbidden in source:
-        raise AssertionError(f"native checkmark path still contains custom accessory code: {forbidden}")
+        raise AssertionError(f"native checkmark path still contains custom dot code: {forbidden}")
 
 if "self.useTrailingCheckmarkLayout = YES;" not in source:
     raise AssertionError("native checkmark is not configured for the trailing slot")
@@ -44,6 +42,8 @@ if 'if ([mode isEqualToString:@"lowPower"]) {\n        return [UIColor systemOra
 sync = method_body("- (void)syncMenuSelectionViews:")
 if ".selected = selected;" not in sync:
     raise AssertionError("visible menu models are not synchronized for every row")
+if "if (!selected)" not in sync or "itemView.trailingView = nil;" not in sync:
+    raise AssertionError("stale native trailing checkmarks are not removed from unselected rows")
 
 handle = method_body("- (void)_handleActionTapped:")
 super_call = "[super _handleActionTapped:view];"

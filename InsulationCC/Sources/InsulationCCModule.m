@@ -236,16 +236,23 @@ static void InsulationSetPowerMode(NSString *mode) {
             continue;
         }
 
-        CCUIMenuModuleItem *item = ((CCUIMenuModuleItemView *)candidate).menuItem;
+        CCUIMenuModuleItemView *itemView = candidate;
+        CCUIMenuModuleItem *item = itemView.menuItem;
         NSString *identifier = nil;
-        if ([item isKindOfClass:[CCUIMenuModuleItem class]] && [item.identifier isKindOfClass:[NSString class]]) {
-            identifier = item.identifier;
+        if ([item respondsToSelector:@selector(identifier)]) {
+            id value = item.identifier;
+            if ([value isKindOfClass:[NSString class]]) {
+                identifier = value;
+            }
         }
         BOOL selected = identifier ? [identifier isEqualToString:selectedMode] : itemIndex == (NSUInteger)self.selectedIndex;
         itemIndex++;
 
-        if ([item isKindOfClass:[CCUIMenuModuleItem class]] && item.selected != selected) {
+        if ([item respondsToSelector:@selector(setSelected:)]) {
             item.selected = selected;
+        }
+        if (!selected) {
+            itemView.trailingView = nil;
         }
     }
 }
