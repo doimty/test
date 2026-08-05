@@ -24,7 +24,7 @@
 	BOOL _useTallLayout;
 	/*^block*/ id _handler;
 	CGFloat _preferredMaxLayoutWidth;
-   CCUIMenuModuleItemView* _menuItem;
+   CCUIMenuModuleItem* _menuItem;
    UIView* _leadingView;
    UIView* _trailingView;
 
@@ -32,7 +32,7 @@
 
 @property (nonatomic) UIView *leadingView;
 @property (nonatomic) UIView *trailingView;
-@property (nonatomic) CCUIMenuModuleItemView *menuItem;
+@property (nonatomic) CCUIMenuModuleItem *menuItem;
 @property (nonatomic,copy,readonly) id handler;					//@synthesize handler=_handler - In the implementation block
 @property (assign,nonatomic) BOOL separatorVisible;				//@synthesize separatorVisible=_separatorVisible - In the implementation block
 @property (assign,nonatomic) CGFloat preferredMaxLayoutWidth;			//@synthesize preferredMaxLayoutWidth=_preferredMaxLayoutWidth - In the implementation block

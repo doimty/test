@@ -15,6 +15,52 @@ static NSString *const InsulationExecuteNotification = @"com.be-huge.insulation-
 static NSString *const InsulationRestartNotification = @"com.be-huge.insulation-restartThermalMonitor";
 static const char *InsulationRuntimeStateName = "com.be-huge.insulation.runtimeState";
 static const uint64_t InsulationRuntimeStateMagic = 0x494E535500000000ULL;
+static const CGFloat InsulationModeDotDiameter = 9.0;
+
+static UIColor *InsulationColorForPowerMode(NSString *mode) {
+    if ([mode isEqualToString:@"fullPower"]) {
+        return [UIColor systemRedColor];
+    }
+    if ([mode isEqualToString:@"lowPower"]) {
+        return [UIColor systemYellowColor];
+    }
+    return [UIColor whiteColor];
+}
+
+@interface InsulationModeDotView : UIView
+@property (nonatomic, copy, readonly) NSString *mode;
+- (instancetype)initWithMode:(NSString *)mode;
+@end
+
+@implementation InsulationModeDotView
+
+- (instancetype)initWithMode:(NSString *)mode {
+    self = [super initWithFrame:CGRectMake(0, 0, InsulationModeDotDiameter, InsulationModeDotDiameter)];
+    if (self) {
+        _mode = [mode copy];
+        self.backgroundColor = InsulationColorForPowerMode(mode);
+        self.userInteractionEnabled = NO;
+        self.layer.cornerRadius = InsulationModeDotDiameter / 2.0;
+        self.layer.masksToBounds = YES;
+    }
+    return self;
+}
+
+- (CGSize)intrinsicContentSize {
+    return CGSizeMake(InsulationModeDotDiameter, InsulationModeDotDiameter);
+}
+
+- (CGSize)sizeThatFits:(__unused CGSize)size {
+    return CGSizeMake(InsulationModeDotDiameter, InsulationModeDotDiameter);
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat side = MIN(CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
+    self.layer.cornerRadius = side / 2.0;
+}
+
+@end
 
 static void InsulationPostDarwinNotification(NSString *name) {
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), (__bridge CFStringRef)name, NULL, NULL, true);
@@ -36,7 +82,11 @@ static NSString *InsulationResolvedPrefsPath(void) {
 
 static NSString *InsulationCurrentPowerMode(void) {
     NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:InsulationResolvedPrefsPath()];
-    NSString *mode = [prefs objectForKey:InsulationPowerModeKey];
+    id value = [prefs objectForKey:InsulationPowerModeKey];
+    if (![value isKindOfClass:[NSString class]]) {
+        return @"off";
+    }
+    NSString *mode = value;
     if ([mode isEqualToString:@"lowPower"] || [mode isEqualToString:@"fullPower"]) {
         return mode;
     }
@@ -60,6 +110,7 @@ static void InsulationSetPowerMode(NSString *mode) {
 @property (nonatomic, copy) NSArray<NSString *> *modeTitles;
 @property (nonatomic, copy) NSArray<NSString *> *modeSubtitles;
 @property (nonatomic, assign) NSInteger selectedIndex;
+@property (nonatomic, assign) BOOL applyingModeDots;
 @end
 
 @implementation InsulationCCModuleViewController
@@ -113,7 +164,6 @@ static void InsulationSetPowerMode(NSString *mode) {
 
     self.glyphImage = glyph;
     self.indentation = 2;
-    self.selectedGlyphColor = [UIColor systemOrangeColor];
     self.title = @"Insulation";
     self.useTrailingCheckmarkLayout = YES;
     self.shouldProvideOwnPlatter = YES;
@@ -142,10 +192,115 @@ static void InsulationSetPowerMode(NSString *mode) {
 
 - (void)refreshSelectionState {
     NSString *current = InsulationCurrentPowerMode();
-    NSInteger idx = [self.modeValues indexOfObject:current];
-    self.selectedIndex = idx == NSNotFound ? 0 : idx;
-    self.selected = self.selectedIndex != 0;
-    self.glyphState = self.selected ? @"on" : @"off";
+    NSUInteger found = [self.modeValues indexOfObject:current];
+    self.selectedIndex = found == NSNotFound ? 0 : (NSInteger)found;
+
+    UIColor *glyphColor = InsulationColorForPowerMode(current);
+    BOOL active = self.selectedIndex != 0;
+    self.selectedGlyphColor = glyphColor;
+    self.glyphState = active ? @"on" : @"off";
+    self.selected = active;
+
+    if (!self.viewLoaded) {
+        return;
+    }
+
+    CCUIButtonModuleView *buttonView = self.buttonView;
+    if (![buttonView isKindOfClass:[CCUIButtonModuleView class]]) {
+        return;
+    }
+    buttonView.selectedGlyphColor = glyphColor;
+    if ([buttonView respondsToSelector:@selector(_updateForStateChange)]) {
+        [buttonView _updateForStateChange];
+    }
+}
+
+- (NSArray *)menuItemViewsIfAvailable {
+    id menuViews = nil;
+    @try {
+        menuViews = [self valueForKey:@"_menuItemsViews"];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+    return [menuViews isKindOfClass:[NSArray class]] ? menuViews : nil;
+}
+
+- (NSString *)modeForMenuItemView:(CCUIMenuModuleItemView *)view {
+    if (![view isKindOfClass:[CCUIMenuModuleItemView class]]) {
+        return nil;
+    }
+
+    id item = view.menuItem;
+    if ([item isKindOfClass:[CCUIMenuModuleItem class]]) {
+        NSString *identifier = ((CCUIMenuModuleItem *)item).identifier;
+        if ([identifier isKindOfClass:[NSString class]] && [self.modeValues containsObject:identifier]) {
+            return identifier;
+        }
+    }
+
+    NSArray *menuViews = [self menuItemViewsIfAvailable];
+    NSUInteger idx = menuViews ? [menuViews indexOfObjectIdenticalTo:view] : NSNotFound;
+    if (idx == NSNotFound && [view.superview isKindOfClass:[UIStackView class]]) {
+        idx = [((UIStackView *)view.superview).arrangedSubviews indexOfObjectIdenticalTo:view];
+    }
+    if (idx == NSNotFound || idx >= self.modeValues.count) {
+        return nil;
+    }
+    return self.modeValues[idx];
+}
+
+- (void)updateMenuSelectionViews:(NSArray *)menuViews {
+    if (self.applyingModeDots) {
+        return;
+    }
+    self.applyingModeDots = YES;
+
+    for (NSUInteger i = 0; i < menuViews.count; i++) {
+        id candidate = menuViews[i];
+        if (![candidate isKindOfClass:[CCUIMenuModuleItemView class]]) {
+            continue;
+        }
+
+        CCUIMenuModuleItemView *itemView = candidate;
+        BOOL selected = (i < self.modeValues.count && (NSInteger)i == self.selectedIndex);
+
+        id item = itemView.menuItem;
+        if ([item isKindOfClass:[CCUIMenuModuleItem class]] && ((CCUIMenuModuleItem *)item).selected != selected) {
+            ((CCUIMenuModuleItem *)item).selected = selected;
+        }
+        if (itemView.leadingView) {
+            itemView.leadingView = nil;
+        }
+
+        if (!selected) {
+            if (itemView.trailingView) {
+                itemView.trailingView = nil;
+            }
+            continue;
+        }
+
+        NSString *mode = self.modeValues[i];
+        UIView *existing = itemView.trailingView;
+        if ([existing isKindOfClass:[InsulationModeDotView class]] &&
+            [((InsulationModeDotView *)existing).mode isEqualToString:mode]) {
+            continue;
+        }
+        itemView.trailingView = [[InsulationModeDotView alloc] initWithMode:mode];
+    }
+
+    self.applyingModeDots = NO;
+}
+
+- (void)applyModeDots {
+    NSArray *menuViews = [self menuItemViewsIfAvailable];
+    if (menuViews) {
+        [self updateMenuSelectionViews:menuViews];
+    }
+}
+
+- (void)_updateLeadingAndTrailingViews {
+    [super _updateLeadingAndTrailingViews];
+    [self applyModeDots];
 }
 
 - (void)rebuildMenuItems {
@@ -160,47 +315,37 @@ static void InsulationSetPowerMode(NSString *mode) {
         [items addObject:item];
     }
     self.menuItems = items;
+    [self applyModeDots];
 }
 
 - (void)buttonTapped:(CCUIButtonModuleView *)button forEvent:(UIEvent *)event {
-    NSString *current = InsulationCurrentPowerMode();
-    NSInteger idx = [self.modeValues indexOfObject:current];
-    if (idx == NSNotFound) {
-        idx = 0;
-    }
-    NSInteger nextIdx = (idx + 1) % self.modeValues.count;
-    InsulationSetPowerMode(self.modeValues[nextIdx]);
-    [self refreshSelectionState];
-    [super buttonTapped:button forEvent:event];
-}
-
-- (void)_handleActionTapped:(CCUIMenuModuleItemView *)view {
-    [super _handleActionTapped:view];
-
-    NSArray<CCUIMenuModuleItemView *> *menuViews = ((UIStackView *)view.superview).arrangedSubviews;
-    if (self.selectedIndex >= 0 && self.selectedIndex < (NSInteger)menuViews.count) {
-        CCUIMenuModuleItemView *lastView = menuViews[self.selectedIndex];
-        lastView.menuItem.selected = NO;
-        if (self.useTrailingCheckmarkLayout) {
-            lastView.trailingView = nil;
-        } else {
-            lastView.leadingView = nil;
-        }
-    }
-
-    NSInteger tappedIndex = [menuViews indexOfObject:view];
-    if (tappedIndex == NSNotFound || tappedIndex >= (NSInteger)self.modeValues.count) {
+    NSUInteger count = self.modeValues.count;
+    if (count == 0) {
+        [super buttonTapped:button forEvent:event];
         return;
     }
 
-    InsulationSetPowerMode(self.modeValues[tappedIndex]);
+    NSUInteger found = [self.modeValues indexOfObject:InsulationCurrentPowerMode()];
+    NSUInteger idx = found == NSNotFound ? 0 : found;
+    InsulationSetPowerMode(self.modeValues[(idx + 1) % count]);
+    [self refreshSelectionState];
 
-    view.menuItem.selected = YES;
-    [self _updateLeadingAndTrailingViews];
+    [super buttonTapped:button forEvent:event];
+    [self applyModeDots];
+}
 
-    self.selectedIndex = tappedIndex;
-    self.selected = tappedIndex != 0;
-    self.glyphState = self.selected ? @"on" : @"off";
+- (void)_handleActionTapped:(CCUIMenuModuleItemView *)view {
+    NSString *mode = [self modeForMenuItemView:view];
+    if (!mode) {
+        [super _handleActionTapped:view];
+        return;
+    }
+
+    InsulationSetPowerMode(mode);
+    [self refreshSelectionState];
+
+    [super _handleActionTapped:view];
+    [self applyModeDots];
 }
 
 - (BOOL)_canShowWhileLocked {
