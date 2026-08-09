@@ -1,0 +1,10 @@
+Package: com.doimty.promotion
+Name: ProMotion 120Hz
+Author: doimty
+Description: Force global 120Hz ProMotion, bypass the 80Hz system cap. iPhone 13 Pro and above only.
+Depends: mobilesubstrate
+Maintainer: doimty
+Architecture: iphoneos-arm64
+Section: Tweaks
+Version: 1.0.8
+Tag: supports::roothide

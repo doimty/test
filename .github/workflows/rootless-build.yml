@@ -1,0 +1,96 @@
+name: Build rootless
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+      - 'cloud/**'
+    paths:
+      - '.github/workflows/rootless-build.yml'
+      - '**/*.h'
+      - '**/*.m'
+      - '**/*.xm'
+      - '**/*.plist'
+      - 'Makefile'
+      - 'control'
+      - 'layout/**'
+
+jobs:
+  package:
+    name: Package (rootless)
+    runs-on: macos-14
+
+    env:
+      THEOS: ${{ github.workspace }}/theos
+      THEOS_PACKAGE_SCHEME: rootless
+      FINALPACKAGE: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          clang --version
+
+      - name: Install packaging tools
+        run: |
+          brew update
+          brew install dpkg ldid make
+
+      - name: Install Theos
+        run: |
+          git clone https://github.com/theos/theos.git "$THEOS"
+          git -C "$THEOS" checkout --detach 16362d3aa83a0acd56df4493d575d34306d42478
+          git -C "$THEOS" submodule update --init --recursive
+
+      - name: Install Theos SDK with private frameworks
+        run: |
+          git clone --filter=blob:none --no-checkout --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
+          git -C /tmp/theos-sdks sparse-checkout set iPhoneOS16.5.sdk
+          git -C /tmp/theos-sdks fetch --depth 1 origin 0222fd5413cf4b9af096f37b4621afa2688572f7
+          git -C /tmp/theos-sdks checkout --detach FETCH_HEAD
+          mkdir -p "$THEOS/sdks"
+          cp -R /tmp/theos-sdks/iPhoneOS16.5.sdk "$THEOS/sdks/"
+
+      - name: Build package
+        run: |
+          set -o pipefail
+          export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
+          rm -rf packages artifacts /tmp/promotion120-rootless-pkg
+          make clean SDKVERSION=16.5
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless SDKVERSION=16.5 2>&1 | tee /tmp/promotion120-rootless-build.log
+          if grep -q 'incompatible arm64e ABI compiler' /tmp/promotion120-rootless-build.log; then
+            echo 'FATAL: incompatible arm64e ABI compiler'
+            exit 1
+          fi
+
+          deb="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$deb"
+          test "$(dpkg-deb -f "$deb" Package)" = 'com.doimty.promotion'
+          test "$(dpkg-deb -f "$deb" Version)" = '1.0.8'
+          test "$(dpkg-deb -f "$deb" Architecture)" = 'iphoneos-arm64'
+
+          mkdir -p /tmp/promotion120-rootless-pkg
+          dpkg-deb -x "$deb" /tmp/promotion120-rootless-pkg
+          bin="$(find /tmp/promotion120-rootless-pkg/var/jb/Library/MobileSubstrate/DynamicLibraries -name 'ProMotion120.dylib' -type f -print -quit)"
+          test -n "$bin"
+          archs="$(xcrun lipo -archs "$bin")"
+          echo "Mach-O architectures: $archs"
+          printf '%s\n' "$archs" | tr ' ' '\n' | grep -qx 'arm64'
+          xcrun otool -hv "$bin"
+
+          mkdir -p artifacts
+          cp "$deb" artifacts/com.doimty.promotion_1.0.8_iphoneos-arm64.deb
+
+      - name: Upload deb packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: promotion120-rootless-1.0.8-arm64
+          path: artifacts/com.doimty.promotion_1.0.8_iphoneos-arm64.deb
+          if-no-files-found: error
