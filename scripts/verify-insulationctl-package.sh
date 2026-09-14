@@ -84,6 +84,27 @@ else
   echo "OK: CLI POSIX-writes prefs"
 fi
 
+if ! grep -F 'dlopen' Sources/insulationctl/main.m >/dev/null; then
+  echo "FAIL: CLI does not load libroothide at runtime" >&2
+  fail=1
+else
+  echo "OK: CLI dlopens libroothide at runtime"
+fi
+
+if ! grep -F 'libroothide.dylib' Sources/insulationctl/main.m >/dev/null; then
+  echo "FAIL: CLI does not look up libroothide.dylib" >&2
+  fail=1
+else
+  echo "OK: CLI looks up libroothide.dylib under jbroot"
+fi
+
+if grep -F 'insulationctl_LDFLAGS += -lroothide' Makefile >/dev/null; then
+  echo "FAIL: CLI is linked against libroothide and can abort at dyld" >&2
+  fail=1
+else
+  echo "OK: CLI is not linked against libroothide"
+fi
+
 if [[ "$#" -gt 0 ]]; then
   section "Package contents"
 fi

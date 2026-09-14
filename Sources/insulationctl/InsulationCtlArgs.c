@@ -129,44 +129,49 @@ int InsulationCtlPrefsPathIsRedirected(const char *path) {
     return path && strstr(path, "/.jbroot-") != NULL;
 }
 
+int InsulationCtlJbrootPrefixFromPath(const char *path, char *out, unsigned long outSize) {
+    const char *found;
+    const char *name;
+    const char *slash;
+    size_t prefixLen;
+    if (!path || !out || outSize == 0) {
+        return 0;
+    }
+    found = strstr(path, "/.jbroot-");
+    if (!found) {
+        return 0;
+    }
+    name = found + 1;
+    if (strncmp(name, ".jbroot-", 8) != 0 || name[8] == '\0' || name[8] == '/') {
+        return 0;
+    }
+    slash = strchr(name, '/');
+    prefixLen = slash ? (size_t)(slash - path) : strlen(path);
+    if (prefixLen + 1 > outSize) {
+        return 0;
+    }
+    memcpy(out, path, prefixLen);
+    out[prefixLen] = '\0';
+    return 1;
+}
+
 int InsulationCtlResolvePrefsPath(const char *executablePath, char *out, unsigned long outSize) {
     const char *systemPath = InsulationCtlPrefsSystemPath;
     size_t systemLen = strlen(systemPath);
+    char prefix[4096];
+    size_t prefixLen;
     if (!out || outSize == 0) {
         return 0;
     }
-
-    if (executablePath && executablePath[0] != '\0') {
-        static const char *suffixes[] = { "/usr/bin/insulationctl", "/usr/bin/ins", NULL };
-        size_t elen = strlen(executablePath);
-        int i;
-        for (i = 0; suffixes[i]; i++) {
-            size_t slen = strlen(suffixes[i]);
-            const char *last;
-            size_t j;
-            size_t prefixLen;
-            if (elen <= slen || strcmp(executablePath + elen - slen, suffixes[i]) != 0) {
-                continue;
-            }
-            prefixLen = elen - slen;
-            last = executablePath;
-            for (j = 0; j < prefixLen; j++) {
-                if (executablePath[j] == '/') {
-                    last = executablePath + j + 1;
-                }
-            }
-            if (strncmp(last, ".jbroot-", 8) != 0) {
-                continue;
-            }
-            if (prefixLen + systemLen + 1 > outSize) {
-                return 0;
-            }
-            memcpy(out, executablePath, prefixLen);
-            memcpy(out + prefixLen, systemPath, systemLen + 1);
-            return 1;
+    if (InsulationCtlJbrootPrefixFromPath(executablePath, prefix, sizeof(prefix))) {
+        prefixLen = strlen(prefix);
+        if (prefixLen + systemLen + 1 > outSize) {
+            return 0;
         }
+        memcpy(out, prefix, prefixLen);
+        memcpy(out + prefixLen, systemPath, systemLen + 1);
+        return 1;
     }
-
     if (systemLen + 1 > outSize) {
         return 0;
     }

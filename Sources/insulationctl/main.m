@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 
+#import <dlfcn.h>
 #import <errno.h>
 #import <fcntl.h>
 #import <stdint.h>
@@ -38,17 +39,94 @@ static NSString *InsulationCtlExecutablePath(void) {
     return [[NSFileManager defaultManager] stringWithFileSystemRepresentation:pathBytes length:strlen(pathBytes)];
 }
 
-static NSArray<NSString *> *InsulationCtlPrefsCandidates(void) {
-    NSMutableArray<NSString *> *paths = [NSMutableArray array];
-    char resolved[PATH_MAX];
+static void InsulationCtlAddUniquePath(NSMutableArray<NSString *> *paths, NSMutableSet<NSString *> *seen, NSString *path) {
+    if (path.length == 0 || [seen containsObject:path]) {
+        return;
+    }
+    [seen addObject:path];
+    [paths addObject:path];
+}
+
+static NSArray<NSString *> *InsulationCtlJbrootPrefixes(void) {
+    NSMutableArray<NSString *> *prefixes = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    char prefix[PATH_MAX];
     NSString *exe = InsulationCtlExecutablePath();
     if (exe.length > 0 &&
-        InsulationCtlResolvePrefsPath(exe.fileSystemRepresentation, resolved, sizeof(resolved))) {
-        [paths addObject:[NSString stringWithUTF8String:resolved]];
+        InsulationCtlJbrootPrefixFromPath(exe.fileSystemRepresentation, prefix, sizeof(prefix))) {
+        InsulationCtlAddUniquePath(prefixes, seen, [NSString stringWithUTF8String:prefix]);
     }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *bases = @[
+        @"/private/var/containers/Bundle/Application",
+        @"/var/containers/Bundle/Application",
+    ];
+    for (NSString *base in bases) {
+        NSArray<NSString *> *names = [fm contentsOfDirectoryAtPath:base error:nil];
+        for (NSString *name in names) {
+            if (![name hasPrefix:@".jbroot-"] || name.length < 9) {
+                continue;
+            }
+            InsulationCtlAddUniquePath(prefixes, seen, [base stringByAppendingPathComponent:name]);
+        }
+    }
+    return prefixes;
+}
+
+static void *InsulationCtlRoothideHandle(void) {
+    static void *handle = NULL;
+    static bool tried = false;
+    if (tried) {
+        return handle;
+    }
+    tried = true;
+    for (NSString *prefix in InsulationCtlJbrootPrefixes()) {
+        NSString *lib = [prefix stringByAppendingString:@"/usr/lib/libroothide.dylib"];
+        handle = dlopen(lib.fileSystemRepresentation, RTLD_NOW);
+        if (handle) {
+            return handle;
+        }
+    }
+    return NULL;
+}
+
+static NSString *InsulationCtlJbrootTranslate(NSString *path) {
+    typedef char *(*JbrootAllocFn)(const char *);
+    void *handle = InsulationCtlRoothideHandle();
+    JbrootAllocFn jbrootAlloc;
+    char *translated;
+    if (!handle || path.length == 0) {
+        return nil;
+    }
+    jbrootAlloc = (JbrootAllocFn)dlsym(handle, "jbroot_alloc");
+    if (!jbrootAlloc) {
+        return nil;
+    }
+    translated = jbrootAlloc(path.fileSystemRepresentation);
+    if (!translated) {
+        return nil;
+    }
+    NSString *result = [NSString stringWithUTF8String:translated];
+    free(translated);
+    return result;
+}
+
+static NSArray<NSString *> *InsulationCtlPrefsCandidates(void) {
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    NSArray<NSString *> *prefixes = InsulationCtlJbrootPrefixes();
     NSString *systemPath = [NSString stringWithUTF8String:InsulationCtlPrefsFilePath()];
-    if (![paths containsObject:systemPath]) {
-        [paths addObject:systemPath];
+    BOOL loaded = InsulationCtlRoothideHandle() != NULL;
+
+    for (NSString *prefix in prefixes) {
+        InsulationCtlAddUniquePath(paths, seen, [prefix stringByAppendingString:systemPath]);
+    }
+    if (loaded) {
+        InsulationCtlAddUniquePath(paths, seen, InsulationCtlJbrootTranslate(systemPath));
+        InsulationCtlAddUniquePath(paths, seen, systemPath);
+    } else if (prefixes.count == 0) {
+        InsulationCtlAddUniquePath(paths, seen, systemPath);
     }
     return paths;
 }
@@ -140,13 +218,8 @@ static bool InsulationCtlRepairPrefsOwnerIfRoot(NSString *path, NSString **error
     struct group *mobileGroup = getgrnam("mobile");
     gid_t gid = mobileGroup ? mobileGroup->gr_gid : 501;
 
-    if (chown([path fileSystemRepresentation], uid, gid) != 0) {
-        if (errorOut) {
-            *errorOut = [NSString stringWithFormat:@"failed to chown prefs to mobile:mobile: %@", path];
-        }
-        return false;
-    }
-    /* Ensure daemon and Settings panel can read the prefs file. */
+    (void)errorOut;
+    chown([path fileSystemRepresentation], uid, gid);
     chmod([path fileSystemRepresentation], 0644);
     return true;
 }
@@ -229,21 +302,18 @@ static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **
         return false;
     }
 
-    NSString *lastError = nil;
-    bool wrote = false;
+    NSMutableArray<NSString *> *errors = [NSMutableArray array];
     for (NSString *path in InsulationCtlPrefsCandidates()) {
         NSString *writeError = nil;
         if (InsulationCtlWriteBytesToPath(path, data, &writeError)) {
-            wrote = true;
-        } else if (writeError) {
-            lastError = writeError;
+            return true;
+        }
+        if (writeError) {
+            [errors addObject:writeError];
         }
     }
-    if (wrote) {
-        return true;
-    }
     if (errorOut) {
-        *errorOut = lastError ?: @"failed to write prefs";
+        *errorOut = errors.count > 0 ? [errors componentsJoinedByString:@"; "] : @"failed to write prefs";
     }
     return false;
 }

@@ -154,11 +154,25 @@ int main(void) {
               "resolved roothide path is the jbroot physical file");
     }
     {
+        char prefix[512];
+        const char *exe =
+            "/private/var/containers/Bundle/Application/.jbroot-9D5B3A9D0403096F/usr/bin/ins";
+        CHECK(InsulationCtlJbrootPrefixFromPath(exe, prefix, sizeof(prefix)) == 1,
+              "extracts jbroot prefix from physical ins path");
+        CHECK(strcmp(prefix,
+                     "/private/var/containers/Bundle/Application/.jbroot-9D5B3A9D0403096F") == 0,
+              "jbroot prefix stops at the .jbroot-* directory");
+        CHECK(InsulationCtlJbrootPrefixFromPath("/usr/bin/ins", prefix, sizeof(prefix)) == 0,
+              "virtual /usr/bin/ins is not a jbroot prefix");
+    }
+    {
         char resolved[512];
         CHECK(InsulationCtlResolvePrefsPath("/var/jb/usr/bin/ins", resolved, sizeof(resolved)) == 0,
               "rootless install keeps the system prefs path");
         CHECK(strcmp(resolved, InsulationCtlPrefsFilePath()) == 0,
               "rootless prefs path is the CFPreferences file");
+        CHECK(InsulationCtlResolvePrefsPath("/usr/bin/ins", resolved, sizeof(resolved)) == 0,
+              "virtual /usr/bin/ins does not claim a jbroot prefs path");
     }
 
     return failures == 0 ? 0 : 1;
