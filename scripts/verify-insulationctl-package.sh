@@ -63,25 +63,25 @@ else
   echo "OK: postinst does not create prefs"
 fi
 
-if grep -F '.jbroot-' Sources/insulationctl/main.m >/dev/null; then
-  echo "FAIL: CLI still derives prefs path from a .jbroot prefix" >&2
+if ! grep -F '.jbroot-' Sources/insulationctl/InsulationCtlArgs.c >/dev/null; then
+  echo "FAIL: CLI no longer resolves the roothide jbroot prefs path" >&2
   fail=1
 else
-  echo "OK: CLI does not prefix prefs with .jbroot"
+  echo "OK: CLI can resolve the jbroot physical prefs path"
 fi
 
-if grep -F 'stringByAppendingString:InsulationCtlPrefsBasePath' Sources/insulationctl/main.m >/dev/null; then
-  echo "FAIL: CLI still concatenates jbroot prefix onto prefs path" >&2
+if grep -E 'writeToFile:.*atomically' Sources/insulationctl/main.m >/dev/null; then
+  echo "FAIL: CLI still uses NSDictionary writeToFile:atomically" >&2
   fail=1
 else
-  echo "OK: CLI does not concatenate jbroot onto prefs path"
+  echo "OK: CLI does not use NSDictionary writeToFile:atomically"
 fi
 
-if ! grep -F '/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist' Sources/insulationctl/InsulationCtlArgs.c >/dev/null; then
-  echo "FAIL: CLI prefs path is not the CFPreferences file" >&2
+if ! grep -F 'O_CREAT' Sources/insulationctl/main.m >/dev/null; then
+  echo "FAIL: CLI does not POSIX-write prefs" >&2
   fail=1
 else
-  echo "OK: CLI prefs path is the CFPreferences file"
+  echo "OK: CLI POSIX-writes prefs"
 fi
 
 if [[ "$#" -gt 0 ]]; then

@@ -129,6 +129,51 @@ int InsulationCtlPrefsPathIsRedirected(const char *path) {
     return path && strstr(path, "/.jbroot-") != NULL;
 }
 
+int InsulationCtlResolvePrefsPath(const char *executablePath, char *out, unsigned long outSize) {
+    const char *systemPath = InsulationCtlPrefsSystemPath;
+    size_t systemLen = strlen(systemPath);
+    if (!out || outSize == 0) {
+        return 0;
+    }
+
+    if (executablePath && executablePath[0] != '\0') {
+        static const char *suffixes[] = { "/usr/bin/insulationctl", "/usr/bin/ins", NULL };
+        size_t elen = strlen(executablePath);
+        int i;
+        for (i = 0; suffixes[i]; i++) {
+            size_t slen = strlen(suffixes[i]);
+            const char *last;
+            size_t j;
+            size_t prefixLen;
+            if (elen <= slen || strcmp(executablePath + elen - slen, suffixes[i]) != 0) {
+                continue;
+            }
+            prefixLen = elen - slen;
+            last = executablePath;
+            for (j = 0; j < prefixLen; j++) {
+                if (executablePath[j] == '/') {
+                    last = executablePath + j + 1;
+                }
+            }
+            if (strncmp(last, ".jbroot-", 8) != 0) {
+                continue;
+            }
+            if (prefixLen + systemLen + 1 > outSize) {
+                return 0;
+            }
+            memcpy(out, executablePath, prefixLen);
+            memcpy(out + prefixLen, systemPath, systemLen + 1);
+            return 1;
+        }
+    }
+
+    if (systemLen + 1 > outSize) {
+        return 0;
+    }
+    memcpy(out, systemPath, systemLen + 1);
+    return 0;
+}
+
 void InsulationCtlModeFromPrefsValue(const char *prefsValue, InsulationCtlMode *modeOut) {
     if (!modeOut) {
         return;

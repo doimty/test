@@ -42,6 +42,7 @@ const char *InsulationCtlModePrefsValue(InsulationCtlMode mode);
 void InsulationCtlModeFromPrefsValue(const char *prefsValue, InsulationCtlMode *modeOut);
 const char *InsulationCtlPrefsFilePath(void);
 int InsulationCtlPrefsPathIsRedirected(const char *path);
+int InsulationCtlResolvePrefsPath(const char *executablePath, char *out, unsigned long outSize);
 
 #ifdef __cplusplus
 }

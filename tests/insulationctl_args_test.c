@@ -136,12 +136,30 @@ int main(void) {
 
     CHECK(strcmp(InsulationCtlPrefsFilePath(),
                  "/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist") == 0,
-          "prefs path is the CFPreferences file");
+          "system prefs path is the CFPreferences file");
     CHECK(!InsulationCtlPrefsPathIsRedirected(InsulationCtlPrefsFilePath()),
-          "prefs path is not under .jbroot");
-    CHECK(InsulationCtlPrefsPathIsRedirected(
-              "/private/var/containers/Bundle/Application/.jbroot-9D5B3A9D0403096F/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist"),
-          "detects the CLI2 redirected path from device evidence");
+          "system prefs path is not under .jbroot");
+
+    {
+        char resolved[512];
+        const char *exe =
+            "/private/var/containers/Bundle/Application/.jbroot-9D5B3A9D0403096F/usr/bin/ins";
+        const char *expected =
+            "/private/var/containers/Bundle/Application/.jbroot-9D5B3A9D0403096F/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
+        CHECK(InsulationCtlResolvePrefsPath(exe, resolved, sizeof(resolved)) == 1,
+              "roothide install resolves through jbroot prefix");
+        CHECK(strcmp(resolved, expected) == 0,
+              "roothide prefs path matches device physical path");
+        CHECK(InsulationCtlPrefsPathIsRedirected(resolved),
+              "resolved roothide path is the jbroot physical file");
+    }
+    {
+        char resolved[512];
+        CHECK(InsulationCtlResolvePrefsPath("/var/jb/usr/bin/ins", resolved, sizeof(resolved)) == 0,
+              "rootless install keeps the system prefs path");
+        CHECK(strcmp(resolved, InsulationCtlPrefsFilePath()) == 0,
+              "rootless prefs path is the CFPreferences file");
+    }
 
     return failures == 0 ? 0 : 1;
 }

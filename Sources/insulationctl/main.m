@@ -1,6 +1,11 @@
 #import <Foundation/Foundation.h>
 
+#import <errno.h>
+#import <fcntl.h>
+#import <stdint.h>
 #import <grp.h>
+#import <limits.h>
+#import <mach-o/dyld.h>
 #import <notify.h>
 #import <pwd.h>
 #import <stdbool.h>
@@ -21,8 +26,31 @@ static const char *InsulationCtlRestartNotificationName = "com.be-huge.insulatio
    notify_set_state sender is a genuine insulationctl instance. */
 static const uint64_t InsulationCtlRuntimeStateMagic = 0x494E535500000000ULL;
 
-static NSString *InsulationCtlPrefsPath(void) {
-    return [NSString stringWithUTF8String:InsulationCtlPrefsFilePath()];
+static NSString *InsulationCtlExecutablePath(void) {
+    char buffer[PATH_MAX];
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) != 0) {
+        return nil;
+    }
+
+    char resolved[PATH_MAX];
+    const char *pathBytes = realpath(buffer, resolved) ? resolved : buffer;
+    return [[NSFileManager defaultManager] stringWithFileSystemRepresentation:pathBytes length:strlen(pathBytes)];
+}
+
+static NSArray<NSString *> *InsulationCtlPrefsCandidates(void) {
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    char resolved[PATH_MAX];
+    NSString *exe = InsulationCtlExecutablePath();
+    if (exe.length > 0 &&
+        InsulationCtlResolvePrefsPath(exe.fileSystemRepresentation, resolved, sizeof(resolved))) {
+        [paths addObject:[NSString stringWithUTF8String:resolved]];
+    }
+    NSString *systemPath = [NSString stringWithUTF8String:InsulationCtlPrefsFilePath()];
+    if (![paths containsObject:systemPath]) {
+        [paths addObject:systemPath];
+    }
+    return paths;
 }
 
 static void InsulationCtlPrintUsage(FILE *stream) {
@@ -69,30 +97,35 @@ static bool InsulationCtlReadConfiguredMode(InsulationCtlMode *modeOut, NSString
         *modeOut = INSULATION_CTL_MODE_OFF;
     }
 
-    NSString *path = InsulationCtlPrefsPath();
     NSFileManager *fm = [NSFileManager defaultManager];
-    BOOL isDirectory = NO;
-    if (![fm fileExistsAtPath:path isDirectory:&isDirectory]) {
+    NSString *lastUnreadable = nil;
+    for (NSString *path in InsulationCtlPrefsCandidates()) {
+        BOOL isDirectory = NO;
+        if (![fm fileExistsAtPath:path isDirectory:&isDirectory]) {
+            continue;
+        }
+        if (isDirectory) {
+            if (errorOut) {
+                *errorOut = [NSString stringWithFormat:@"prefs path is a directory: %@", path];
+            }
+            return false;
+        }
+        NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:path];
+        if (!prefs) {
+            lastUnreadable = path;
+            continue;
+        }
+        id value = [prefs objectForKey:InsulationCtlPrefsKey];
+        const char *prefsValue = [value isKindOfClass:[NSString class]] ? [(NSString *)value UTF8String] : NULL;
+        InsulationCtlModeFromPrefsValue(prefsValue, modeOut);
         return true;
     }
-    if (isDirectory) {
+    if (lastUnreadable) {
         if (errorOut) {
-            *errorOut = [NSString stringWithFormat:@"prefs path is a directory: %@", path];
+            *errorOut = [NSString stringWithFormat:@"failed to read prefs: %@", lastUnreadable];
         }
         return false;
     }
-
-    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:path];
-    if (!prefs) {
-        if (errorOut) {
-            *errorOut = [NSString stringWithFormat:@"failed to read prefs: %@", path];
-        }
-        return false;
-    }
-
-    id value = [prefs objectForKey:InsulationCtlPrefsKey];
-    const char *prefsValue = [value isKindOfClass:[NSString class]] ? [(NSString *)value UTF8String] : NULL;
-    InsulationCtlModeFromPrefsValue(prefsValue, modeOut);
     return true;
 }
 
@@ -118,11 +151,9 @@ static bool InsulationCtlRepairPrefsOwnerIfRoot(NSString *path, NSString **error
     return true;
 }
 
-static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **errorOut) {
-    NSString *path = InsulationCtlPrefsPath();
-    NSString *parent = [path stringByDeletingLastPathComponent];
+static bool InsulationCtlWriteBytesToPath(NSString *path, NSData *data, NSString **errorOut) {
     NSFileManager *fm = [NSFileManager defaultManager];
-
+    NSString *parent = [path stringByDeletingLastPathComponent];
     NSError *mkdirError = nil;
     if (![fm createDirectoryAtPath:parent withIntermediateDirectories:YES attributes:nil error:&mkdirError]) {
         if (errorOut) {
@@ -132,20 +163,55 @@ static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **
     }
 
     BOOL isDirectory = NO;
-    BOOL exists = [fm fileExistsAtPath:path isDirectory:&isDirectory];
-    if (exists && isDirectory) {
+    if ([fm fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory) {
         if (errorOut) {
             *errorOut = [NSString stringWithFormat:@"prefs path is a directory: %@", path];
         }
         return false;
     }
 
-    NSMutableDictionary *prefs = nil;
-    if (exists) {
+    const char *cpath = path.fileSystemRepresentation;
+    int fd = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        if (errorOut) {
+            *errorOut = [NSString stringWithFormat:@"failed to write prefs %@: %s", path, strerror(errno)];
+        }
+        return false;
+    }
+
+    const uint8_t *bytes = data.bytes;
+    NSUInteger remaining = data.length;
+    while (remaining > 0) {
+        ssize_t n = write(fd, bytes, remaining);
+        if (n < 0) {
+            int err = errno;
+            close(fd);
+            if (errorOut) {
+                *errorOut = [NSString stringWithFormat:@"failed to write prefs %@: %s", path, strerror(err)];
+            }
+            return false;
+        }
+        bytes += (size_t)n;
+        remaining -= (NSUInteger)n;
+    }
+    fsync(fd);
+    close(fd);
+    return InsulationCtlRepairPrefsOwnerIfRoot(path, errorOut);
+}
+
+static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **errorOut) {
+    NSMutableDictionary *prefs = [NSMutableDictionary dictionary];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *path in InsulationCtlPrefsCandidates()) {
+        BOOL isDirectory = NO;
+        if (![fm fileExistsAtPath:path isDirectory:&isDirectory] || isDirectory) {
+            continue;
+        }
         NSDictionary *existingPrefs = [NSDictionary dictionaryWithContentsOfFile:path];
-        prefs = existingPrefs ? [existingPrefs mutableCopy] : [NSMutableDictionary dictionary];
-    } else {
-        prefs = [NSMutableDictionary dictionary];
+        if (existingPrefs) {
+            prefs = [existingPrefs mutableCopy];
+            break;
+        }
     }
 
     NSString *prefsValue = [NSString stringWithUTF8String:InsulationCtlModePrefsValue(mode)];
@@ -158,20 +224,28 @@ static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **
                                                               error:&plistError];
     if (!data) {
         if (errorOut) {
-            *errorOut = [NSString stringWithFormat:@"failed to serialize prefs %@: %@", path, InsulationCtlNSErrorDescription(plistError)];
+            *errorOut = [NSString stringWithFormat:@"failed to serialize prefs: %@", InsulationCtlNSErrorDescription(plistError)];
         }
         return false;
     }
 
-    NSError *writeError = nil;
-    if (![data writeToFile:path options:NSDataWritingAtomic error:&writeError]) {
-        if (errorOut) {
-            *errorOut = [NSString stringWithFormat:@"failed to write prefs %@: %@", path, InsulationCtlNSErrorDescription(writeError)];
+    NSString *lastError = nil;
+    bool wrote = false;
+    for (NSString *path in InsulationCtlPrefsCandidates()) {
+        NSString *writeError = nil;
+        if (InsulationCtlWriteBytesToPath(path, data, &writeError)) {
+            wrote = true;
+        } else if (writeError) {
+            lastError = writeError;
         }
-        return false;
     }
-
-    return InsulationCtlRepairPrefsOwnerIfRoot(path, errorOut);
+    if (wrote) {
+        return true;
+    }
+    if (errorOut) {
+        *errorOut = lastError ?: @"failed to write prefs";
+    }
+    return false;
 }
 
 static int InsulationCtlPostRuntimeState(void) {
