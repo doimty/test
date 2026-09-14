@@ -1,8 +1,6 @@
 #import <Foundation/Foundation.h>
 
 #import <grp.h>
-#import <limits.h>
-#import <mach-o/dyld.h>
 #import <notify.h>
 #import <pwd.h>
 #import <stdbool.h>
@@ -16,7 +14,6 @@
 #import "InsulationCtlArgs.h"
 
 static NSString *const InsulationCtlPrefsKey = @"thermalPowerMode";
-static NSString *const InsulationCtlPrefsBasePath = @"/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
 static const char *InsulationCtlRuntimeStateName = "com.be-huge.insulation.runtimeState";
 static const char *InsulationCtlApplyNotificationName = "com.be-huge.insulation-executePuppetEvent";
 static const char *InsulationCtlRestartNotificationName = "com.be-huge.insulation-restartThermalMonitor";
@@ -24,43 +21,8 @@ static const char *InsulationCtlRestartNotificationName = "com.be-huge.insulatio
    notify_set_state sender is a genuine insulationctl instance. */
 static const uint64_t InsulationCtlRuntimeStateMagic = 0x494E535500000000ULL;
 
-static NSString *InsulationCtlExecutablePath(void) {
-    char buffer[PATH_MAX];
-    uint32_t size = sizeof(buffer);
-    if (_NSGetExecutablePath(buffer, &size) != 0) {
-        return nil;
-    }
-
-    char resolved[PATH_MAX];
-    const char *pathBytes = realpath(buffer, resolved) ? resolved : buffer;
-    return [[NSFileManager defaultManager] stringWithFileSystemRepresentation:pathBytes length:strlen(pathBytes)];
-}
-
-static NSString *InsulationCtlRoothidePrefix(void) {
-    NSString *executablePath = InsulationCtlExecutablePath();
-    if (executablePath.length == 0) {
-        return nil;
-    }
-
-    NSArray<NSString *> *suffixes = @[@"/usr/bin/insulationctl", @"/usr/bin/ins"];
-    for (NSString *suffix in suffixes) {
-        if (![executablePath hasSuffix:suffix]) {
-            continue;
-        }
-        NSString *prefix = [executablePath substringToIndex:executablePath.length - suffix.length];
-        if ([[prefix lastPathComponent] hasPrefix:@".jbroot-"]) {
-            return prefix;
-        }
-    }
-    return nil;
-}
-
 static NSString *InsulationCtlPrefsPath(void) {
-    NSString *roothidePrefix = InsulationCtlRoothidePrefix();
-    if (roothidePrefix.length > 0) {
-        return [roothidePrefix stringByAppendingString:InsulationCtlPrefsBasePath];
-    }
-    return InsulationCtlPrefsBasePath;
+    return [NSString stringWithUTF8String:InsulationCtlPrefsFilePath()];
 }
 
 static void InsulationCtlPrintUsage(FILE *stream) {
@@ -181,13 +143,7 @@ static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **
     NSMutableDictionary *prefs = nil;
     if (exists) {
         NSDictionary *existingPrefs = [NSDictionary dictionaryWithContentsOfFile:path];
-        if (!existingPrefs) {
-            if (errorOut) {
-                *errorOut = [NSString stringWithFormat:@"failed to read existing prefs: %@", path];
-            }
-            return false;
-        }
-        prefs = [existingPrefs mutableCopy];
+        prefs = existingPrefs ? [existingPrefs mutableCopy] : [NSMutableDictionary dictionary];
     } else {
         prefs = [NSMutableDictionary dictionary];
     }
@@ -195,9 +151,22 @@ static bool InsulationCtlWriteConfiguredMode(InsulationCtlMode mode, NSString **
     NSString *prefsValue = [NSString stringWithUTF8String:InsulationCtlModePrefsValue(mode)];
     [prefs setObject:prefsValue forKey:InsulationCtlPrefsKey];
 
-    if (![prefs writeToFile:path atomically:YES]) {
+    NSError *plistError = nil;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:prefs
+                                                             format:NSPropertyListBinaryFormat_v1_0
+                                                            options:0
+                                                              error:&plistError];
+    if (!data) {
         if (errorOut) {
-            *errorOut = [NSString stringWithFormat:@"failed to write prefs: %@", path];
+            *errorOut = [NSString stringWithFormat:@"failed to serialize prefs %@: %@", path, InsulationCtlNSErrorDescription(plistError)];
+        }
+        return false;
+    }
+
+    NSError *writeError = nil;
+    if (![data writeToFile:path options:NSDataWritingAtomic error:&writeError]) {
+        if (errorOut) {
+            *errorOut = [NSString stringWithFormat:@"failed to write prefs %@: %@", path, InsulationCtlNSErrorDescription(writeError)];
         }
         return false;
     }

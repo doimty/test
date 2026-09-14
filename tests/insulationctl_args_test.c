@@ -134,5 +134,14 @@ int main(void) {
     expect_prefs_value("invalid prefs falls back to off", "fulPower", INSULATION_CTL_MODE_OFF);
     expect_prefs_value("missing prefs falls back to off", NULL, INSULATION_CTL_MODE_OFF);
 
+    CHECK(strcmp(InsulationCtlPrefsFilePath(),
+                 "/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist") == 0,
+          "prefs path is the CFPreferences file");
+    CHECK(!InsulationCtlPrefsPathIsRedirected(InsulationCtlPrefsFilePath()),
+          "prefs path is not under .jbroot");
+    CHECK(InsulationCtlPrefsPathIsRedirected(
+              "/private/var/containers/Bundle/Application/.jbroot-9D5B3A9D0403096F/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist"),
+          "detects the CLI2 redirected path from device evidence");
+
     return failures == 0 ? 0 : 1;
 }

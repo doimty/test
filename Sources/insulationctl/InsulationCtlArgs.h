@@ -40,6 +40,8 @@ int InsulationCtlParseArgs(int argc, const char *const argv[], InsulationCtlPars
 const char *InsulationCtlModeDisplayName(InsulationCtlMode mode);
 const char *InsulationCtlModePrefsValue(InsulationCtlMode mode);
 void InsulationCtlModeFromPrefsValue(const char *prefsValue, InsulationCtlMode *modeOut);
+const char *InsulationCtlPrefsFilePath(void);
+int InsulationCtlPrefsPathIsRedirected(const char *path);
 
 #ifdef __cplusplus
 }

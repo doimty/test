@@ -63,6 +63,27 @@ else
   echo "OK: postinst does not create prefs"
 fi
 
+if grep -F '.jbroot-' Sources/insulationctl/main.m >/dev/null; then
+  echo "FAIL: CLI still derives prefs path from a .jbroot prefix" >&2
+  fail=1
+else
+  echo "OK: CLI does not prefix prefs with .jbroot"
+fi
+
+if grep -F 'stringByAppendingString:InsulationCtlPrefsBasePath' Sources/insulationctl/main.m >/dev/null; then
+  echo "FAIL: CLI still concatenates jbroot prefix onto prefs path" >&2
+  fail=1
+else
+  echo "OK: CLI does not concatenate jbroot onto prefs path"
+fi
+
+if ! grep -F '/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist' Sources/insulationctl/InsulationCtlArgs.c >/dev/null; then
+  echo "FAIL: CLI prefs path is not the CFPreferences file" >&2
+  fail=1
+else
+  echo "OK: CLI prefs path is the CFPreferences file"
+fi
+
 if [[ "$#" -gt 0 ]]; then
   section "Package contents"
 fi

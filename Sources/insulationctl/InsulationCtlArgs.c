@@ -118,6 +118,17 @@ const char *InsulationCtlModePrefsValue(InsulationCtlMode mode) {
     }
 }
 
+static const char InsulationCtlPrefsSystemPath[] =
+    "/var/mobile/Library/Preferences/com.be-huge.insulation-prefs.plist";
+
+const char *InsulationCtlPrefsFilePath(void) {
+    return InsulationCtlPrefsSystemPath;
+}
+
+int InsulationCtlPrefsPathIsRedirected(const char *path) {
+    return path && strstr(path, "/.jbroot-") != NULL;
+}
+
 void InsulationCtlModeFromPrefsValue(const char *prefsValue, InsulationCtlMode *modeOut) {
     if (!modeOut) {
         return;
