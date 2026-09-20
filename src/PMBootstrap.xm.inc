@@ -1,14 +1,18 @@
+static NSUInteger PMBootstrapProbeAttempts = 0;
+static void (^PMBootstrapStart)(void) = nil;
+
 %ctor {
     @autoreleasepool {
-        __block NSUInteger probeAttempts = 0;
-        __block void (^start)(void);
-        start = ^{
+        PMBootstrapStart = ^{
             if (!PMDeviceSupports120Hz()) {
                 // CADisplay may not expose modes during early image startup.
-                // Retry briefly, but stop on confirmed 60Hz devices.
-                if (probeAttempts++ >= 8) return;
+                // Retry briefly, but stop after a bounded number of attempts.
+                if (PMBootstrapProbeAttempts++ >= 8) {
+                    PMBootstrapStart = nil;
+                    return;
+                }
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    start();
+                    if (PMBootstrapStart) PMBootstrapStart();
                 });
                 return;
             }
@@ -35,7 +39,8 @@
                     PMAppRefreshPersistentSource();
                 }];
             }
+            PMBootstrapStart = nil;
         };
-        start();
+        PMBootstrapStart();
     }
 }
