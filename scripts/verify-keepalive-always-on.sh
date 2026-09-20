@@ -78,25 +78,35 @@ check "Link has 120 range" \
     "src/PMKeepAlive.xm.inc" \
     "PMForce120Range"
 
-# 10. Link is added to run loop
+# 10. The persistent link target is retained independently of the install stack
+check "Keepalive target has static lifetime" \
+    "src/PMKeepAlive.xm.inc" \
+    "PMSBKeepAliveTargetInstance"
+
+# 11. Failed keepalive installation has bounded retry
+check "Keepalive install has retry path" \
+    "src/PMKeepAlive.xm.inc" \
+    "PMSBScheduleKeepAliveRetry"
+
+# 12. Link is added to run loop
 check "Link added to run loop" \
     "src/PMKeepAlive.xm.inc" \
     "addToRunLoop.*NSRunLoopCommonModes"
 
-# 11. Comment says always-on
+# 13. Comment says always-on
 check "Comment says always-on" \
     "src/PMKeepAlive.xm.inc" \
     "always-on"
 
-# 12. No Darwin notify registration in PMBootstrap.xm.inc
+# 14. No Darwin notify registration in PMBootstrap.xm.inc
 check "No Darwin notify in PMBootstrap" \
     "src/PMBootstrap.xm.inc" \
     "com.doimty.pm120.hooked" negate
 
-# 13. Version is bumped
-check "Version bumped to 1.0.12" \
+# 15. Version is bumped
+check "Version bumped to 1.0.13" \
     "control" \
-    "Version: 1.0.12"
+    "Version: 1.0.13"
 
 echo ""
 echo "=== Results: $errors errors ==="

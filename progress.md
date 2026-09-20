@@ -206,3 +206,12 @@ The global Metal hooks may override app and screen-recording GPU pacing in a way
 - `git diff --check`: pass.
 - Local Theos is absent, so no local iOS compile was possible. `make -n` stops at `THEOS` unset; this is an environment limitation, not a source compile result.
 - No iOS 15 device frame-time trace is available yet. The candidate is not device-accepted and must not be delivered as a confirmed fix until the same Telegram/recording scenario is compared against baseline.
+
+## Post-device source audit for 1.0.13 after 1.0.12 feedback
+
+- Device feedback: 1.0.12 feels smoother in the tested scenario.
+- Fixed a keepalive target lifetime regression in `src/PMKeepAlive.xm.inc`: retain `PMSBKeepAliveTargetInstance` for the lifetime of the persistent `CADisplayLink` instead of relying on a local installation variable.
+- Fixed an app-source retry gap in `src/PMAppPersistent.xm.inc`: `PMAppRefreshPersistentSource()` now retries `PMAppEnsurePersistentSource()` when the delayed first creation races main-display initialization.
+- Fixed startup probe and installation retry gaps: early empty `CADisplay.availableModes` no longer permanently disables the tweak; bootstrap retries initialization for a bounded window; DynamicSource hooks are idempotent across late-install retries; SpringBoard keepalive installation retries a bounded number of times.
+- Static checks pass after these fixes. Version is now 1.0.13; the new device package still needs the pinned cloud build.
+- Boundary: UIKit/CADisplayLink/CAAnimation requests can be raised from 60 to 120 when the app submits frames through those paths. A Metal/video/recording producer that submits only 60 unique frames cannot be made into true 120fps by changing display policy alone; forcing Metal present timing globally was removed in 1.0.12 because it competed with app and recorder pacing.

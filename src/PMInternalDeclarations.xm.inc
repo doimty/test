@@ -1,6 +1,9 @@
 // Shared declarations for the include-only modules in this compilation unit.
 // Keep implementations and state in their owning modules.
 
+// Runtime hook installation can be retried after late class registration.
+static void PMInstallDynamicSourceHooks(void);
+
 // SpringBoard global source and blocked-app keepalive.
 static void PMGlobalSBApply(NSString *reason);
 static void PMGlobalSBApplyForced(NSString *reason);

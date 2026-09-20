@@ -175,6 +175,12 @@ static void PMInstallHooks(void) {
 // Install CADynamicFrameRateSource hooks in ALL UIKit processes (not just SpringBoard).
 // Protects managed sources from system clearing in both SB and app processes.
 static void PMInstallDynamicSourceHooks(void) {
-    PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setPreferredFrameRateRange:"), (IMP)repl_CADynamicFrameRateSource_setPreferredFrameRateRange, (IMP *)&orig_CADynamicFrameRateSource_setPreferredFrameRateRange);
-    PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setHighFrameRateReasons:count:"), (IMP)repl_CADynamicFrameRateSource_setHighFrameRateReasons_count, (IMP *)&orig_CADynamicFrameRateSource_setHighFrameRateReasons_count);
+    static BOOL rangeInstalled = NO;
+    static BOOL reasonsInstalled = NO;
+    if (!rangeInstalled) {
+        rangeInstalled = PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setPreferredFrameRateRange:"), (IMP)repl_CADynamicFrameRateSource_setPreferredFrameRateRange, (IMP *)&orig_CADynamicFrameRateSource_setPreferredFrameRateRange);
+    }
+    if (!reasonsInstalled) {
+        reasonsInstalled = PMInstallHookIfExists("CADynamicFrameRateSource", NSSelectorFromString(@"setHighFrameRateReasons:count:"), (IMP)repl_CADynamicFrameRateSource_setHighFrameRateReasons_count, (IMP *)&orig_CADynamicFrameRateSource_setHighFrameRateReasons_count);
+    }
 }

@@ -43,7 +43,11 @@ static CFAbsoluteTime PMAppLastRefreshAt = 0;
 static const CFTimeInterval PMAppRefreshMinInterval = 0.20;
 
 static void PMAppRefreshPersistentSource(void) {
-    if (PMIsTargetProcess() || !PMAppPersistentFrameRateSource) return;
+    if (PMIsTargetProcess()) return;
+    // The first delayed creation can race main-display initialization. Retry
+    // through every normal refresh trigger before applying the source.
+    PMAppEnsurePersistentSource();
+    if (!PMAppPersistentFrameRateSource) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     if (PMAppLastRefreshAt > 0 && (now - PMAppLastRefreshAt) < PMAppRefreshMinInterval) return;
     PMAppLastRefreshAt = now;

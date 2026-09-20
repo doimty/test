@@ -35,29 +35,36 @@ static NSString *PMClassName(id obj) {
 
 
 static BOOL PMDeviceSupports120Hz(void) {
-    static BOOL checked = NO;
-    static BOOL supported = NO;
-    if (!checked) {
-        @autoreleasepool {
-            Class CADisplayClass = NSClassFromString(@"CADisplay");
-            if (CADisplayClass && [CADisplayClass respondsToSelector:@selector(mainDisplay)]) {
+    // 0 = probe not ready, 1 = supported, -1 = valid probe says unsupported.
+    // Do not cache an early nil display/modes result as permanent NO.
+    static int state = 0;
+    if (state != 0) return state > 0;
+
+    @autoreleasepool {
+        Class CADisplayClass = NSClassFromString(@"CADisplay");
+        if (!CADisplayClass || ![CADisplayClass respondsToSelector:@selector(mainDisplay)]) return NO;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                CADisplay *display = [CADisplayClass performSelector:@selector(mainDisplay)];
+        CADisplay *display = [CADisplayClass performSelector:@selector(mainDisplay)];
 #pragma clang diagnostic pop
-                NSArray *modes = display ? [display valueForKey:@"availableModes"] : nil;
-                for (id mode in modes) {
-                    double rate = [[mode valueForKey:@"refreshRate"] doubleValue];
-                    if (rate >= 119.0) {
-                        supported = YES;
-                        break;
-                    }
+        if (!display) return NO;
+
+        NSArray *modes = nil;
+        @try { modes = [display valueForKey:@"availableModes"]; } @catch (__unused NSException *e) { return NO; }
+        if (![modes isKindOfClass:[NSArray class]] || modes.count == 0) return NO;
+
+        BOOL supported = NO;
+        for (id mode in modes) {
+            @try {
+                if ([[mode valueForKey:@"refreshRate"] doubleValue] >= 119.0) {
+                    supported = YES;
+                    break;
                 }
-            }
+            } @catch (__unused NSException *e) {}
         }
-        checked = YES;
+        state = supported ? 1 : -1;
     }
-    return supported;
+    return state > 0;
 }
 
 

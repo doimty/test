@@ -23,12 +23,17 @@ static CFAbsoluteTime PMGlobalLastApply = 0;
 // --- Keepalive state ---
 
 static CADisplayLink *PMSBKeepAliveLink = nil;
+static NSUInteger PMSBKeepAliveRetryCount = 0;
 
 @interface PMSBKeepAliveTarget : NSObject
 @end
 @implementation PMSBKeepAliveTarget
 - (void)pm_sbTick:(__unused CADisplayLink *)link {}
 @end
+
+// CADisplayLink must not depend on a local target surviving installation.
+// Keep the target alive for the lifetime of the persistent link.
+static PMSBKeepAliveTarget *PMSBKeepAliveTargetInstance = nil;
 
 static void PMSBKeepAliveApplyLinkRange(void) {
     if (!PMSBKeepAliveLink) return;
@@ -44,8 +49,8 @@ static void PMSBKeepAliveApplyLinkRange(void) {
 static void PMSBInstallKeepAliveLink(void) {
     if (PMSBKeepAliveLink || !PMDeviceSupports120Hz()) return;
     @try {
-        PMSBKeepAliveTarget *target = [[PMSBKeepAliveTarget alloc] init];
-        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:target
+        PMSBKeepAliveTargetInstance = [[PMSBKeepAliveTarget alloc] init];
+        PMSBKeepAliveLink = [CADisplayLink displayLinkWithTarget:PMSBKeepAliveTargetInstance
                                                         selector:@selector(pm_sbTick:)];
         PMSBKeepAliveApplyLinkRange();
         [PMSBKeepAliveLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
@@ -54,7 +59,7 @@ static void PMSBInstallKeepAliveLink(void) {
 
 
 static void PMGlobalSBApplyForced(NSString *reason) {
-    // Single SB owner, no throttle. Used by keepalive tick (scroll fight).
+    // Single SB owner, no throttle. Used by scroll and float re-apply paths.
     if (!PMIsTargetProcess() || !PMDeviceSupports120Hz()) return;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     @try {
@@ -81,6 +86,16 @@ static void PMGlobalSBApplyForced(NSString *reason) {
     } @catch (NSException *exc) { }
 }
 
+static void PMSBScheduleKeepAliveRetry(void) {
+    if (PMSBKeepAliveLink || PMSBKeepAliveRetryCount >= 8) return;
+    PMSBKeepAliveRetryCount += 1;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.50 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (PMSBKeepAliveLink) return;
+        PMSBInstallKeepAliveLink();
+        if (!PMSBKeepAliveLink) PMSBScheduleKeepAliveRetry();
+    });
+}
+
 static void PMGlobalSBApply(NSString *reason) {
     // Throttled path for banner/float/scroll hooks. Keepalive uses Forced.
     if (!PMIsTargetProcess() || !PMDeviceSupports120Hz()) return;
@@ -90,8 +105,10 @@ static void PMGlobalSBApply(NSString *reason) {
 }
 
 static void PMGlobalSBSetup(void) {
-    if (PMGlobalSBEnabled) return;
-    PMGlobalSBEnabled = YES;
-    PMGlobalSBApply(@"setup");
+    if (!PMGlobalSBEnabled) {
+        PMGlobalSBEnabled = YES;
+        PMGlobalSBApply(@"setup");
+    }
     PMSBInstallKeepAliveLink();
+    if (!PMSBKeepAliveLink) PMSBScheduleKeepAliveRetry();
 }
