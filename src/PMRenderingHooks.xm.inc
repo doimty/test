@@ -74,40 +74,7 @@
 
 %end
 
-@interface CAMetalLayer (Private)
-@property (assign) NSUInteger maximumDrawableCount;
-@end
-
-%hook CAMetalLayer
-
-- (NSUInteger)maximumDrawableCount {
-    NSUInteger orig = %orig;
-    if (PMDeviceSupports120Hz() && orig < 3) return 3;
-    return orig;
-}
-
-%end
-
-%hook CAMetalDrawable
-
-- (void)presentAfterMinimumDuration:(CFTimeInterval)duration {
-    if (PMDeviceSupports120Hz()) {
-        %orig(1.0 / TARGET_FPS);
-    } else {
-        %orig;
-    }
-}
-
-%end
-
-%hook MTLCommandBuffer
-
-- (void)presentDrawable:(id)drawable afterMinimumDuration:(CFTimeInterval)minimumDuration {
-    if (PMDeviceSupports120Hz()) {
-        %orig(drawable, 1.0 / TARGET_FPS);
-    } else {
-        %orig(drawable, minimumDuration);
-    }
-}
-
-%end
+// Metal drawable count and present pacing are intentionally left untouched.
+// App and screen-recording workloads need Apple's adaptive GPU scheduling.
+// The CADisplayLink/CAAnimation/DynamicSource paths above still request 120Hz
+// without rewriting each app's present cadence.

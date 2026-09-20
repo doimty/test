@@ -176,3 +176,33 @@ Hard-coded Telegram bundle IDs are unnecessary. Because ProMotion120 already inj
 - Three adversarial review passes found and drove fixes for snapshot dropping, misleading two-pass telemetry, main-thread disk waits, cross-app latest collisions, unbounded marker writes, truncated bundle collisions, and marker token TOCTOU; final review reports no P0/P1 findings.
 - Fallback macOS run `29934468752` built code commit `1479eb73efa0d6cc38a9b4b41778bd91ffbea15d`: probe-on/off and clean2 baseline builds passed, actual Mach-O subtype and roothide dependency checks passed, cloud logs contain no incompatible-arm64e or compiler-fatal signal, and the artifact contains only the preserved probe-on deb.
 - Verified cloud deb SHA256: `3845b93fba1ed416674202dfd346120471b1815b8797e2e1dbb63cd52c22e2f1`.
+
+## 1.0.11 render-pacing ablation candidate
+
+### Baseline
+
+- Source line: `cloud/rootless-1.0.11`.
+- Baseline commit: `bcef7cab7d681906e1b119c519b150a25dc6e0b3`.
+- Behavioral release base: `44e647ff0119d5ab9ec0ef743ab3daebeeddc003` (`1.0.11 clean`).
+- User symptom: occasional frame drops during screen recording and in Telegram.
+
+### Hypothesis
+
+The global Metal hooks may override app and screen-recording GPU pacing in a way that increases contention or latency. If they are the cause, preserving the app's own Metal present cadence while retaining CADisplayLink, CAAnimation, and DynamicSource 120Hz requests should reduce intermittent drops.
+
+### Candidate change
+
+- Remove the global `CAMetalLayer.maximumDrawableCount` override.
+- Remove the global `CAMetalDrawable.presentAfterMinimumDuration:` override.
+- Remove the global `MTLCommandBuffer.presentDrawable:afterMinimumDuration:` override.
+- Remove the now-unused Metal header import.
+- Keep all 120Hz request paths, persistent app DynamicSource, SpringBoard keepalive, and non-Metal hooks unchanged.
+- Add `scripts/verify-render-pacing-ablation.sh` as a source contract.
+
+### Current evidence
+
+- Candidate contract: pass (6 checks).
+- Existing keepalive contract: pass (13 checks).
+- `git diff --check`: pass.
+- Local Theos is absent, so no local iOS compile was possible. `make -n` stops at `THEOS` unset; this is an environment limitation, not a source compile result.
+- No iOS 15 device frame-time trace is available yet. The candidate is not device-accepted and must not be delivered as a confirmed fix until the same Telegram/recording scenario is compared against baseline.

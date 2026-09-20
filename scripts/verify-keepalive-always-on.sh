@@ -94,9 +94,9 @@ check "No Darwin notify in PMBootstrap" \
     "com.doimty.pm120.hooked" negate
 
 # 13. Version is bumped
-check "Version bumped to 1.0.11" \
+check "Version bumped to 1.0.12" \
     "control" \
-    "Version: 1.0.11"
+    "Version: 1.0.12"
 
 echo ""
 echo "=== Results: $errors errors ==="
