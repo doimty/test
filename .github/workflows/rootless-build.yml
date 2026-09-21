@@ -39,7 +39,14 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = "17.5"
           clang --version
+
+      - name: Verify metadata scope and source contracts
+        run: |
+          python3 tests/test_float_metadata_scope.py -v
+          bash scripts/verify-keepalive-always-on.sh
+          bash scripts/verify-render-pacing-ablation.sh
 
       - name: Install packaging tools
         run: |
@@ -49,10 +56,16 @@ jobs:
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          git -C "$THEOS" checkout --detach dd5c14bb9d91311e221d51b5bfb8c9e5948156db
+          git -C "$THEOS" submodule update --init --recursive
+          git -C "$THEOS" rev-parse HEAD
+          git -C "$THEOS" submodule status
 
       - name: Install Theos SDK with private frameworks
         run: |
           git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
+          git -C /tmp/theos-sdks fetch --depth 1 origin 0222fd5413cf4b9af096f37b4621afa2688572f7
+          git -C /tmp/theos-sdks checkout --detach 0222fd5413cf4b9af096f37b4621afa2688572f7
           git -C /tmp/theos-sdks sparse-checkout set iPhoneOS16.5.sdk
           mkdir -p "$THEOS/sdks"
           cp -R /tmp/theos-sdks/iPhoneOS16.5.sdk "$THEOS/sdks/"
@@ -62,18 +75,20 @@ jobs:
           set -o pipefail
           export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
           rm -rf packages artifacts
-          make clean SDKVERSION=16.5
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless SDKVERSION=16.5 2>&1 | tee /tmp/pm120-rootless-build.log
+          make clean SDKVERSION=17.5
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless SDKVERSION=17.5 2>&1 | tee /tmp/pm120-rootless-build.log
           if grep -q 'incompatible arm64e ABI compiler' /tmp/pm120-rootless-build.log; then echo 'FATAL: incompatible arm64e ABI compiler'; exit 1; fi
           deb="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -n "$deb"
+          test "$(dpkg-deb -f "$deb" Version)" = "1.0.13-1"
           xcrun otool -hv .theos/obj/arm64e/ProMotion120.dylib
+          xcrun otool -l .theos/obj/arm64e/ProMotion120.dylib
           mkdir -p artifacts
           cp "$deb" artifacts/
 
       - name: Upload deb packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: promotion120-rootless-1.0.13
+          name: promotion120-rootless-1.0.13-1
           path: artifacts/*.deb
           if-no-files-found: error

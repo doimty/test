@@ -5,7 +5,7 @@
 
 + (CADisplayLink *)displayLinkWithTarget:(id)target selector:(SEL)sel {
     CADisplayLink *link = %orig;
-    if (!PMIsTargetProcess()) {
+    if (!PMIsTargetProcess() && PMFloatFeatureEnabled()) {
         NSString *targetClass = PMClassName(target);
         if (link && targetClass.length > 0) {
             @try { objc_setAssociatedObject(link, PMFloatDisplayLinkTargetClassKey, targetClass, OBJC_ASSOCIATION_COPY_NONATOMIC); } @catch (__unused NSException *e) {}
@@ -35,7 +35,7 @@
 }
 
 - (void)setPreferredFramesPerSecond:(NSInteger)fps {
-    if (!PMIsTargetProcess()) {
+    if (!PMIsTargetProcess() && PMFloatFeatureEnabled()) {
         NSString *targetClass = PMFloatDisplayLinkTargetClass(self);
         if (PMFloatAnyFloatingWindowVisible() && fps > 0 && fps < TARGET_FPS) {
             NSString *reason = PMFloatTargetIsInProcessAnimationManager(targetClass) ? @"CADisplayLink.lowFPS.UIViewInProcessAnimationManager" : @"CADisplayLink.lowFPS";
