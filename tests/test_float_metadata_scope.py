@@ -67,7 +67,13 @@ typedef struct { float minimum, maximum, preferred; } CAFrameRateRange;
 typedef int ScopeOnceToken;
 static int scheduled;
 #define dispatch_after(...) do { scheduled++; } while (0)
-static CFAbsoluteTime CFAbsoluteTimeGetCurrent(void) { return 100.0; }
+#ifndef __APPLE__
+// Mirror the public declaration supplied by CoreFoundation on macOS so Linux
+// also rejects a fixture accidentally redeclaring this API with static linkage.
+extern CFAbsoluteTime CFAbsoluteTimeGetCurrent(void);
+#endif
+static CFAbsoluteTime ScopeAbsoluteTimeGetCurrent(void) { return 100.0; }
+#define CFAbsoluteTimeGetCurrent ScopeAbsoluteTimeGetCurrent
 
 static NSString *fixtureBundle;
 static BOOL fixtureVisible;
